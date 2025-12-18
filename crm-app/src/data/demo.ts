@@ -1,0 +1,144 @@
+import { Contact } from '../types';
+import { IS_DEMO_MODE } from '../config';
+
+// Demo data for testing without Firebase
+export const DEMO_CONTACTS: Contact[] = [
+    {
+        id: '1',
+        source: 'תורמים_פוטנציאליים',
+        fullName: 'אוחיון יצחק',
+        phone1: '053-2594826',
+        city: 'באר שבע',
+        address: 'המרד 15',
+        status: 'not_checked',
+        notes: [],
+        originalNote: 'אצל הרב חגי',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '2',
+        source: 'תורמים_פוטנציאליים',
+        fullName: 'קלאר יהודה',
+        phone1: '050-4143890',
+        city: 'ביתר עילית',
+        address: 'קדושת לוי 23',
+        status: 'call_later',
+        notes: [
+            {
+                id: 'n1',
+                text: 'התקשרתי, ביקש לחזור בעוד שבוע',
+                timestamp: new Date(Date.now() - 86400000),
+                userId: '1',
+                userName: 'משה'
+            }
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '3',
+        source: 'תורמים_פוטנציאליים',
+        fullName: 'למברגר אריה',
+        phone1: '057-3133354',
+        city: 'בני ברק',
+        address: 'ראב"ד 19',
+        status: 'agreed',
+        notes: [
+            {
+                id: 'n2',
+                text: 'הסכים לתרום 100 ש"ח בחודש',
+                timestamp: new Date(),
+                userId: '1',
+                userName: 'משה'
+            }
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '4',
+        source: 'אנשי_קשר',
+        category: 'ועד בית',
+        fullName: 'קמפנר שלומית',
+        phone1: '052-2728812',
+        status: 'not_checked',
+        notes: [],
+        originalNote: 'מורה בפנסיה',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '5',
+        source: 'תלמידים',
+        category: 'אישה 1.7.21',
+        fullName: 'חני',
+        phone1: '052-3812903',
+        status: 'follow_up',
+        notes: [],
+        originalNote: 'חבדניקית גאה מבית ונחשפה דרך אביה לבעל הסולם. רוצה לשלב חבד-הסולם.',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '6',
+        source: 'להתרמות',
+        fullName: 'אליהו זאנה',
+        status: 'no_answer',
+        notes: [
+            {
+                id: 'n3',
+                text: 'לא ענה 3 פעמים',
+                timestamp: new Date(),
+                userId: '1',
+                userName: 'משה'
+            }
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '7',
+        source: 'להתרמות',
+        fullName: 'גלעד אמסלם',
+        phone1: '054-1234567',
+        status: 'refused',
+        notes: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '8',
+        source: 'תורמים_שתרמו',
+        fullName: 'יוסף בן עזיזה',
+        status: 'donated',
+        donationType: 'ריצוף',
+        notes: [],
+        originalNote: 'חבר של אבא של יוני בדיחי',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '9',
+        source: 'חברים_טובים',
+        fullName: 'אליהו ליפשיץ',
+        phone1: '052-9876543',
+        status: 'not_checked',
+        notes: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+    },
+    {
+        id: '10',
+        source: 'תלמידים',
+        fullName: 'מרים מוניס',
+        phone1: '054-6761235',
+        status: 'follow_up',
+        notes: [],
+        originalNote: 'חבדניקית לומדת אצל הרב גינזבורג. מעוניינת בסדנת זוגיות.',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    }
+];
+
+export { IS_DEMO_MODE };
