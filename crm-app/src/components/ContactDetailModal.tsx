@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Phone, Mail, MapPin, Calendar, Edit2, ChevronLeft, MessageCircle, Pencil } from 'lucide-react';
 import { Contact } from '../types';
 import { StatusBadge } from './StatusBadge';
