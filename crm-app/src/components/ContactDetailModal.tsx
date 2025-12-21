@@ -33,7 +33,7 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: '95vh' }}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <button className="btn btn-icon btn-outline" onClick={onClose}>
                         <ChevronLeft size={20} />
@@ -53,16 +53,10 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                     {/* Contact Info */}
                     <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
                         {contact.phone1 && (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--spacing-sm) 0' }}>
+                            <div className="contact-detail-row">
                                 <a
                                     href={`tel:${contact.phone1}`}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 'var(--spacing-sm)',
-                                        color: 'var(--color-primary)',
-                                        textDecoration: 'none'
-                                    }}
+                                    className="contact-link"
                                 >
                                     <Phone size={18} />
                                     <span>{contact.phone1}</span>
@@ -83,16 +77,10 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                         )}
 
                         {contact.phone2 && (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--spacing-sm) 0' }}>
+                            <div className="contact-detail-row">
                                 <a
                                     href={`tel:${contact.phone2}`}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 'var(--spacing-sm)',
-                                        color: 'var(--color-primary)',
-                                        textDecoration: 'none'
-                                    }}
+                                    className="contact-link"
                                 >
                                     <Phone size={18} />
                                     <span>{contact.phone2}</span>
@@ -115,14 +103,7 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                         {contact.email && (
                             <a
                                 href={`mailto:${contact.email}`}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--spacing-sm)',
-                                    padding: 'var(--spacing-sm) 0',
-                                    color: 'var(--color-text)',
-                                    textDecoration: 'none'
-                                }}
+                                className="contact-detail-row contact-link-secondary"
                             >
                                 <Mail size={18} />
                                 <span>{contact.email}</span>
@@ -130,27 +111,14 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                         )}
 
                         {(contact.address || contact.city) && (
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 'var(--spacing-sm)',
-                                padding: 'var(--spacing-sm) 0',
-                                color: 'var(--color-text-secondary)'
-                            }}>
+                            <div className="contact-detail-row contact-detail-info">
                                 <MapPin size={18} />
                                 <span>{[contact.address, contact.city].filter(Boolean).join(', ')}</span>
                             </div>
                         )}
 
                         {contact.lastCallDate && (
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 'var(--spacing-sm)',
-                                padding: 'var(--spacing-sm) 0',
-                                color: 'var(--color-text-secondary)',
-                                fontSize: '14px'
-                            }}>
+                            <div className="contact-detail-row contact-detail-info" style={{ fontSize: '14px' }}>
                                 <Calendar size={18} />
                                 <span>שיחה אחרונה: {formatDate(contact.lastCallDate)}</span>
                             </div>
@@ -159,27 +127,16 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
 
                     {/* Notes History */}
                     <div>
-                        <h3 style={{
-                            fontSize: '16px',
-                            fontWeight: 600,
-                            marginBottom: 'var(--spacing-sm)'
-                        }}>
+                        <h3 className="notes-title">
                             היסטוריית הערות
                         </h3>
 
                         {contact.originalNote && (
-                            <div
-                                className="card"
-                                style={{
-                                    marginBottom: 'var(--spacing-sm)',
-                                    background: 'var(--color-bg)',
-                                    fontSize: '14px'
-                                }}
-                            >
-                                <div style={{ color: 'var(--color-text-secondary)', fontSize: '12px', marginBottom: 4 }}>
-                                    הערה מקורית (מהאקסל)
+                            <div className="note-item note-original" style={{ marginBottom: 'var(--spacing-sm)' }}>
+                                <div className="note-header">
+                                    <span>הערה מקורית (מהאקסל)</span>
                                 </div>
-                                <div>{contact.originalNote}</div>
+                                <div className="note-text">{contact.originalNote}</div>
                             </div>
                         )}
 
@@ -192,20 +149,14 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                         {[...contact.notes].reverse().map(note => (
                             <div
                                 key={note.id}
-                                className="card"
-                                style={{ marginBottom: 'var(--spacing-sm)', fontSize: '14px' }}
+                                className="note-item"
+                                style={{ marginBottom: 'var(--spacing-sm)' }}
                             >
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: '12px',
-                                    marginBottom: 4
-                                }}>
+                                <div className="note-header">
                                     <span>{note.userName}</span>
                                     <span>{formatDate(note.timestamp)}</span>
                                 </div>
-                                <div>{note.text}</div>
+                                <div className="note-text">{note.text}</div>
                             </div>
                         ))}
                     </div>
@@ -213,9 +164,8 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
 
                 <div className="modal-footer">
                     <button
-                        className="btn btn-primary"
+                        className="btn btn-primary btn-block"
                         onClick={onAddNote}
-                        style={{ flex: 1 }}
                     >
                         <Edit2 size={18} />
                         הוסף הערה
