@@ -80,7 +80,7 @@ export function EditContactModal({ isOpen, onClose, onSave, contact }: EditConta
 
                 <form onSubmit={handleSubmit} className="modal-body">
                     <div className="form-group">
-                        <label>שם פרטי</label>
+                        <label className="form-label">שם פרטי</label>
                         <input
                             type="text"
                             value={formData.firstName}
@@ -92,7 +92,7 @@ export function EditContactModal({ isOpen, onClose, onSave, contact }: EditConta
                     </div>
 
                     <div className="form-group">
-                        <label>שם משפחה</label>
+                        <label className="form-label">שם משפחה</label>
                         <input
                             type="text"
                             value={formData.lastName}
@@ -103,7 +103,7 @@ export function EditContactModal({ isOpen, onClose, onSave, contact }: EditConta
                     </div>
 
                     <div className="form-group">
-                        <label>טלפון ראשי</label>
+                        <label className="form-label">טלפון ראשי</label>
                         <input
                             type="tel"
                             value={formData.phone1}
@@ -115,7 +115,7 @@ export function EditContactModal({ isOpen, onClose, onSave, contact }: EditConta
                     </div>
 
                     <div className="form-group">
-                        <label>טלפון נוסף</label>
+                        <label className="form-label">טלפון נוסף</label>
                         <input
                             type="tel"
                             value={formData.phone2}
@@ -127,7 +127,7 @@ export function EditContactModal({ isOpen, onClose, onSave, contact }: EditConta
                     </div>
 
                     <div className="form-group">
-                        <label>אימייל</label>
+                        <label className="form-label">אימייל</label>
                         <input
                             type="email"
                             value={formData.email}
@@ -137,9 +137,9 @@ export function EditContactModal({ isOpen, onClose, onSave, contact }: EditConta
                         />
                     </div>
 
-                    <div className="modal-footer" style={{ borderTop: 'none', padding: 0, marginTop: '20px' }}>
-                        <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
-                            <Save size={18} className="ml-2" />
+                    <div style={{ marginTop: '20px' }}>
+                        <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+                            <Save size={18} />
                             {loading ? 'שומר...' : 'שמור'}
                         </button>
                     </div>
