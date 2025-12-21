@@ -67,7 +67,7 @@ export function AddNoteModal({ contact, onClose }: AddNoteModalProps) {
                                     style={selectedStatus === status ? { background: color, color: 'white' } : {}}
                                 >
                                     {icon}
-                                    <span style={{ marginRight: 4 }}>{STATUS_LABELS[status]}</span>
+                                    <span>{STATUS_LABELS[status]}</span>
                                 </button>
                             ))}
                         </div>
@@ -76,7 +76,7 @@ export function AddNoteModal({ contact, onClose }: AddNoteModalProps) {
                     <div className="form-group">
                         <label className="form-label">הערה</label>
                         <textarea
-                            className="input"
+                            className="form-textarea"
                             placeholder="כתוב הערה..."
                             value={noteText}
                             onChange={e => setNoteText(e.target.value)}
@@ -98,7 +98,6 @@ export function AddNoteModal({ contact, onClose }: AddNoteModalProps) {
                         className="btn btn-primary"
                         onClick={handleSave}
                         disabled={saving}
-                        style={{ flex: 1 }}
                     >
                         {saving ? 'שומר...' : 'שמור'}
                     </button>
