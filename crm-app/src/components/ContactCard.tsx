@@ -20,9 +20,16 @@ export function ContactCard({ contact, onAddNote, onViewDetails, onEdit }: Conta
         ? contact.notes[contact.notes.length - 1].text
         : contact.originalNote;
 
+    const isValidPhone = (phone: string) => {
+        const cleanPhone = phone.replace(/\D/g, '');
+        return cleanPhone.length >= 9;
+    };
+
     const handleCall = (e: React.MouseEvent, phone: string) => {
         e.stopPropagation();
-        window.location.href = `tel:${phone}`;
+        if (isValidPhone(phone)) {
+            window.location.href = `tel:${phone}`;
+        }
     };
 
     return (
@@ -45,12 +52,16 @@ export function ContactCard({ contact, onAddNote, onViewDetails, onEdit }: Conta
                 {contact.phone1 && (
                     <div className="contact-phone">
                         <Phone size={14} />
-                        <a
-                            href={`tel:${contact.phone1}`}
-                            onClick={(e) => handleCall(e, contact.phone1!)}
-                        >
-                            {contact.phone1}
-                        </a>
+                        {isValidPhone(contact.phone1) ? (
+                            <a
+                                href={`tel:${contact.phone1}`}
+                                onClick={(e) => handleCall(e, contact.phone1!)}
+                            >
+                                {contact.phone1}
+                            </a>
+                        ) : (
+                            <span>{contact.phone1}</span>
+                        )}
                     </div>
                 )}
 
