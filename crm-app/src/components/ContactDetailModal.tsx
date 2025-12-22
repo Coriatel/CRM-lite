@@ -20,6 +20,11 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
         }).format(date);
     };
 
+    const isValidPhone = (phone: string) => {
+        const cleanPhone = phone.replace(/\D/g, '');
+        return cleanPhone.length >= 9;
+    };
+
     const getWhatsAppLink = (phone: string) => {
         const cleanPhone = phone.replace(/\D/g, '');
         if (cleanPhone.length >= 9) {
@@ -54,13 +59,20 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                     <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
                         {contact.phone1 && (
                             <div className="contact-detail-row">
-                                <a
-                                    href={`tel:${contact.phone1}`}
-                                    className="contact-link"
-                                >
-                                    <Phone size={18} />
-                                    <span>{contact.phone1}</span>
-                                </a>
+                                {isValidPhone(contact.phone1) ? (
+                                    <a
+                                        href={`tel:${contact.phone1}`}
+                                        className="contact-link"
+                                    >
+                                        <Phone size={18} />
+                                        <span>{contact.phone1}</span>
+                                    </a>
+                                ) : (
+                                    <div className="contact-link" style={{ cursor: 'default' }}>
+                                        <Phone size={18} />
+                                        <span>{contact.phone1}</span>
+                                    </div>
+                                )}
                                 {getWhatsAppLink(contact.phone1) && (
                                     <a
                                         href={getWhatsAppLink(contact.phone1) || '#'}
@@ -78,13 +90,20 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
 
                         {contact.phone2 && (
                             <div className="contact-detail-row">
-                                <a
-                                    href={`tel:${contact.phone2}`}
-                                    className="contact-link"
-                                >
-                                    <Phone size={18} />
-                                    <span>{contact.phone2}</span>
-                                </a>
+                                {isValidPhone(contact.phone2) ? (
+                                    <a
+                                        href={`tel:${contact.phone2}`}
+                                        className="contact-link"
+                                    >
+                                        <Phone size={18} />
+                                        <span>{contact.phone2}</span>
+                                    </a>
+                                ) : (
+                                    <div className="contact-link" style={{ cursor: 'default' }}>
+                                        <Phone size={18} />
+                                        <span>{contact.phone2}</span>
+                                    </div>
+                                )}
                                 {getWhatsAppLink(contact.phone2) && (
                                     <a
                                         href={getWhatsAppLink(contact.phone2) || '#'}
