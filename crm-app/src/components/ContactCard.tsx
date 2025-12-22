@@ -1,4 +1,4 @@
-import { Phone, MessageSquarePlus } from 'lucide-react';
+import { Phone, MessageSquarePlus, CheckCircle2, Circle } from 'lucide-react';
 import { Contact } from '../types';
 import { StatusBadge } from './StatusBadge';
 
@@ -7,9 +7,12 @@ interface ContactCardProps {
     onAddNote: (contact: Contact) => void;
     onViewDetails: (contact: Contact) => void;
     onEdit: (contact: Contact) => void;
+    selectionMode?: boolean;
+    isSelected?: boolean;
+    onToggleSelect?: (id: string) => void;
 }
 
-export function ContactCard({ contact, onAddNote, onViewDetails, onEdit }: ContactCardProps) {
+export function ContactCard({ contact, onAddNote, onViewDetails, onEdit, selectionMode, isSelected, onToggleSelect }: ContactCardProps) {
     const initials = contact.fullName
         .split(' ')
         .slice(0, 2)
@@ -33,18 +36,46 @@ export function ContactCard({ contact, onAddNote, onViewDetails, onEdit }: Conta
     };
 
     return (
-        <div className="card contact-card" onClick={() => onViewDetails(contact)}>
-            <div 
-                className="contact-avatar" 
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit(contact);
-                }}
-                style={{ cursor: 'pointer' }}
-                title="לחץ לעריכה"
-            >
-                {initials || '?'}
-            </div>
+        <div
+            className="card contact-card"
+            onClick={() => {
+                if (selectionMode && onToggleSelect) {
+                    onToggleSelect(contact.id);
+                } else {
+                    onViewDetails(contact);
+                }
+            }}
+            style={{
+                border: selectionMode && isSelected ? '2px solid var(--color-primary)' : undefined,
+                background: selectionMode && isSelected ? 'rgba(26, 95, 122, 0.05)' : undefined
+            }}
+        >
+            {selectionMode ? (
+                <div
+                    className="contact-avatar"
+                    style={{
+                        background: isSelected ? 'var(--color-primary)' : 'transparent',
+                        border: '2px solid var(--color-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                >
+                    {isSelected ? <CheckCircle2 size={24} color="white" /> : <Circle size={24} color="var(--color-primary)" />}
+                </div>
+            ) : (
+                <div
+                    className="contact-avatar"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit(contact);
+                    }}
+                    style={{ cursor: 'pointer' }}
+                    title="לחץ לעריכה"
+                >
+                    {initials || '?'}
+                </div>
+            )}
 
             <div className="contact-info">
                 <div className="contact-name">{contact.fullName}</div>
