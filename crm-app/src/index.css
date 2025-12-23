@@ -263,6 +263,11 @@ body {
   /* Important for flex child to shrink properly */
 }
 
+.search-box input::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 1;
+}
+
 /* Tabs */
 .tabs {
   display: flex;
@@ -856,8 +861,9 @@ textarea.input {
 }
 
 .tab.active {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-primary);
   color: white;
+  font-weight: 600;
 }
 
 /* Contact Detail Rows */

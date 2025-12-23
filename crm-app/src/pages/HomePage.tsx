@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Search, Filter, Users, Heart, GraduationCap, Phone as PhoneIcon, LogOut, X, Plus } from 'lucide-react';
+import { Search, Filter, Users, Heart, GraduationCap, Phone as PhoneIcon, LogOut, X, Plus, CheckSquare, Trash2, Upload, RefreshCw } from 'lucide-react';
 import { SheetName, ContactStatus, STATUS_LABELS, SHEET_LABELS, Contact } from '../types';
 import { useContacts, useContactActions } from '../hooks/useContacts';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,6 +7,8 @@ import { ContactCard } from '../components/ContactCard';
 import { AddNoteModal } from '../components/AddNoteModal';
 import { ContactDetailModal } from '../components/ContactDetailModal';
 import { EditContactModal } from '../components/EditContactModal';
+import { ImportModal } from '../components/ImportModal';
+import { GoogleContactsModal } from '../components/GoogleContactsModal';
 
 const SHEET_ICONS: Record<SheetName, React.ReactNode> = {
     'אנשי_קשר': <Users size={16} />,
@@ -29,13 +31,19 @@ export function HomePage() {
     const [editContact, setEditContact] = useState<Contact | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+    // Bulk selection
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isGoogleContactsModalOpen, setIsGoogleContactsModalOpen] = useState(false);
+
     const { contacts, loading, hasMore, loadMore, loadAll } = useContacts(
         selectedSheet,
         statusFilter,
         searchQuery
     );
 
-    const { createContact, updateContact } = useContactActions();
+    const { createContact, updateContact, deleteContact } = useContactActions();
 
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
@@ -53,6 +61,60 @@ export function HomePage() {
         setIsEditModalOpen(false);
     };
 
+    const handleDeleteContact = async () => {
+        if (selectedContact) {
+            await deleteContact(selectedContact.id);
+            setSelectedContact(null);
+        }
+    };
+
+    const handleDeleteEditContact = async () => {
+        if (editContact) {
+            await deleteContact(editContact.id);
+            setIsEditModalOpen(false);
+            setEditContact(null);
+        }
+    };
+
+    const toggleSelection = (id: string) => {
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+            } else {
+                newSet.add(id);
+            }
+            return newSet;
+        });
+    };
+
+    const toggleSelectionMode = () => {
+        setSelectionMode(!selectionMode);
+        setSelectedIds(new Set());
+    };
+
+    const selectAll = () => {
+        setSelectedIds(new Set(contacts.map(c => c.id)));
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedIds.size === 0) return;
+
+        if (confirm(`האם אתה בטוח שברצונך למחוק ${selectedIds.size} אנשי קשר?`)) {
+            for (const id of selectedIds) {
+                await deleteContact(id);
+            }
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+        }
+    };
+
+    const handleBulkImport = async (contacts: Partial<Contact>[]) => {
+        for (const contact of contacts) {
+            await createContact(contact);
+        }
+    };
+
     return (
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
             {/* Header */}
@@ -60,17 +122,76 @@ export function HomePage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h1 className="header-title">CRM Lite</h1>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                        <button
-                            className="btn btn-primary"
-                            style={{ padding: '4px 8px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => {
-                                setEditContact(null);
-                                setIsEditModalOpen(true);
-                            }}
-                        >
-                            <Plus size={16} />
-                            <span>חדש</span>
-                        </button>
+                        {!selectionMode ? (
+                            <>
+                                <button
+                                    className="btn btn-primary"
+                                    style={{ padding: '4px 8px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                    onClick={() => {
+                                        setEditContact(null);
+                                        setIsEditModalOpen(true);
+                                    }}
+                                >
+                                    <Plus size={16} />
+                                    <span>חדש</span>
+                                </button>
+                                <button
+                                    className="btn btn-icon"
+                                    style={{ background: 'rgba(255,255,255,0.2)' }}
+                                    onClick={() => setIsGoogleContactsModalOpen(true)}
+                                    title="סנכרון Google Contacts"
+                                >
+                                    <RefreshCw size={18} />
+                                </button>
+                                <button
+                                    className="btn btn-icon"
+                                    style={{ background: 'rgba(255,255,255,0.2)' }}
+                                    onClick={() => setIsImportModalOpen(true)}
+                                    title="ייבא מאקסל"
+                                >
+                                    <Upload size={18} />
+                                </button>
+                                <button
+                                    className="btn btn-icon"
+                                    style={{ background: 'rgba(255,255,255,0.2)' }}
+                                    onClick={toggleSelectionMode}
+                                    title="בחירה מרובה"
+                                >
+                                    <CheckSquare size={18} />
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    className="btn btn-icon"
+                                    style={{ background: 'rgba(255,255,255,0.2)' }}
+                                    onClick={selectAll}
+                                    title="בחר הכל"
+                                >
+                                    <CheckSquare size={18} />
+                                </button>
+                                <button
+                                    className="btn btn-icon"
+                                    style={{ background: 'var(--color-danger)' }}
+                                    onClick={handleBulkDelete}
+                                    title="מחק נבחרים"
+                                    disabled={selectedIds.size === 0}
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                                <button
+                                    className="btn btn-icon"
+                                    style={{ background: 'rgba(255,255,255,0.2)' }}
+                                    onClick={toggleSelectionMode}
+                                    title="ביטול"
+                                >
+                                    <X size={18} />
+                                </button>
+                                <span style={{ fontSize: '14px', opacity: 0.8 }}>
+                                    {selectedIds.size} נבחרו
+                                </span>
+                            </>
+                        )}
                         <span style={{ fontSize: '14px', opacity: 0.8 }}>{user?.displayName}</span>
                         <button
                             className="btn btn-icon"
@@ -177,6 +298,9 @@ export function HomePage() {
                                     setEditContact(c);
                                     setIsEditModalOpen(true);
                                 }}
+                                selectionMode={selectionMode}
+                                isSelected={selectedIds.has(contact.id)}
+                                onToggleSelect={toggleSelection}
                             />
                         ))}
 
@@ -240,6 +364,7 @@ export function HomePage() {
                         setSelectedContact(null);
                         setIsEditModalOpen(true);
                     }}
+                    onDelete={handleDeleteContact}
                 />
             )}
 
@@ -247,7 +372,21 @@ export function HomePage() {
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
                 onSave={handleSaveContact}
+                onDelete={handleDeleteEditContact}
                 contact={editContact || undefined}
+            />
+
+            <ImportModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImport={handleBulkImport}
+            />
+
+            <GoogleContactsModal
+                isOpen={isGoogleContactsModalOpen}
+                onClose={() => setIsGoogleContactsModalOpen(false)}
+                onImport={handleBulkImport}
+                existingContacts={contacts}
             />
         </div>
     );

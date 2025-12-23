@@ -1,4 +1,4 @@
-import { Phone, Mail, MapPin, Calendar, Edit2, ChevronLeft, MessageCircle, Pencil } from 'lucide-react';
+import { Phone, Mail, MapPin, Calendar, Edit2, ChevronLeft, MessageCircle, Pencil, Trash2 } from 'lucide-react';
 import { Contact } from '../types';
 import { StatusBadge } from './StatusBadge';
 
@@ -7,9 +7,15 @@ interface ContactDetailModalProps {
     onClose: () => void;
     onAddNote: () => void;
     onEdit: () => void;
+    onDelete: () => void;
 }
 
-export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: ContactDetailModalProps) {
+export function ContactDetailModal({ contact, onClose, onAddNote, onEdit, onDelete }: ContactDetailModalProps) {
+    const handleDelete = () => {
+        if (confirm(`האם אתה בטוח שברצונך למחוק את ${contact.fullName}?`)) {
+            onDelete();
+        }
+    };
     const formatDate = (date: Date) => {
         return new Intl.DateTimeFormat('he-IL', {
             day: 'numeric',
@@ -18,6 +24,11 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
             hour: '2-digit',
             minute: '2-digit'
         }).format(date);
+    };
+
+    const isValidPhone = (phone: string) => {
+        const cleanPhone = phone.replace(/\D/g, '');
+        return cleanPhone.length >= 9;
     };
 
     const getWhatsAppLink = (phone: string) => {
@@ -54,13 +65,20 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
                     <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
                         {contact.phone1 && (
                             <div className="contact-detail-row">
-                                <a
-                                    href={`tel:${contact.phone1}`}
-                                    className="contact-link"
-                                >
-                                    <Phone size={18} />
-                                    <span>{contact.phone1}</span>
-                                </a>
+                                {isValidPhone(contact.phone1) ? (
+                                    <a
+                                        href={`tel:${contact.phone1}`}
+                                        className="contact-link"
+                                    >
+                                        <Phone size={18} />
+                                        <span>{contact.phone1}</span>
+                                    </a>
+                                ) : (
+                                    <div className="contact-link" style={{ cursor: 'default' }}>
+                                        <Phone size={18} />
+                                        <span>{contact.phone1}</span>
+                                    </div>
+                                )}
                                 {getWhatsAppLink(contact.phone1) && (
                                     <a
                                         href={getWhatsAppLink(contact.phone1) || '#'}
@@ -78,13 +96,20 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
 
                         {contact.phone2 && (
                             <div className="contact-detail-row">
-                                <a
-                                    href={`tel:${contact.phone2}`}
-                                    className="contact-link"
-                                >
-                                    <Phone size={18} />
-                                    <span>{contact.phone2}</span>
-                                </a>
+                                {isValidPhone(contact.phone2) ? (
+                                    <a
+                                        href={`tel:${contact.phone2}`}
+                                        className="contact-link"
+                                    >
+                                        <Phone size={18} />
+                                        <span>{contact.phone2}</span>
+                                    </a>
+                                ) : (
+                                    <div className="contact-link" style={{ cursor: 'default' }}>
+                                        <Phone size={18} />
+                                        <span>{contact.phone2}</span>
+                                    </div>
+                                )}
                                 {getWhatsAppLink(contact.phone2) && (
                                     <a
                                         href={getWhatsAppLink(contact.phone2) || '#'}
@@ -164,11 +189,25 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit }: Cont
 
                 <div className="modal-footer">
                     <button
-                        className="btn btn-primary btn-block"
+                        className="btn btn-primary"
+                        style={{ flex: 1 }}
                         onClick={onAddNote}
                     >
                         <Edit2 size={18} />
                         הוסף הערה
+                    </button>
+                    <button
+                        className="btn"
+                        style={{
+                            flex: 0,
+                            background: 'var(--color-danger)',
+                            color: 'white',
+                            border: 'none'
+                        }}
+                        onClick={handleDelete}
+                        title="מחק איש קשר"
+                    >
+                        <Trash2 size={18} />
                     </button>
                 </div>
             </div>

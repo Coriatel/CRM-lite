@@ -10,7 +10,8 @@ import {
     arrayUnion,
     Timestamp,
     limit,
-    addDoc
+    addDoc,
+    deleteDoc
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { Contact, ContactStatus, SheetName, Note } from '../types';
@@ -197,8 +198,8 @@ export function useContactActions() {
 
         const newContact = {
             ...data,
-            status: 'not_checked',
-            source: 'אנשי_קשר', // Default source
+            status: data.status || 'not_checked',
+            source: data.source || 'אנשי_קשר',
             notes: [],
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now()
@@ -207,5 +208,15 @@ export function useContactActions() {
         await addDoc(collection(db, CONTACTS_COLLECTION), newContact);
     };
 
-    return { updateStatus, addNote, updateContact, createContact };
+    const deleteContact = async (contactId: string) => {
+        if (IS_DEMO_MODE) {
+            console.log('Demo mode: deleteContact', contactId);
+            return;
+        }
+
+        const contactRef = doc(db, CONTACTS_COLLECTION, contactId);
+        await deleteDoc(contactRef);
+    };
+
+    return { updateStatus, addNote, updateContact, createContact, deleteContact };
 }
