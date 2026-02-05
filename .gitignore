@@ -1,0 +1,6 @@
+# Server-only deployment config
+/Caddyfile
+/docker-compose.yml
+
+# Local backups
+*.bak

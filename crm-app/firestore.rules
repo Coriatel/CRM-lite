@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // פונקציה לבדיקת משתמש מחובר
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // פונקציה לבדיקת משתמש מורשה (אופציונלי - לשימוש עתידי)
+    function isAuthorizedUser() {
+      return isAuthenticated() &&
+        request.auth.token.email in [
+          'mail1@gmail.com',
+          'mail2@gmail.com',
+          'mail3@gmail.com'
+        ];
+    }
+
+    // אנשי קשר - רק משתמשים מחוברים
+    match /contacts/{contactId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    // משתמשים - כל אחד יכול לקרוא/לכתוב רק את עצמו
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // הגדרות - רק קריאה למשתמשים מחוברים
+    match /settings/{document} {
+      allow read: if isAuthenticated();
+      allow write: if false; // רק דרך Admin SDK
+    }
+  }
+}
