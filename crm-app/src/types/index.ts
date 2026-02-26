@@ -22,6 +22,8 @@ export interface Note {
     timestamp: Date;
     userId: string;
     userName: string;
+    type?: string;
+    result?: string;
 }
 
 export interface Contact {

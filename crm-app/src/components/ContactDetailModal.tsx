@@ -1,6 +1,9 @@
+import { useState, useEffect } from 'react';
 import { Phone, Mail, MapPin, Calendar, Edit2, ChevronLeft, MessageCircle, Pencil, Trash2 } from 'lucide-react';
-import { Contact } from '../types';
+import { Contact, Note } from '../types';
 import { StatusBadge } from './StatusBadge';
+import { getInteractions } from '../services/directus';
+import { IS_DEMO_MODE } from '../config';
 
 interface ContactDetailModalProps {
     contact: Contact;
@@ -11,11 +14,40 @@ interface ContactDetailModalProps {
 }
 
 export function ContactDetailModal({ contact, onClose, onAddNote, onEdit, onDelete }: ContactDetailModalProps) {
+    const [notes, setNotes] = useState<Note[]>([]);
+    const [notesLoading, setNotesLoading] = useState(false);
+
+    useEffect(() => {
+        if (IS_DEMO_MODE) {
+            setNotes(contact.notes);
+            return;
+        }
+
+        setNotesLoading(true);
+        getInteractions(contact.id)
+            .then(interactions => {
+                setNotes(
+                    interactions.map(i => ({
+                        id: i.id,
+                        text: i.summary || '',
+                        timestamp: new Date(i.created_at),
+                        userId: i.created_by || '',
+                        userName: 'מרכז נשמה',
+                        type: i.type,
+                        result: i.result || undefined,
+                    }))
+                );
+            })
+            .catch(err => console.error('Error loading interactions:', err))
+            .finally(() => setNotesLoading(false));
+    }, [contact.id]);
+
     const handleDelete = () => {
         if (confirm(`האם אתה בטוח שברצונך למחוק את ${contact.fullName}?`)) {
             onDelete();
         }
     };
+
     const formatDate = (date: Date) => {
         return new Intl.DateTimeFormat('he-IL', {
             day: 'numeric',
@@ -66,10 +98,7 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit, onDele
                         {contact.phone1 && (
                             <div className="contact-detail-row">
                                 {isValidPhone(contact.phone1) ? (
-                                    <a
-                                        href={`tel:${contact.phone1}`}
-                                        className="contact-link"
-                                    >
+                                    <a href={`tel:${contact.phone1}`} className="contact-link">
                                         <Phone size={18} />
                                         <span>{contact.phone1}</span>
                                     </a>
@@ -97,10 +126,7 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit, onDele
                         {contact.phone2 && (
                             <div className="contact-detail-row">
                                 {isValidPhone(contact.phone2) ? (
-                                    <a
-                                        href={`tel:${contact.phone2}`}
-                                        className="contact-link"
-                                    >
+                                    <a href={`tel:${contact.phone2}`} className="contact-link">
                                         <Phone size={18} />
                                         <span>{contact.phone2}</span>
                                     </a>
@@ -126,10 +152,7 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit, onDele
                         )}
 
                         {contact.email && (
-                            <a
-                                href={`mailto:${contact.email}`}
-                                className="contact-detail-row contact-link-secondary"
-                            >
+                            <a href={`mailto:${contact.email}`} className="contact-detail-row contact-link-secondary">
                                 <Mail size={18} />
                                 <span>{contact.email}</span>
                             </a>
@@ -165,13 +188,19 @@ export function ContactDetailModal({ contact, onClose, onAddNote, onEdit, onDele
                             </div>
                         )}
 
-                        {contact.notes.length === 0 && !contact.originalNote && (
+                        {notesLoading && (
+                            <div className="loading">
+                                <div className="spinner"></div>
+                            </div>
+                        )}
+
+                        {!notesLoading && notes.length === 0 && !contact.originalNote && (
                             <div className="empty-state">
                                 <p>אין הערות עדיין</p>
                             </div>
                         )}
 
-                        {[...contact.notes].reverse().map(note => (
+                        {notes.map(note => (
                             <div
                                 key={note.id}
                                 className="note-item"
