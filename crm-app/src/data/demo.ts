@@ -1,5 +1,4 @@
 import { Contact } from "../types";
-import { IS_DEMO_MODE } from "../config";
 
 // Demo data for testing without API
 export const DEMO_CONTACTS: Contact[] = [
@@ -141,5 +140,3 @@ export const DEMO_CONTACTS: Contact[] = [
     updatedAt: new Date(),
   },
 ];
-
-export { IS_DEMO_MODE };

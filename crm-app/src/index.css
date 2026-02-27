@@ -15,6 +15,7 @@
 
   /* Neutral colors */
   --color-bg: #f8fafc;
+  --color-bg-secondary: #f1f5f9;
   --color-surface: #ffffff;
   --color-text: #1e293b;
   --color-text-secondary: #64748b;
@@ -728,7 +729,7 @@ textarea.input {
 
 .fab {
   position: fixed;
-  bottom: 2rem;
+  bottom: calc(56px + 16px + env(safe-area-inset-bottom));
   left: 2rem;
   width: 3.5rem;
   height: 3.5rem;
@@ -742,7 +743,7 @@ textarea.input {
   justify-content: center;
   box-shadow: 0 4px 12px rgba(224, 123, 57, 0.4);
   transition: all 0.2s;
-  z-index: 100;
+  z-index: 101;
 }
 
 .fab:hover {
@@ -910,4 +911,299 @@ textarea.input {
   font-weight: 600;
   margin-bottom: var(--spacing-sm);
   color: var(--color-text);
+}
+
+/* ============================================ */
+/* Header Buttons (visible on teal background)  */
+/* ============================================ */
+
+.header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.header-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.header-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.header-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.header-btn-danger {
+  background: var(--color-danger);
+}
+
+.header-btn-danger:hover {
+  background: #dc2626;
+}
+
+/* ============================================ */
+/* Status Badge Colors                          */
+/* ============================================ */
+
+.badge-not-checked {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.badge-no-answer {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-call-later {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge-agreed {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-refused {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-donated {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-follow-up {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+/* ============================================ */
+/* Bottom Navigation                            */
+/* ============================================ */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 100;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bottom-nav-item.active {
+  color: var(--color-primary);
+}
+
+.bottom-nav-item:hover {
+  color: var(--color-primary);
+}
+
+/* ============================================ */
+/* Drawer                                       */
+/* ============================================ */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: -300px;
+  width: 300px;
+  height: 100%;
+  background: var(--color-surface);
+  z-index: 201;
+  display: flex;
+  flex-direction: column;
+  transition: right 0.3s ease;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.drawer.open {
+  right: 0;
+}
+
+.drawer-header {
+  padding: var(--spacing-lg) var(--spacing-md);
+  background: var(--color-primary);
+  color: white;
+}
+
+.drawer-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-bottom: var(--spacing-md);
+}
+
+.drawer-user {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.drawer-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-user-name {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.drawer-user-email {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-md);
+}
+
+.drawer-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.drawer-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.drawer-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drawer-filter-item {
+  display: block;
+  width: 100%;
+  text-align: right;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.drawer-filter-item:hover {
+  background: var(--color-bg);
+}
+
+.drawer-filter-item.active {
+  background: rgba(26, 95, 122, 0.1);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.drawer-footer {
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.drawer-sign-out {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--color-danger);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.drawer-sign-out:hover {
+  background: #fee2e2;
+}
+
+/* ============================================ */
+/* App Shell                                    */
+/* ============================================ */
+
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useDebounce } from "../hooks/useDebounce";
 import {
   Search,
   Filter,
@@ -6,7 +7,6 @@ import {
   Heart,
   GraduationCap,
   Phone as PhoneIcon,
-  LogOut,
   X,
   Plus,
   CheckSquare,
@@ -19,9 +19,9 @@ import {
   STATUS_LABELS,
   SHEET_LABELS,
   Contact,
+  AdvancedFilters,
 } from "../types";
 import { useContacts, useContactActions } from "../hooks/useContacts";
-import { useAuth } from "../contexts/AuthContext";
 import { ContactCard } from "../components/ContactCard";
 import { AddNoteModal } from "../components/AddNoteModal";
 import { ContactDetailModal } from "../components/ContactDetailModal";
@@ -37,13 +37,23 @@ const SHEET_ICONS: Record<SheetName, React.ReactNode> = {
   להתרמות: <PhoneIcon size={16} />,
 };
 
-export function HomePage() {
-  const { user, signOut } = useAuth();
-  const [selectedSheet, setSelectedSheet] = useState<SheetName | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<ContactStatus | "all">(
-    "all",
-  );
+interface ContactsPageProps {
+  selectedSheet: SheetName | "all";
+  onSheetChange: (sheet: SheetName | "all") => void;
+  statusFilter: ContactStatus | "all";
+  onStatusFilterChange: (status: ContactStatus | "all") => void;
+  advancedFilters?: AdvancedFilters;
+}
+
+export function ContactsPage({
+  selectedSheet,
+  onSheetChange,
+  statusFilter,
+  onStatusFilterChange,
+  advancedFilters,
+}: ContactsPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [showFilters, setShowFilters] = useState(false);
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -57,7 +67,7 @@ export function HomePage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const { contacts, loading, hasMore, loadMore, loadAll, refresh } =
-    useContacts(selectedSheet, statusFilter, searchQuery);
+    useContacts(selectedSheet, statusFilter, debouncedSearch, advancedFilters);
 
   const { createContact, updateContact, deleteContact } = useContactActions();
 
@@ -125,10 +135,23 @@ export function HomePage() {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
+    if (selectedIds.size > 100) {
+      alert("לא ניתן למחוק יותר מ-100 אנשי קשר בבת אחת");
+      return;
+    }
 
     if (confirm(`האם אתה בטוח שברצונך למחוק ${selectedIds.size} אנשי קשר?`)) {
+      const failures: string[] = [];
       for (const id of selectedIds) {
-        await deleteContact(id);
+        try {
+          await deleteContact(id);
+        } catch (err) {
+          failures.push(id);
+          console.error(`Failed to delete contact ${id}:`, err);
+        }
+      }
+      if (failures.length > 0) {
+        alert(`${failures.length} אנשי קשר לא נמחקו עקב שגיאה`);
       }
       setSelectedIds(new Set());
       setSelectionMode(false);
@@ -136,8 +159,8 @@ export function HomePage() {
     }
   };
 
-  const handleBulkImport = async (contacts: Partial<Contact>[]) => {
-    for (const contact of contacts) {
+  const handleBulkImport = async (importedContacts: Partial<Contact>[]) => {
+    for (const contact of importedContacts) {
       await createContact(contact);
     }
     refresh();
@@ -145,7 +168,12 @@ export function HomePage() {
 
   return (
     <div
-      style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+      }}
     >
       {/* Header */}
       <header className="header">
@@ -156,7 +184,7 @@ export function HomePage() {
             alignItems: "center",
           }}
         >
-          <h1 className="header-title">CRM Lite</h1>
+          <h1 className="header-title">CRM Phone</h1>
           <div
             style={{
               display: "flex",
@@ -167,14 +195,7 @@ export function HomePage() {
             {!selectionMode ? (
               <>
                 <button
-                  className="btn btn-primary"
-                  style={{
-                    padding: "4px 8px",
-                    fontSize: "14px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                  }}
+                  className="header-btn"
                   onClick={() => {
                     setEditContact(null);
                     setIsEditModalOpen(true);
@@ -184,16 +205,14 @@ export function HomePage() {
                   <span>חדש</span>
                 </button>
                 <button
-                  className="btn btn-icon"
-                  style={{ background: "rgba(255,255,255,0.2)" }}
+                  className="header-btn"
                   onClick={() => setIsImportModalOpen(true)}
                   title="ייבא מאקסל"
                 >
                   <Upload size={18} />
                 </button>
                 <button
-                  className="btn btn-icon"
-                  style={{ background: "rgba(255,255,255,0.2)" }}
+                  className="header-btn"
                   onClick={toggleSelectionMode}
                   title="בחירה מרובה"
                 >
@@ -203,16 +222,14 @@ export function HomePage() {
             ) : (
               <>
                 <button
-                  className="btn btn-icon"
-                  style={{ background: "rgba(255,255,255,0.2)" }}
+                  className="header-btn"
                   onClick={selectAll}
                   title="בחר הכל"
                 >
                   <CheckSquare size={18} />
                 </button>
                 <button
-                  className="btn btn-icon"
-                  style={{ background: "var(--color-danger)" }}
+                  className="header-btn header-btn-danger"
                   onClick={handleBulkDelete}
                   title="מחק נבחרים"
                   disabled={selectedIds.size === 0}
@@ -220,8 +237,7 @@ export function HomePage() {
                   <Trash2 size={18} />
                 </button>
                 <button
-                  className="btn btn-icon"
-                  style={{ background: "rgba(255,255,255,0.2)" }}
+                  className="header-btn"
                   onClick={toggleSelectionMode}
                   title="ביטול"
                 >
@@ -232,17 +248,6 @@ export function HomePage() {
                 </span>
               </>
             )}
-            <span style={{ fontSize: "14px", opacity: 0.8 }}>
-              {user?.displayName}
-            </span>
-            <button
-              className="btn btn-icon"
-              style={{ background: "rgba(255,255,255,0.2)" }}
-              onClick={signOut}
-              title="התנתק"
-            >
-              <LogOut size={18} />
-            </button>
           </div>
         </div>
 
@@ -285,7 +290,7 @@ export function HomePage() {
       <div className="tabs">
         <button
           className={`tab ${selectedSheet === "all" ? "active" : ""}`}
-          onClick={() => setSelectedSheet("all")}
+          onClick={() => onSheetChange("all")}
         >
           הכל ({contacts.length})
         </button>
@@ -293,7 +298,7 @@ export function HomePage() {
           <button
             key={sheet}
             className={`tab ${selectedSheet === sheet ? "active" : ""}`}
-            onClick={() => setSelectedSheet(sheet)}
+            onClick={() => onSheetChange(sheet)}
           >
             {SHEET_ICONS[sheet]}
             <span style={{ marginRight: 4 }}>{SHEET_LABELS[sheet]}</span>
@@ -309,7 +314,7 @@ export function HomePage() {
         >
           <button
             className={`filter-chip ${statusFilter === "all" ? "active" : ""}`}
-            onClick={() => setStatusFilter("all")}
+            onClick={() => onStatusFilterChange("all")}
           >
             הכל
           </button>
@@ -317,7 +322,7 @@ export function HomePage() {
             <button
               key={status}
               className={`filter-chip ${statusFilter === status ? "active" : ""}`}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => onStatusFilterChange(status)}
             >
               {STATUS_LABELS[status]}
             </button>
@@ -329,7 +334,7 @@ export function HomePage() {
       <main
         className="main-content"
         onScroll={handleScroll}
-        style={{ overflowY: "auto", flex: 1 }}
+        style={{ overflowY: "auto", flex: 1, minHeight: 0 }}
       >
         {loading && contacts.length === 0 ? (
           <div className="loading">

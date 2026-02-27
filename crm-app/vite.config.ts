@@ -1,46 +1,53 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
-  base: '/',
+  base: "/",
   build: {
-    outDir: 'dist',
+    outDir: "dist",
     sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom']
-        }
-      }
-    }
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+        },
+      },
+    },
   },
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: "autoUpdate",
       manifest: {
-        name: 'CRM Lite - מרכז נשמה',
-        short_name: 'CRM Lite',
-        description: 'ניהול תורמים ואנשי קשר',
-        theme_color: '#1a5f7a',
-        background_color: '#ffffff',
-        display: 'standalone',
-        orientation: 'portrait',
-        dir: 'rtl',
-        lang: 'he',
+        name: "CRM Phone - מרכז נשמה",
+        short_name: "CRM Phone",
+        description: "ניהול תורמים ואנשי קשר",
+        theme_color: "#1a5f7a",
+        background_color: "#ffffff",
+        display: "standalone",
+        orientation: "portrait",
+        dir: "rtl",
+        lang: "he",
         icons: [
           {
-            src: 'icon.svg',
-            sizes: '192x192 512x512',
-            type: 'image/svg+xml',
-            purpose: 'any maskable'
-          }
-        ]
+            src: "icon.svg",
+            sizes: "192x192 512x512",
+            type: "image/svg+xml",
+            purpose: "any",
+          },
+          {
+            src: "icon.svg",
+            sizes: "192x192 512x512",
+            type: "image/svg+xml",
+            purpose: "maskable",
+          },
+        ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
-      }
-    })
+        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        navigateFallback: "/index.html",
+      },
+    }),
   ],
-})
+});

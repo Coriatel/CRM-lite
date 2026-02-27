@@ -55,6 +55,9 @@ function mapDirectusToContact(dc: DirectusContact): Contact {
     address: dc.address || undefined,
     status: (dc.call_status as ContactStatus) || "not_checked",
     lastCallDate: dc.last_call_date ? new Date(dc.last_call_date) : undefined,
+    followUpDate: dc.follow_up_date || undefined,
+    followUpNote: dc.follow_up_note || undefined,
+    interestLevel: dc.interest_level || undefined,
     assignedTo: dc.assigned_to || undefined,
     donationType: dc.donation_type || undefined,
     monthlyDonation: dc.monthly_donation
@@ -72,6 +75,11 @@ export function useContacts(
   selectedSheet: SheetName | "all",
   statusFilter: ContactStatus | "all",
   searchQuery: string,
+  advancedFilters?: {
+    followUpBefore?: string;
+    neverCalled?: boolean;
+    interestLevel?: number;
+  },
 ) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +92,14 @@ export function useContacts(
 
   useEffect(() => {
     setCurrentLimit(PAGE_SIZE);
-  }, [selectedSheet, statusFilter, searchQuery]);
+  }, [
+    selectedSheet,
+    statusFilter,
+    searchQuery,
+    advancedFilters?.followUpBefore,
+    advancedFilters?.neverCalled,
+    advancedFilters?.interestLevel,
+  ]);
 
   const loadAll = useCallback(() => {
     setCurrentLimit(5000);
@@ -125,6 +140,9 @@ export function useContacts(
       callStatus: statusFilter !== "all" ? statusFilter : undefined,
       search: searchQuery || undefined,
       limit: currentLimit,
+      followUpBefore: advancedFilters?.followUpBefore,
+      neverCalled: advancedFilters?.neverCalled,
+      interestLevel: advancedFilters?.interestLevel,
     })
       .then((data) => {
         if (!cancelled) {
@@ -140,13 +158,27 @@ export function useContacts(
     return () => {
       cancelled = true;
     };
-  }, [selectedSheet, statusFilter, searchQuery, currentLimit, refreshKey]);
+  }, [
+    selectedSheet,
+    statusFilter,
+    searchQuery,
+    currentLimit,
+    refreshKey,
+    advancedFilters?.followUpBefore,
+    advancedFilters?.neverCalled,
+    advancedFilters?.interestLevel,
+  ]);
 
-  return { contacts, loading, hasMore: true, loadMore, loadAll, refresh };
+  const hasMore = contacts.length >= currentLimit;
+  return { contacts, loading, hasMore, loadMore, loadAll, refresh };
 }
 
 // Cache tags so we don't refetch every time
 let cachedTags: DirectusTag[] | null = null;
+
+export function clearTagCache() {
+  cachedTags = null;
+}
 
 async function getSheetTagId(sheetName: SheetName): Promise<string | null> {
   if (!cachedTags) {

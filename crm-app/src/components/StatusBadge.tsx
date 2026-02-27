@@ -1,13 +1,13 @@
-import { ContactStatus, STATUS_LABELS } from '../types';
+import { ContactStatus, STATUS_LABELS } from "../types";
 
 interface StatusBadgeProps {
-    status: ContactStatus;
+  status: ContactStatus;
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-    return (
-        <span className={`badge badge-${status.replace('_', '-')}`}>
-            {STATUS_LABELS[status]}
-        </span>
-    );
+  return (
+    <span className={`badge badge-${status.replace(/_/g, "-")}`}>
+      {STATUS_LABELS[status]}
+    </span>
+  );
 }
