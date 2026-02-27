@@ -2,13 +2,13 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { BottomNav } from "./BottomNav";
 import { Drawer } from "./Drawer";
-import { ContactStatus, SheetName, AdvancedFilters } from "../../types";
+import { ContactStatus, SortOption, AdvancedFilters } from "../../types";
 
 interface AppShellProps {
   statusFilter: ContactStatus | "all";
   onStatusFilter: (status: ContactStatus | "all") => void;
-  selectedSheet: SheetName | "all";
-  onSheetFilter: (sheet: SheetName | "all") => void;
+  sortBy: SortOption;
+  onSortChange: (sort: SortOption) => void;
   advancedFilters: AdvancedFilters;
   onAdvancedFilters: (filters: AdvancedFilters) => void;
 }
@@ -16,8 +16,8 @@ interface AppShellProps {
 export function AppShell({
   statusFilter,
   onStatusFilter,
-  selectedSheet,
-  onSheetFilter,
+  sortBy,
+  onSortChange,
   advancedFilters,
   onAdvancedFilters,
 }: AppShellProps) {
@@ -32,8 +32,8 @@ export function AppShell({
         onClose={() => setDrawerOpen(false)}
         statusFilter={statusFilter}
         onStatusFilter={onStatusFilter}
-        selectedSheet={selectedSheet}
-        onSheetFilter={onSheetFilter}
+        sortBy={sortBy}
+        onSortChange={onSortChange}
         advancedFilters={advancedFilters}
         onAdvancedFilters={onAdvancedFilters}
       />

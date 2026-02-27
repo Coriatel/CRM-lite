@@ -10,14 +10,20 @@ import { ActiveCallPage } from "./pages/ActiveCallPage";
 import { ImportPage } from "./pages/ImportPage";
 import { AppShell } from "./components/layout/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { ContactStatus, SheetName, AdvancedFilters } from "./types";
+import {
+  ContactStatus,
+  QuickFilterTab,
+  SortOption,
+  AdvancedFilters,
+} from "./types";
 
 function AppContent() {
   const { user, loading } = useAuth();
   const [statusFilter, setStatusFilter] = useState<ContactStatus | "all">(
     "all",
   );
-  const [selectedSheet, setSelectedSheet] = useState<SheetName | "all">("all");
+  const [quickFilter, setQuickFilter] = useState<QuickFilterTab>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("full_name");
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>({});
 
   if (loading) {
@@ -52,8 +58,8 @@ function AppContent() {
           <AppShell
             statusFilter={statusFilter}
             onStatusFilter={setStatusFilter}
-            selectedSheet={selectedSheet}
-            onSheetFilter={setSelectedSheet}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
             advancedFilters={advancedFilters}
             onAdvancedFilters={setAdvancedFilters}
           />
@@ -63,10 +69,12 @@ function AppContent() {
           index
           element={
             <ContactsPage
-              selectedSheet={selectedSheet}
-              onSheetChange={setSelectedSheet}
+              quickFilter={quickFilter}
+              onQuickFilterChange={setQuickFilter}
               statusFilter={statusFilter}
               onStatusFilterChange={setStatusFilter}
+              sortBy={sortBy}
+              onSortChange={setSortBy}
               advancedFilters={advancedFilters}
             />
           }

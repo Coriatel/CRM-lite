@@ -10,13 +10,21 @@ import {
   DirectusContact,
   DirectusTag,
 } from "../services/directus";
-import { Contact, ContactStatus, SheetName } from "../types";
+import {
+  Contact,
+  ContactStatus,
+  SheetName,
+  QuickFilterTab,
+  QUICK_FILTER_STATUSES,
+  SortOption,
+  AdvancedFilters,
+} from "../types";
 import { DEMO_CONTACTS } from "../data/demo";
 import { IS_DEMO_MODE } from "../config";
 
 const PAGE_SIZE = 50;
 
-// CRM Lite sheet names → Directus tag names
+// CRM Lite sheet names → Directus tag names (kept for createContact/updateContact)
 const SHEET_TAG_NAMES: Record<SheetName, string> = {
   אנשי_קשר: "אנשי_קשר",
   תורמים_פוטנציאליים: "תורמים_פוטנציאליים",
@@ -68,18 +76,18 @@ function mapDirectusToContact(dc: DirectusContact): Contact {
     notes: [], // Notes loaded separately from interactions
     createdAt: new Date(dc.created_at),
     updatedAt: new Date(dc.updated_at),
+    receiptConfirmed: dc.receipt_confirmed || false,
+    thankYouSent: dc.thank_you_sent || false,
+    tags: tagNames,
   };
 }
 
 export function useContacts(
-  selectedSheet: SheetName | "all",
+  quickFilter: QuickFilterTab,
   statusFilter: ContactStatus | "all",
   searchQuery: string,
-  advancedFilters?: {
-    followUpBefore?: string;
-    neverCalled?: boolean;
-    interestLevel?: number;
-  },
+  sortBy: SortOption,
+  advancedFilters?: AdvancedFilters,
 ) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,12 +101,18 @@ export function useContacts(
   useEffect(() => {
     setCurrentLimit(PAGE_SIZE);
   }, [
-    selectedSheet,
+    quickFilter,
     statusFilter,
     searchQuery,
+    sortBy,
     advancedFilters?.followUpBefore,
     advancedFilters?.neverCalled,
     advancedFilters?.interestLevel,
+    advancedFilters?.hideNoName,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    JSON.stringify(advancedFilters?.sheetTags),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    JSON.stringify(advancedFilters?.groupTags),
   ]);
 
   const loadAll = useCallback(() => {
@@ -112,9 +126,6 @@ export function useContacts(
   useEffect(() => {
     if (IS_DEMO_MODE) {
       let filtered = [...DEMO_CONTACTS];
-      if (selectedSheet !== "all") {
-        filtered = filtered.filter((c) => c.source === selectedSheet);
-      }
       if (statusFilter !== "all") {
         filtered = filtered.filter((c) => c.status === statusFilter);
       }
@@ -135,18 +146,38 @@ export function useContacts(
     let cancelled = false;
     setLoading(true);
 
+    // Map quick filter to call statuses
+    const statuses = QUICK_FILTER_STATUSES[quickFilter];
+
     fetchContacts({
-      sheet: selectedSheet !== "all" ? selectedSheet : undefined,
+      callStatuses: statuses || undefined,
       callStatus: statusFilter !== "all" ? statusFilter : undefined,
       search: searchQuery || undefined,
       limit: currentLimit,
+      sort: sortBy,
       followUpBefore: advancedFilters?.followUpBefore,
       neverCalled: advancedFilters?.neverCalled,
       interestLevel: advancedFilters?.interestLevel,
+      hideNoName: advancedFilters?.hideNoName,
+      sheetTags: advancedFilters?.sheetTags,
+      groupTags: advancedFilters?.groupTags,
     })
       .then((data) => {
         if (!cancelled) {
-          setContacts(data.map(mapDirectusToContact));
+          let mapped = data.map(mapDirectusToContact);
+
+          // Client-side multi-tag filter (API only handles single tag)
+          const selectedTags = [
+            ...(advancedFilters?.sheetTags || []),
+            ...(advancedFilters?.groupTags || []),
+          ];
+          if (selectedTags.length > 0) {
+            mapped = mapped.filter((c) =>
+              c.tags?.some((t) => selectedTags.includes(t)),
+            );
+          }
+
+          setContacts(mapped);
           setLoading(false);
         }
       })
@@ -159,14 +190,20 @@ export function useContacts(
       cancelled = true;
     };
   }, [
-    selectedSheet,
+    quickFilter,
     statusFilter,
     searchQuery,
+    sortBy,
     currentLimit,
     refreshKey,
     advancedFilters?.followUpBefore,
     advancedFilters?.neverCalled,
     advancedFilters?.interestLevel,
+    advancedFilters?.hideNoName,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    JSON.stringify(advancedFilters?.sheetTags),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    JSON.stringify(advancedFilters?.groupTags),
   ]);
 
   const hasMore = contacts.length >= currentLimit;

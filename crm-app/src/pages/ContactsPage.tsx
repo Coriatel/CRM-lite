@@ -2,11 +2,7 @@ import { useState, useCallback } from "react";
 import { useDebounce } from "../hooks/useDebounce";
 import {
   Search,
-  Filter,
   Users,
-  Heart,
-  GraduationCap,
-  Phone as PhoneIcon,
   X,
   Plus,
   CheckSquare,
@@ -14,10 +10,10 @@ import {
   Upload,
 } from "lucide-react";
 import {
-  SheetName,
+  QuickFilterTab,
+  QUICK_FILTER_LABELS,
   ContactStatus,
-  STATUS_LABELS,
-  SHEET_LABELS,
+  SortOption,
   Contact,
   AdvancedFilters,
 } from "../types";
@@ -28,33 +24,25 @@ import { ContactDetailModal } from "../components/ContactDetailModal";
 import { EditContactModal } from "../components/EditContactModal";
 import { ImportModal } from "../components/ImportModal";
 
-const SHEET_ICONS: Record<SheetName, React.ReactNode> = {
-  אנשי_קשר: <Users size={16} />,
-  תורמים_פוטנציאליים: <Heart size={16} />,
-  תורמים_שתרמו: <Heart size={16} />,
-  חברים_טובים: <Users size={16} />,
-  תלמידים: <GraduationCap size={16} />,
-  להתרמות: <PhoneIcon size={16} />,
-};
-
 interface ContactsPageProps {
-  selectedSheet: SheetName | "all";
-  onSheetChange: (sheet: SheetName | "all") => void;
+  quickFilter: QuickFilterTab;
+  onQuickFilterChange: (f: QuickFilterTab) => void;
   statusFilter: ContactStatus | "all";
-  onStatusFilterChange: (status: ContactStatus | "all") => void;
+  onStatusFilterChange?: (status: ContactStatus | "all") => void;
+  sortBy: SortOption;
+  onSortChange?: (sort: SortOption) => void;
   advancedFilters?: AdvancedFilters;
 }
 
 export function ContactsPage({
-  selectedSheet,
-  onSheetChange,
+  quickFilter,
+  onQuickFilterChange,
   statusFilter,
-  onStatusFilterChange,
+  sortBy,
   advancedFilters,
 }: ContactsPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 300);
-  const [showFilters, setShowFilters] = useState(false);
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [noteContact, setNoteContact] = useState<Contact | null>(null);
@@ -67,7 +55,13 @@ export function ContactsPage({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const { contacts, loading, hasMore, loadMore, loadAll, refresh } =
-    useContacts(selectedSheet, statusFilter, debouncedSearch, advancedFilters);
+    useContacts(
+      quickFilter,
+      statusFilter,
+      debouncedSearch,
+      sortBy,
+      advancedFilters,
+    );
 
   const { createContact, updateContact, deleteContact } = useContactActions();
 
@@ -272,63 +266,23 @@ export function ContactsPage({
               <X size={18} />
             </button>
           )}
-          <button
-            style={{
-              background: "none",
-              border: "none",
-              color: "white",
-              cursor: "pointer",
-            }}
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            <Filter size={20} />
-          </button>
         </div>
       </header>
 
-      {/* Sheet tabs */}
+      {/* Quick filter tabs */}
       <div className="tabs">
-        <button
-          className={`tab ${selectedSheet === "all" ? "active" : ""}`}
-          onClick={() => onSheetChange("all")}
-        >
-          הכל ({contacts.length})
-        </button>
-        {(Object.keys(SHEET_LABELS) as SheetName[]).map((sheet) => (
-          <button
-            key={sheet}
-            className={`tab ${selectedSheet === sheet ? "active" : ""}`}
-            onClick={() => onSheetChange(sheet)}
-          >
-            {SHEET_ICONS[sheet]}
-            <span style={{ marginRight: 4 }}>{SHEET_LABELS[sheet]}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Status filter */}
-      {showFilters && (
-        <div
-          className="filter-chips"
-          style={{ padding: "var(--spacing-sm) var(--spacing-md)" }}
-        >
-          <button
-            className={`filter-chip ${statusFilter === "all" ? "active" : ""}`}
-            onClick={() => onStatusFilterChange("all")}
-          >
-            הכל
-          </button>
-          {(Object.keys(STATUS_LABELS) as ContactStatus[]).map((status) => (
+        {(Object.keys(QUICK_FILTER_LABELS) as QuickFilterTab[]).map(
+          (filter) => (
             <button
-              key={status}
-              className={`filter-chip ${statusFilter === status ? "active" : ""}`}
-              onClick={() => onStatusFilterChange(status)}
+              key={filter}
+              className={`tab ${quickFilter === filter ? "active" : ""}`}
+              onClick={() => onQuickFilterChange(filter)}
             >
-              {STATUS_LABELS[status]}
+              {QUICK_FILTER_LABELS[filter]}
             </button>
-          ))}
-        </div>
-      )}
+          ),
+        )}
+      </div>
 
       {/* Contact list */}
       <main

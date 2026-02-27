@@ -242,12 +242,27 @@ export function ImportPage() {
         tagMap.set(t.name, t.id);
       }
 
+      // Create sheet tags with "גיליון: " prefix
       const sheetNames = [...new Set(toProcess.map((r) => r.raw.sheetName))];
       for (const sn of sheetNames) {
-        if (!tagMap.has(sn)) {
-          const newTag = await createTag(sn);
-          tagMap.set(sn, newTag.id);
-          setImportLog((prev) => [...prev, `תג חדש נוצר: ${sn}`]);
+        const sheetTagName = `גיליון: ${sn}`;
+        if (!tagMap.has(sheetTagName)) {
+          const newTag = await createTag(sheetTagName);
+          tagMap.set(sheetTagName, newTag.id);
+          setImportLog((prev) => [...prev, `תג חדש נוצר: ${sheetTagName}`]);
+        }
+      }
+
+      // Create group tags with "קבוצה: " prefix
+      const groupNames = [
+        ...new Set(toProcess.map((r) => r.raw.group).filter(Boolean)),
+      ] as string[];
+      for (const gn of groupNames) {
+        const groupTagName = `קבוצה: ${gn}`;
+        if (!tagMap.has(groupTagName)) {
+          const newTag = await createTag(groupTagName);
+          tagMap.set(groupTagName, newTag.id);
+          setImportLog((prev) => [...prev, `תג קבוצה חדש: ${groupTagName}`]);
         }
       }
 
@@ -272,19 +287,43 @@ export function ImportPage() {
                 call_status: "not_checked",
               });
 
-              // Add sheet tag
-              const tagId = tagMap.get(row.raw.sheetName);
-              if (tagId && newContact.id) {
-                await addContactTag(newContact.id, tagId);
+              // Add sheet tag (with prefix)
+              const sheetTagId = tagMap.get(`גיליון: ${row.raw.sheetName}`);
+              if (sheetTagId && newContact.id) {
+                await addContactTag(newContact.id, sheetTagId);
+              }
+
+              // Add group tag if present
+              if (row.raw.group) {
+                const groupTagId = tagMap.get(`קבוצה: ${row.raw.group}`);
+                if (groupTagId && newContact.id) {
+                  try {
+                    await addContactTag(newContact.id, groupTagId);
+                  } catch {
+                    /* ignore dup */
+                  }
+                }
               }
             } else if (row.action === "merge" && row.existingContactId) {
-              // Add sheet tag to existing contact
-              const tagId = tagMap.get(row.raw.sheetName);
-              if (tagId) {
+              // Add sheet tag to existing contact (with prefix)
+              const sheetTagId = tagMap.get(`גיליון: ${row.raw.sheetName}`);
+              if (sheetTagId) {
                 try {
-                  await addContactTag(row.existingContactId, tagId);
+                  await addContactTag(row.existingContactId, sheetTagId);
                 } catch {
                   // Tag might already exist — ignore duplicate
+                }
+              }
+
+              // Add group tag to existing contact
+              if (row.raw.group) {
+                const groupTagId = tagMap.get(`קבוצה: ${row.raw.group}`);
+                if (groupTagId) {
+                  try {
+                    await addContactTag(row.existingContactId, groupTagId);
+                  } catch {
+                    /* ignore dup */
+                  }
                 }
               }
             }

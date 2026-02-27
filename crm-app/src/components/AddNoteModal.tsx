@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { Contact, ContactStatus, STATUS_LABELS } from "../types";
 import { useContactActions } from "../hooks/useContacts";
+import { updateContact as patchContact } from "../services/directus";
+import { DonationProcess } from "./DonationProcess";
 
 interface AddNoteModalProps {
   contact: Contact;
@@ -48,6 +50,8 @@ export function AddNoteModal({ contact, onClose, onSaved }: AddNoteModalProps) {
     null,
   );
   const [saving, setSaving] = useState(false);
+  const [receiptConfirmed, setReceiptConfirmed] = useState(false);
+  const [thankYouSent, setThankYouSent] = useState(false);
   const { addNote } = useContactActions();
 
   const handleSave = async () => {
@@ -63,6 +67,15 @@ export function AddNoteModal({ contact, onClose, onSaved }: AddNoteModalProps) {
         noteText.trim() || STATUS_LABELS[selectedStatus!],
         selectedStatus || undefined,
       );
+
+      // If donated, also patch receipt/thank-you fields
+      if (selectedStatus === "donated") {
+        await patchContact(contact.id, {
+          receipt_confirmed: receiptConfirmed,
+          thank_you_sent: thankYouSent,
+        });
+      }
+
       onSaved?.();
       onClose();
     } catch (error) {
@@ -106,6 +119,18 @@ export function AddNoteModal({ contact, onClose, onSaved }: AddNoteModalProps) {
               ))}
             </div>
           </div>
+
+          {selectedStatus === "donated" && (
+            <div className="form-group">
+              <label className="form-label">תהליך תרומה</label>
+              <DonationProcess
+                receiptConfirmed={receiptConfirmed}
+                thankYouSent={thankYouSent}
+                onToggleReceipt={() => setReceiptConfirmed(!receiptConfirmed)}
+                onToggleThankYou={() => setThankYouSent(!thankYouSent)}
+              />
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">הערה</label>

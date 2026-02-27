@@ -10,6 +10,7 @@ import {
   SkipForward,
 } from "lucide-react";
 import { ContactStatus, STATUS_LABELS } from "../../types";
+import { DonationProcess } from "../DonationProcess";
 
 interface CallNoteFormProps {
   contactId: string;
@@ -19,6 +20,8 @@ interface CallNoteFormProps {
     donationAmount?: number;
     followUpDate?: string;
     followUpNote?: string;
+    receiptConfirmed?: boolean;
+    thankYouSent?: boolean;
   }) => void;
   onSkip?: () => void;
   saving: boolean;
@@ -68,6 +71,8 @@ export function CallNoteForm({
   const [showDonation, setShowDonation] = useState(false);
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpNote, setFollowUpNote] = useState("");
+  const [receiptConfirmed, setReceiptConfirmed] = useState(false);
+  const [thankYouSent, setThankYouSent] = useState(false);
 
   // Restore draft from localStorage (with type validation)
   useEffect(() => {
@@ -147,6 +152,9 @@ export function CallNoteForm({
       donationAmount: donationAmount ? Number(donationAmount) : undefined,
       followUpDate: followUpDate || undefined,
       followUpNote: followUpNote || undefined,
+      receiptConfirmed:
+        selectedStatus === "donated" ? receiptConfirmed : undefined,
+      thankYouSent: selectedStatus === "donated" ? thankYouSent : undefined,
     });
     // Clear draft after save
     localStorage.removeItem(draftKey);
@@ -224,7 +232,7 @@ export function CallNoteForm({
         }}
       />
 
-      {/* Donation amount (conditionally shown) */}
+      {/* Donation amount + process (conditionally shown) */}
       {showDonation && (
         <div style={{ marginBottom: "var(--spacing-xs)" }}>
           <input
@@ -240,6 +248,12 @@ export function CallNoteForm({
               fontSize: "14px",
               boxSizing: "border-box",
             }}
+          />
+          <DonationProcess
+            receiptConfirmed={receiptConfirmed}
+            thankYouSent={thankYouSent}
+            onToggleReceipt={() => setReceiptConfirmed(!receiptConfirmed)}
+            onToggleThankYou={() => setThankYouSent(!thankYouSent)}
           />
         </div>
       )}

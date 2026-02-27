@@ -73,6 +73,8 @@ export interface DirectusContact {
   original_note?: string;
   notes?: string;
   classification?: string;
+  receipt_confirmed?: boolean;
+  thank_you_sent?: boolean;
   created_at: string;
   updated_at: string;
   contact_tags?: { tag_id: string | { id: string; name: string } }[];
@@ -102,17 +104,22 @@ function buildQuery(params: Record<string, string>): string {
 export async function getContacts(filters: {
   sheet?: string;
   callStatus?: string;
+  callStatuses?: string[];
   search?: string;
   limit?: number;
   offset?: number;
+  sort?: string;
   followUpBefore?: string;
   neverCalled?: boolean;
   interestLevel?: number;
+  hideNoName?: boolean;
+  sheetTags?: string[];
+  groupTags?: string[];
 }): Promise<DirectusContact[]> {
   const params: Record<string, string> = {
     fields:
-      "id,full_name,first_name,last_name,phone_e164,phone_raw,phone2,email,city,address,status,call_status,follow_up_date,follow_up_note,interest_level,assigned_to,donation_type,monthly_donation,total_donation,last_call_date,original_note,notes,created_at,updated_at,contact_tags.tag_id.id,contact_tags.tag_id.name",
-    sort: "full_name",
+      "id,full_name,first_name,last_name,phone_e164,phone_raw,phone2,email,city,address,status,call_status,follow_up_date,follow_up_note,interest_level,assigned_to,donation_type,monthly_donation,total_donation,last_call_date,original_note,notes,classification,receipt_confirmed,thank_you_sent,created_at,updated_at,contact_tags.tag_id.id,contact_tags.tag_id.name",
+    sort: filters.sort || "full_name",
     limit: String(filters.limit || 50),
   };
 
@@ -120,18 +127,42 @@ export async function getContacts(filters: {
     params["offset"] = String(filters.offset);
   }
 
-  if (filters.callStatus && filters.callStatus !== "all") {
-    params["filter[call_status][_eq]"] = filters.callStatus;
+  // Determine if we need both multi-status and search (they both use _or)
+  const hasMultiStatus =
+    filters.callStatuses && filters.callStatuses.length > 1;
+  const hasSearch = !!filters.search;
+
+  if (hasMultiStatus && hasSearch) {
+    // Wrap in _and to avoid _or index conflicts
+    filters.callStatuses!.forEach((s, i) => {
+      params[`filter[_and][0][_or][${i}][call_status][_eq]`] = s;
+    });
+    params["filter[_and][1][_or][0][full_name][_icontains]"] = filters.search!;
+    params["filter[_and][1][_or][1][phone_e164][_contains]"] = filters.search!;
+    params["filter[_and][1][_or][2][phone2][_contains]"] = filters.search!;
+  } else {
+    // Multi-status filter (for quick filter tabs)
+    if (filters.callStatuses && filters.callStatuses.length > 0) {
+      if (filters.callStatuses.length === 1) {
+        params["filter[call_status][_eq]"] = filters.callStatuses[0];
+      } else {
+        filters.callStatuses.forEach((s, i) => {
+          params[`filter[_or][${i}][call_status][_eq]`] = s;
+        });
+      }
+    } else if (filters.callStatus && filters.callStatus !== "all") {
+      params["filter[call_status][_eq]"] = filters.callStatus;
+    }
+
+    if (filters.search) {
+      params["filter[_or][0][full_name][_icontains]"] = filters.search;
+      params["filter[_or][1][phone_e164][_contains]"] = filters.search;
+      params["filter[_or][2][phone2][_contains]"] = filters.search;
+    }
   }
 
   if (filters.sheet && filters.sheet !== "all") {
     params["filter[contact_tags][tag_id][name][_eq]"] = filters.sheet;
-  }
-
-  if (filters.search) {
-    params["filter[_or][0][full_name][_icontains]"] = filters.search;
-    params["filter[_or][1][phone_e164][_contains]"] = filters.search;
-    params["filter[_or][2][phone2][_contains]"] = filters.search;
   }
 
   if (filters.followUpBefore) {
@@ -147,8 +178,21 @@ export async function getContacts(filters: {
     params["filter[interest_level][_eq]"] = String(filters.interestLevel);
   }
 
+  // Sheet/group tag filter — only use API filter for single tag; multi-tag handled client-side
+  const allTags = [...(filters.sheetTags || []), ...(filters.groupTags || [])];
+  if (allTags.length === 1) {
+    params["filter[contact_tags][tag_id][name][_eq]"] = allTags[0];
+  }
+
   const res = await directusFetch(`/items/contacts${buildQuery(params)}`);
   const json: DirectusResponse<DirectusContact[]> = await res.json();
+
+  // Client-side filter: hide contacts whose name looks like a phone number
+  if (filters.hideNoName) {
+    const phoneNameRegex = /^\+?[0-9][0-9\s\-()]+$/;
+    return json.data.filter((c) => !phoneNameRegex.test(c.full_name));
+  }
+
   return json.data;
 }
 
