@@ -102,7 +102,6 @@ function buildQuery(params: Record<string, string>): string {
 }
 
 export async function getContacts(filters: {
-  sheet?: string;
   callStatus?: string;
   callStatuses?: string[];
   search?: string;
@@ -127,42 +126,63 @@ export async function getContacts(filters: {
     params["offset"] = String(filters.offset);
   }
 
-  // Determine if we need both multi-status and search (they both use _or)
+  // Collect _or blocks — when multiple exist, wrap in _and to avoid index conflicts
+  const orBlocks: { key: string; entries: [string, string][] }[] = [];
+
+  // Multi-status filter
   const hasMultiStatus =
     filters.callStatuses && filters.callStatuses.length > 1;
-  const hasSearch = !!filters.search;
-
-  if (hasMultiStatus && hasSearch) {
-    // Wrap in _and to avoid _or index conflicts
-    filters.callStatuses!.forEach((s, i) => {
-      params[`filter[_and][0][_or][${i}][call_status][_eq]`] = s;
+  if (hasMultiStatus) {
+    orBlocks.push({
+      key: "status",
+      entries: filters.callStatuses!.map((s, i) => [
+        `_or[${i}][call_status][_eq]`,
+        s,
+      ]),
     });
-    params["filter[_and][1][_or][0][full_name][_icontains]"] = filters.search!;
-    params["filter[_and][1][_or][1][phone_e164][_contains]"] = filters.search!;
-    params["filter[_and][1][_or][2][phone2][_contains]"] = filters.search!;
-  } else {
-    // Multi-status filter (for quick filter tabs)
-    if (filters.callStatuses && filters.callStatuses.length > 0) {
-      if (filters.callStatuses.length === 1) {
-        params["filter[call_status][_eq]"] = filters.callStatuses[0];
-      } else {
-        filters.callStatuses.forEach((s, i) => {
-          params[`filter[_or][${i}][call_status][_eq]`] = s;
-        });
-      }
-    } else if (filters.callStatus && filters.callStatus !== "all") {
-      params["filter[call_status][_eq]"] = filters.callStatus;
-    }
-
-    if (filters.search) {
-      params["filter[_or][0][full_name][_icontains]"] = filters.search;
-      params["filter[_or][1][phone_e164][_contains]"] = filters.search;
-      params["filter[_or][2][phone2][_contains]"] = filters.search;
-    }
+  } else if (filters.callStatuses && filters.callStatuses.length === 1) {
+    params["filter[call_status][_eq]"] = filters.callStatuses[0];
+  } else if (filters.callStatus && filters.callStatus !== "all") {
+    params["filter[call_status][_eq]"] = filters.callStatus;
   }
 
-  if (filters.sheet && filters.sheet !== "all") {
-    params["filter[contact_tags][tag_id][name][_eq]"] = filters.sheet;
+  // Search filter
+  if (filters.search) {
+    orBlocks.push({
+      key: "search",
+      entries: [
+        ["_or[0][full_name][_icontains]", filters.search],
+        ["_or[1][phone_e164][_contains]", filters.search],
+        ["_or[2][phone2][_contains]", filters.search],
+      ],
+    });
+  }
+
+  // Tag filter (sheet + group tags combined)
+  const allTags = [...(filters.sheetTags || []), ...(filters.groupTags || [])];
+  if (allTags.length === 1) {
+    params["filter[contact_tags][tag_id][name][_eq]"] = allTags[0];
+  } else if (allTags.length > 1) {
+    orBlocks.push({
+      key: "tags",
+      entries: allTags.map((t, i) => [
+        `_or[${i}][contact_tags][tag_id][name][_eq]`,
+        t,
+      ]),
+    });
+  }
+
+  // Apply _or blocks
+  if (orBlocks.length === 1) {
+    for (const [key, value] of orBlocks[0].entries) {
+      params[`filter[${key}]`] = value;
+    }
+  } else if (orBlocks.length > 1) {
+    orBlocks.forEach((block, i) => {
+      for (const [key, value] of block.entries) {
+        params[`filter[_and][${i}][${key}]`] = value;
+      }
+    });
   }
 
   if (filters.followUpBefore) {
@@ -176,12 +196,6 @@ export async function getContacts(filters: {
 
   if (filters.interestLevel) {
     params["filter[interest_level][_eq]"] = String(filters.interestLevel);
-  }
-
-  // Sheet/group tag filter — only use API filter for single tag; multi-tag handled client-side
-  const allTags = [...(filters.sheetTags || []), ...(filters.groupTags || [])];
-  if (allTags.length === 1) {
-    params["filter[contact_tags][tag_id][name][_eq]"] = allTags[0];
   }
 
   const res = await directusFetch(`/items/contacts${buildQuery(params)}`);
@@ -364,6 +378,12 @@ export interface DirectusProject {
   status: "active" | "paused" | "completed";
   start_date?: string;
   end_date?: string;
+  landing_page_url?: string;
+  takbull_page_id?: string;
+  description?: string;
+  color?: string;
+  whatsapp_template?: string;
+  call_script?: string;
   date_created: string;
   user_created?: string;
 }
@@ -527,4 +547,300 @@ export async function updateCallQueueItem(
   });
   const json: DirectusResponse<DirectusCallQueueItem> = await res.json();
   return json.data;
+}
+
+// ---------- Project Contacts ----------
+
+export interface DirectusProjectContact {
+  id: string;
+  project_id: string;
+  contact_id: string;
+  campaign_status: string;
+  donation_amount?: number;
+  donation_type?: string;
+  tier_label?: string;
+  link_send_count: number;
+  last_link_sent_at?: string;
+  notes?: string;
+  date_created: string;
+  date_updated: string;
+}
+
+export async function getProjectContacts(
+  projectId: string,
+  filters?: {
+    campaignStatus?: string;
+    search?: string;
+    sort?: string;
+    tagNames?: string[];
+    limit?: number;
+    offset?: number;
+  },
+): Promise<DirectusProjectContact[]> {
+  const params: Record<string, string> = {
+    "filter[project_id][_eq]": projectId,
+    fields:
+      "id,project_id,contact_id.id,contact_id.full_name,contact_id.first_name,contact_id.last_name,contact_id.phone_e164,contact_id.phone_raw,contact_id.phone2,contact_id.email,contact_id.city,contact_id.address,contact_id.status,contact_id.call_status,contact_id.follow_up_date,contact_id.follow_up_note,contact_id.interest_level,contact_id.assigned_to,contact_id.donation_type,contact_id.monthly_donation,contact_id.total_donation,contact_id.last_call_date,contact_id.original_note,contact_id.notes,contact_id.classification,contact_id.receipt_confirmed,contact_id.thank_you_sent,contact_id.created_at,contact_id.updated_at,contact_id.contact_tags.tag_id.id,contact_id.contact_tags.tag_id.name,campaign_status,donation_amount,donation_type,tier_label,link_send_count,last_link_sent_at,notes,date_created,date_updated",
+    sort: filters?.sort || "-date_created",
+    limit: String(filters?.limit || 200),
+  };
+  if (filters?.offset) params["offset"] = String(filters.offset);
+  if (filters?.campaignStatus && filters.campaignStatus !== "all") {
+    params["filter[campaign_status][_eq]"] = filters.campaignStatus;
+  }
+
+  // Search on related contact fields
+  if (filters?.search) {
+    params["filter[_or][0][contact_id][full_name][_icontains]"] =
+      filters.search;
+    params["filter[_or][1][contact_id][phone_e164][_contains]"] =
+      filters.search;
+    params["filter[_or][2][contact_id][phone2][_contains]"] = filters.search;
+  }
+
+  // Tag filter on related contact
+  if (filters?.tagNames && filters.tagNames.length === 1) {
+    params["filter[contact_id][contact_tags][tag_id][name][_eq]"] =
+      filters.tagNames[0];
+  } else if (filters?.tagNames && filters.tagNames.length > 1) {
+    // Note: if search _or is also active, this would conflict.
+    // For now, tag filtering with search is handled client-side if needed.
+    filters.tagNames.forEach((t, i) => {
+      params[`filter[_or][${i}][contact_id][contact_tags][tag_id][name][_eq]`] =
+        t;
+    });
+  }
+
+  const res = await directusFetch(
+    `/items/project_contacts${buildQuery(params)}`,
+  );
+  const json: DirectusResponse<DirectusProjectContact[]> = await res.json();
+  return json.data;
+}
+
+export async function getProjectContactIds(
+  projectId: string,
+): Promise<string[]> {
+  const params: Record<string, string> = {
+    "filter[project_id][_eq]": projectId,
+    fields: "contact_id",
+    limit: "5000",
+  };
+  const res = await directusFetch(
+    `/items/project_contacts${buildQuery(params)}`,
+  );
+  const json: DirectusResponse<{ contact_id: string }[]> = await res.json();
+  return json.data.map((d) => d.contact_id);
+}
+
+export async function createProjectContact(
+  data: Partial<DirectusProjectContact>,
+): Promise<DirectusProjectContact> {
+  const res = await directusFetch("/items/project_contacts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  const json: DirectusResponse<DirectusProjectContact> = await res.json();
+  return json.data;
+}
+
+export async function batchCreateProjectContacts(
+  items: Partial<DirectusProjectContact>[],
+): Promise<DirectusProjectContact[]> {
+  if (items.length === 0) return [];
+  const res = await directusFetch("/items/project_contacts", {
+    method: "POST",
+    body: JSON.stringify(items),
+  });
+  const json: DirectusResponse<DirectusProjectContact[]> = await res.json();
+  return json.data;
+}
+
+export async function updateProjectContact(
+  id: string,
+  data: Partial<DirectusProjectContact>,
+): Promise<DirectusProjectContact> {
+  const res = await directusFetch(`/items/project_contacts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+  const json: DirectusResponse<DirectusProjectContact> = await res.json();
+  return json.data;
+}
+
+export async function deleteProjectContact(id: string): Promise<void> {
+  await directusFetch(`/items/project_contacts/${id}`, { method: "DELETE" });
+}
+
+export async function getProjectStats(projectId: string): Promise<{
+  total: number;
+  byStatus: Record<string, number>;
+  totalDonated: number;
+  byDonationType: { one_time: number; recurring: number };
+  byTier: Record<string, { count: number; amount: number }>;
+}> {
+  const params: Record<string, string> = {
+    "filter[project_id][_eq]": projectId,
+    fields: "campaign_status,donation_amount,donation_type,tier_label",
+    limit: "5000",
+  };
+  const res = await directusFetch(
+    `/items/project_contacts${buildQuery(params)}`,
+  );
+  const json: DirectusResponse<
+    {
+      campaign_status: string;
+      donation_amount?: number;
+      donation_type?: string;
+      tier_label?: string;
+    }[]
+  > = await res.json();
+  const byStatus: Record<string, number> = {};
+  const byDonationType = { one_time: 0, recurring: 0 };
+  const byTier: Record<string, { count: number; amount: number }> = {};
+  let totalDonated = 0;
+  for (const pc of json.data) {
+    byStatus[pc.campaign_status] = (byStatus[pc.campaign_status] || 0) + 1;
+    if (pc.campaign_status === "paid" && pc.donation_amount) {
+      totalDonated += Number(pc.donation_amount);
+      if (pc.donation_type === "recurring") {
+        byDonationType.recurring++;
+      } else {
+        byDonationType.one_time++;
+      }
+    }
+    if (pc.tier_label) {
+      if (!byTier[pc.tier_label])
+        byTier[pc.tier_label] = { count: 0, amount: 0 };
+      byTier[pc.tier_label].count++;
+      if (pc.donation_amount)
+        byTier[pc.tier_label].amount += Number(pc.donation_amount);
+    }
+  }
+  return {
+    total: json.data.length,
+    byStatus,
+    totalDonated,
+    byDonationType,
+    byTier,
+  };
+}
+
+export async function getProjectContactForContact(
+  projectId: string,
+  contactId: string,
+): Promise<DirectusProjectContact | null> {
+  const params: Record<string, string> = {
+    "filter[project_id][_eq]": projectId,
+    "filter[contact_id][_eq]": contactId,
+    fields:
+      "id,project_id,contact_id,campaign_status,donation_amount,donation_type,tier_label,link_send_count,last_link_sent_at,notes,date_created,date_updated",
+    limit: "1",
+  };
+  const res = await directusFetch(
+    `/items/project_contacts${buildQuery(params)}`,
+  );
+  const json: DirectusResponse<DirectusProjectContact[]> = await res.json();
+  return json.data.length > 0 ? json.data[0] : null;
+}
+
+export async function getProjectFollowUps(
+  projectId: string,
+  limit = 5,
+): Promise<
+  { contact_id: string; campaign_status: string; date_updated: string }[]
+> {
+  const threeDaysAgo = new Date(
+    Date.now() - 3 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const params: Record<string, string> = {
+    "filter[project_id][_eq]": projectId,
+    "filter[date_updated][_lte]": threeDaysAgo,
+    fields: "contact_id,campaign_status,date_updated",
+    sort: "date_updated",
+    limit: String(limit),
+  };
+  // Filter for called or agreed statuses.
+  // Note: Directus ANDs top-level filters (project_id, date_updated) with the _or block,
+  // so this correctly returns contacts in THIS project, updated > 3 days ago, with status called OR agreed.
+  params["filter[_or][0][campaign_status][_eq]"] = "called";
+  params["filter[_or][1][campaign_status][_eq]"] = "agreed";
+  const res = await directusFetch(
+    `/items/project_contacts${buildQuery(params)}`,
+  );
+  const json: DirectusResponse<
+    { contact_id: string; campaign_status: string; date_updated: string }[]
+  > = await res.json();
+  return json.data;
+}
+
+export async function getContactCrossProjectDonations(
+  contactId: string,
+): Promise<{ project_id: string; donation_amount: number }[]> {
+  const params: Record<string, string> = {
+    "filter[contact_id][_eq]": contactId,
+    "filter[campaign_status][_eq]": "paid",
+    fields: "project_id,donation_amount",
+    limit: "50",
+  };
+  const res = await directusFetch(
+    `/items/project_contacts${buildQuery(params)}`,
+  );
+  const json: DirectusResponse<
+    { project_id: string; donation_amount: number }[]
+  > = await res.json();
+  return json.data;
+}
+
+// ---------- Project Tiers ----------
+
+export interface DirectusProjectTier {
+  id: string;
+  project_id: string;
+  sort_order: number;
+  label: string;
+  one_time_amount?: number;
+  monthly_amount?: number;
+  date_created: string;
+}
+
+export async function getProjectTiers(
+  projectId: string,
+): Promise<DirectusProjectTier[]> {
+  const params: Record<string, string> = {
+    "filter[project_id][_eq]": projectId,
+    fields: "*",
+    sort: "sort_order",
+    limit: "50",
+  };
+  const res = await directusFetch(`/items/project_tiers${buildQuery(params)}`);
+  const json: DirectusResponse<DirectusProjectTier[]> = await res.json();
+  return json.data;
+}
+
+export async function createProjectTier(
+  data: Partial<DirectusProjectTier>,
+): Promise<DirectusProjectTier> {
+  const res = await directusFetch("/items/project_tiers", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  const json: DirectusResponse<DirectusProjectTier> = await res.json();
+  return json.data;
+}
+
+export async function updateProjectTier(
+  id: string,
+  data: Partial<DirectusProjectTier>,
+): Promise<DirectusProjectTier> {
+  const res = await directusFetch(`/items/project_tiers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+  const json: DirectusResponse<DirectusProjectTier> = await res.json();
+  return json.data;
+}
+
+export async function deleteProjectTier(id: string): Promise<void> {
+  await directusFetch(`/items/project_tiers/${id}`, { method: "DELETE" });
 }

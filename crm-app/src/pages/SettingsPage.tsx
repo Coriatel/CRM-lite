@@ -13,11 +13,23 @@ import {
   Check,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { useProjectContext } from "../contexts/ProjectContext";
 import { useProjects, useProjectActions, Project } from "../hooks/useProjects";
+import { useProjectTiers } from "../hooks/useProjectConfig";
+
+const COLOR_PALETTE = [
+  "#1a5f7a",
+  "#e07b39",
+  "#22c55e",
+  "#8b5cf6",
+  "#ef4444",
+  "#06b6d4",
+];
 
 export function SettingsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { activeProject, setActiveProject: setActive } = useProjectContext();
   const { projects, loading, refresh } = useProjects();
   const { create, update, remove } = useProjectActions();
 
@@ -27,15 +39,36 @@ export function SettingsPage() {
   const [formGoal, setFormGoal] = useState("");
   const [formStart, setFormStart] = useState("");
   const [formEnd, setFormEnd] = useState("");
+  const [formUrl, setFormUrl] = useState("");
+  const [formPageId, setFormPageId] = useState("");
+  const [formTemplate, setFormTemplate] = useState("");
+  const [formScript, setFormScript] = useState("");
+  const [formColor, setFormColor] = useState(COLOR_PALETTE[0]);
+  const [formDescription, setFormDescription] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Tier management for editing project
+  const { tiers, addTier, removeTier } = useProjectTiers(editingId);
+  const [tierLabel, setTierLabel] = useState("");
+  const [tierOneTime, setTierOneTime] = useState("");
+  const [tierMonthly, setTierMonthly] = useState("");
 
   const resetForm = () => {
     setFormName("");
     setFormGoal("");
     setFormStart("");
     setFormEnd("");
+    setFormUrl("");
+    setFormPageId("");
+    setFormTemplate("");
+    setFormScript("");
+    setFormColor(COLOR_PALETTE[0]);
+    setFormDescription("");
     setEditingId(null);
     setShowForm(false);
+    setTierLabel("");
+    setTierOneTime("");
+    setTierMonthly("");
   };
 
   const startEdit = (project: Project) => {
@@ -43,6 +76,12 @@ export function SettingsPage() {
     setFormGoal(String(project.goalAmount));
     setFormStart(project.startDate || "");
     setFormEnd(project.endDate || "");
+    setFormUrl(project.landingPageUrl || "");
+    setFormPageId(project.takbullPageId || "");
+    setFormTemplate(project.whatsappTemplate || "");
+    setFormScript(project.callScript || "");
+    setFormColor(project.color || COLOR_PALETTE[0]);
+    setFormDescription(project.description || "");
     setEditingId(project.id);
     setShowForm(true);
   };
@@ -51,20 +90,22 @@ export function SettingsPage() {
     if (!formName.trim()) return;
     setSaving(true);
     try {
+      const data = {
+        name: formName.trim(),
+        goalAmount: Number(formGoal) || 0,
+        startDate: formStart || undefined,
+        endDate: formEnd || undefined,
+        landingPageUrl: formUrl || undefined,
+        takbullPageId: formPageId || undefined,
+        whatsappTemplate: formTemplate || undefined,
+        callScript: formScript || undefined,
+        color: formColor,
+        description: formDescription || undefined,
+      };
       if (editingId) {
-        await update(editingId, {
-          name: formName.trim(),
-          goalAmount: Number(formGoal) || 0,
-          startDate: formStart || undefined,
-          endDate: formEnd || undefined,
-        });
+        await update(editingId, data);
       } else {
-        await create({
-          name: formName.trim(),
-          goalAmount: Number(formGoal) || 0,
-          startDate: formStart || undefined,
-          endDate: formEnd || undefined,
-        });
+        await create(data);
       }
       resetForm();
       refresh();
@@ -85,6 +126,27 @@ export function SettingsPage() {
     }
   };
 
+  const handleAddTier = async () => {
+    if (!tierLabel.trim()) return;
+    await addTier({
+      label: tierLabel.trim(),
+      oneTimeAmount: Number(tierOneTime) || undefined,
+      monthlyAmount: Number(tierMonthly) || undefined,
+    });
+    setTierLabel("");
+    setTierOneTime("");
+    setTierMonthly("");
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "8px 12px",
+    borderRadius: "6px",
+    border: "1px solid var(--color-border)",
+    fontSize: "14px",
+    boxSizing: "border-box",
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
       <header className="header">
@@ -95,6 +157,45 @@ export function SettingsPage() {
         className="main-content"
         style={{ overflowY: "auto", flex: 1, minHeight: 0 }}
       >
+        {/* Active project selector */}
+        {projects.length > 1 && (
+          <div className="card" style={{ marginBottom: "var(--spacing-md)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--spacing-sm)",
+                marginBottom: "var(--spacing-sm)",
+              }}
+            >
+              <Database size={18} style={{ color: "var(--color-accent)" }} />
+              <span style={{ fontWeight: 500 }}>פרויקט פעיל</span>
+            </div>
+            <select
+              value={activeProject?.id || ""}
+              onChange={(e) => setActive(e.target.value || null)}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid var(--color-border)",
+                fontSize: "14px",
+                fontFamily: "inherit",
+                background: "var(--color-surface)",
+              }}
+            >
+              <option value="">-- בחר פרויקט --</option>
+              {projects
+                .filter((p) => p.status === "active")
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+
         {/* User info */}
         <div className="card" style={{ marginBottom: "var(--spacing-md)" }}>
           <div
@@ -182,14 +283,7 @@ export function SettingsPage() {
                   placeholder="שם הפרויקט"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid var(--color-border)",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
+                  style={inputStyle}
                 />
               </div>
               <div style={{ marginBottom: "var(--spacing-xs)" }}>
@@ -198,14 +292,16 @@ export function SettingsPage() {
                   placeholder="יעד גיוס (₪)"
                   value={formGoal}
                   onChange={(e) => setFormGoal(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid var(--color-border)",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ marginBottom: "var(--spacing-xs)" }}>
+                <textarea
+                  placeholder="תיאור הקמפיין"
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  rows={2}
+                  style={{ ...inputStyle, resize: "vertical" }}
                 />
               </div>
               <div
@@ -242,6 +338,199 @@ export function SettingsPage() {
                   }}
                 />
               </div>
+
+              {/* Campaign-specific fields */}
+              <div style={{ marginBottom: "var(--spacing-xs)" }}>
+                <input
+                  type="url"
+                  placeholder="כתובת דף תרומה (https://give.merkazneshama.co.il)"
+                  value={formUrl}
+                  onChange={(e) => setFormUrl(e.target.value)}
+                  style={inputStyle}
+                  dir="ltr"
+                />
+              </div>
+              <div style={{ marginBottom: "var(--spacing-xs)" }}>
+                <input
+                  type="text"
+                  placeholder="מזהה דף תקבול (page_id)"
+                  value={formPageId}
+                  onChange={(e) => setFormPageId(e.target.value)}
+                  style={inputStyle}
+                  dir="ltr"
+                />
+              </div>
+              <div style={{ marginBottom: "var(--spacing-xs)" }}>
+                <textarea
+                  placeholder={
+                    "תבנית הודעת ווטסאפ (השתמש ב-{{link}} לקישור תרומה)"
+                  }
+                  value={formTemplate}
+                  onChange={(e) => setFormTemplate(e.target.value)}
+                  rows={3}
+                  style={{ ...inputStyle, resize: "vertical" }}
+                />
+              </div>
+              <div style={{ marginBottom: "var(--spacing-xs)" }}>
+                <textarea
+                  placeholder="תסריט שיחה / נקודות דיבור"
+                  value={formScript}
+                  onChange={(e) => setFormScript(e.target.value)}
+                  rows={2}
+                  style={{ ...inputStyle, resize: "vertical" }}
+                />
+              </div>
+
+              {/* Color picker */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "var(--spacing-xs)",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  צבע:
+                </span>
+                {COLOR_PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setFormColor(c)}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: c,
+                      border:
+                        formColor === c
+                          ? "3px solid var(--color-text)"
+                          : "2px solid transparent",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Tier management (only when editing) */}
+              {editingId && (
+                <div
+                  style={{
+                    marginBottom: "var(--spacing-xs)",
+                    padding: "var(--spacing-xs)",
+                    background: "rgba(255,255,255,0.5)",
+                    borderRadius: "6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      marginBottom: "6px",
+                    }}
+                  >
+                    רמות תרומה
+                  </div>
+                  {tiers.map((tier) => (
+                    <div
+                      key={tier.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        marginBottom: "4px",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <span style={{ flex: 1 }}>{tier.label}</span>
+                      {tier.oneTimeAmount && <span>₪{tier.oneTimeAmount}</span>}
+                      {tier.monthlyAmount && (
+                        <span style={{ color: "var(--color-text-secondary)" }}>
+                          /₪{tier.monthlyAmount} חודשי
+                        </span>
+                      )}
+                      <button
+                        onClick={() => removeTier(tier.id)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: "2px",
+                          cursor: "pointer",
+                          color: "var(--color-danger, #ef4444)",
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "4px",
+                      marginTop: "6px",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      placeholder="שם רמה"
+                      value={tierLabel}
+                      onChange={(e) => setTierLabel(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        flex: 2,
+                        padding: "4px 8px",
+                        fontSize: "13px",
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="חד פעמי"
+                      value={tierOneTime}
+                      onChange={(e) => setTierOneTime(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        flex: 1,
+                        padding: "4px 8px",
+                        fontSize: "13px",
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="חודשי"
+                      value={tierMonthly}
+                      onChange={(e) => setTierMonthly(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        flex: 1,
+                        padding: "4px 8px",
+                        fontSize: "13px",
+                      }}
+                    />
+                    <button
+                      onClick={handleAddTier}
+                      disabled={!tierLabel.trim()}
+                      style={{
+                        background: "var(--color-primary)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "4px",
+                        padding: "4px 8px",
+                        cursor: "pointer",
+                        opacity: !tierLabel.trim() ? 0.5 : 1,
+                      }}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div
                 style={{
                   display: "flex",
@@ -324,23 +613,36 @@ export function SettingsPage() {
                   borderBottom: "1px solid var(--color-border)",
                 }}
               >
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: "14px" }}>
-                    {project.name}
-                  </div>
-                  <div
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <span
                     style={{
-                      fontSize: "12px",
-                      color: "var(--color-text-secondary)",
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: project.color || "var(--color-primary)",
+                      flexShrink: 0,
                     }}
-                  >
-                    יעד: ₪{project.goalAmount.toLocaleString()} | גויס: ₪
-                    {project.raisedAmount.toLocaleString()} |{" "}
-                    {project.status === "active"
-                      ? "פעיל"
-                      : project.status === "paused"
-                        ? "מושהה"
-                        : "הושלם"}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: "14px" }}>
+                      {project.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--color-text-secondary)",
+                      }}
+                    >
+                      יעד: ₪{project.goalAmount.toLocaleString()} | גויס: ₪
+                      {project.raisedAmount.toLocaleString()} |{" "}
+                      {project.status === "active"
+                        ? "פעיל"
+                        : project.status === "paused"
+                          ? "מושהה"
+                          : "הושלם"}
+                    </div>
                   </div>
                 </div>
                 <div

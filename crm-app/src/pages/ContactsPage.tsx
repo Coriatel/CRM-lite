@@ -1,46 +1,47 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useDebounce } from "../hooks/useDebounce";
 import {
   Search,
   Users,
   X,
   Plus,
-  CheckSquare,
-  Trash2,
+  MoreHorizontal,
+  Download,
   Upload,
 } from "lucide-react";
 import {
-  QuickFilterTab,
-  QUICK_FILTER_LABELS,
-  ContactStatus,
   SortOption,
   Contact,
   AdvancedFilters,
+  CampaignQuickFilter,
+  CAMPAIGN_FILTER_LABELS,
+  CAMPAIGN_STATUS_COLORS,
+  CampaignStatus,
 } from "../types";
-import { useContacts, useContactActions } from "../hooks/useContacts";
+import {
+  useProjectContacts,
+  useProjectContactActions,
+} from "../hooks/useProjectContacts";
+import { useContactActions } from "../hooks/useContacts";
+import { useProjectContext } from "../contexts/ProjectContext";
+import { getProjectStats } from "../services/directus";
 import { ContactCard } from "../components/ContactCard";
 import { AddNoteModal } from "../components/AddNoteModal";
 import { ContactDetailModal } from "../components/ContactDetailModal";
 import { EditContactModal } from "../components/EditContactModal";
 import { ImportModal } from "../components/ImportModal";
+import { ProjectSwitcher } from "../components/ProjectSwitcher";
+import { WhatsAppSendModal } from "../components/WhatsAppSendModal";
+import { ImportContactsToProject } from "../components/ImportContactsToProject";
 
 interface ContactsPageProps {
-  quickFilter: QuickFilterTab;
-  onQuickFilterChange: (f: QuickFilterTab) => void;
-  statusFilter: ContactStatus | "all";
-  onStatusFilterChange?: (status: ContactStatus | "all") => void;
   sortBy: SortOption;
   onSortChange?: (sort: SortOption) => void;
   advancedFilters?: AdvancedFilters;
 }
 
-export function ContactsPage({
-  quickFilter,
-  onQuickFilterChange,
-  statusFilter,
-  sortBy,
-  advancedFilters,
-}: ContactsPageProps) {
+export function ContactsPage({ sortBy, advancedFilters }: ContactsPageProps) {
+  const { activeProject } = useProjectContext();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -48,52 +49,96 @@ export function ContactsPage({
   const [noteContact, setNoteContact] = useState<Contact | null>(null);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-  // Bulk selection
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImportFromProjectOpen, setIsImportFromProjectOpen] = useState(false);
 
-  const { contacts, loading, hasMore, loadMore, loadAll, refresh } =
-    useContacts(
-      quickFilter,
-      statusFilter,
-      debouncedSearch,
-      sortBy,
-      advancedFilters,
-    );
+  // Campaign filter
+  const [campaignFilter, setCampaignFilter] =
+    useState<CampaignQuickFilter>("all");
+  const [whatsappContact, setWhatsappContact] = useState<{
+    contact: Contact;
+    pcId: string;
+    linkCount: number;
+    lastSent?: string;
+  } | null>(null);
+
+  // Overflow menu for import actions
+  const [showOverflow, setShowOverflow] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+
+  // Tab count stats (effect is below after campaignContacts is declared)
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+
+  // Close overflow on outside click
+  useEffect(() => {
+    if (!showOverflow) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        overflowRef.current &&
+        !overflowRef.current.contains(e.target as Node)
+      ) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showOverflow]);
+
+  // Tag filters from drawer
+  const allTags = [
+    ...(advancedFilters?.sheetTags || []),
+    ...(advancedFilters?.groupTags || []),
+  ];
+
+  // Project contacts with server-side search + filtering
+  const {
+    contacts: campaignContacts,
+    loading: campaignLoading,
+    refresh: refreshCampaign,
+  } = useProjectContacts(
+    activeProject?.id || null,
+    campaignFilter !== "all" ? campaignFilter : undefined,
+    debouncedSearch || undefined,
+    sortBy,
+    allTags.length > 0 ? allTags : undefined,
+  );
+
+  // Refresh tab counts when contacts change
+  useEffect(() => {
+    if (!activeProject) return;
+    getProjectStats(activeProject.id)
+      .then((stats) => {
+        setTabCounts({ all: stats.total, ...stats.byStatus });
+      })
+      .catch(() => {});
+  }, [activeProject?.id, campaignContacts.length]);
 
   const { createContact, updateContact, deleteContact } = useContactActions();
-
-  const handleScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => {
-      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-      if (
-        scrollHeight - scrollTop <= clientHeight * 1.5 &&
-        hasMore &&
-        !loading
-      ) {
-        loadMore();
-      }
-    },
-    [hasMore, loading, loadMore],
-  );
+  const pcActions = useProjectContactActions();
 
   const handleSaveContact = async (data: Partial<Contact>) => {
     if (editContact) {
       await updateContact(editContact.id, data);
     } else {
-      await createContact(data);
+      const newContact = await createContact(data);
+      // Auto-add new contact to current project
+      if (activeProject && newContact) {
+        try {
+          await pcActions.addToProject(activeProject.id, [
+            (newContact as { id: string }).id,
+          ]);
+        } catch {}
+      }
     }
     setIsEditModalOpen(false);
-    refresh();
+    refreshCampaign();
   };
 
   const handleDeleteContact = async () => {
     if (selectedContact) {
       await deleteContact(selectedContact.id);
       setSelectedContact(null);
-      refresh();
+      refreshCampaign();
     }
   };
 
@@ -102,54 +147,7 @@ export function ContactsPage({
       await deleteContact(editContact.id);
       setIsEditModalOpen(false);
       setEditContact(null);
-      refresh();
-    }
-  };
-
-  const toggleSelection = (id: string) => {
-    setSelectedIds((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      return newSet;
-    });
-  };
-
-  const toggleSelectionMode = () => {
-    setSelectionMode(!selectionMode);
-    setSelectedIds(new Set());
-  };
-
-  const selectAll = () => {
-    setSelectedIds(new Set(contacts.map((c) => c.id)));
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (selectedIds.size > 100) {
-      alert("לא ניתן למחוק יותר מ-100 אנשי קשר בבת אחת");
-      return;
-    }
-
-    if (confirm(`האם אתה בטוח שברצונך למחוק ${selectedIds.size} אנשי קשר?`)) {
-      const failures: string[] = [];
-      for (const id of selectedIds) {
-        try {
-          await deleteContact(id);
-        } catch (err) {
-          failures.push(id);
-          console.error(`Failed to delete contact ${id}:`, err);
-        }
-      }
-      if (failures.length > 0) {
-        alert(`${failures.length} אנשי קשר לא נמחקו עקב שגיאה`);
-      }
-      setSelectedIds(new Set());
-      setSelectionMode(false);
-      refresh();
+      refreshCampaign();
     }
   };
 
@@ -157,8 +155,32 @@ export function ContactsPage({
     for (const contact of importedContacts) {
       await createContact(contact);
     }
-    refresh();
+    refreshCampaign();
   };
+
+  if (!activeProject) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <header className="header">
+          <h1 className="header-title">אנשי קשר</h1>
+        </header>
+        <div
+          className="empty-state"
+          style={{ paddingTop: "var(--spacing-xl)" }}
+        >
+          <Users size={48} className="empty-state-icon" />
+          <p>יש לבחור פרויקט בהגדרות כדי להציג אנשי קשר</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -178,69 +200,100 @@ export function ContactsPage({
             alignItems: "center",
           }}
         >
-          <h1 className="header-title">CRM Phone</h1>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--spacing-sm)",
-            }}
-          >
-            {!selectionMode ? (
-              <>
+          <ProjectSwitcher />
+          <div style={{ position: "relative" }} ref={overflowRef}>
+            <button
+              className="header-btn"
+              onClick={() => setShowOverflow((v) => !v)}
+              title="אפשרויות"
+            >
+              <MoreHorizontal size={20} />
+            </button>
+            {showOverflow && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  marginTop: 4,
+                  background: "var(--color-surface)",
+                  borderRadius: "var(--radius-sm)",
+                  boxShadow: "var(--shadow-lg)",
+                  zIndex: 60,
+                  minWidth: 160,
+                  overflow: "hidden",
+                }}
+              >
                 <button
-                  className="header-btn"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    padding: "10px 14px",
+                    background: "none",
+                    border: "none",
+                    fontFamily: "inherit",
+                    fontSize: 14,
+                    color: "var(--color-text)",
+                    cursor: "pointer",
+                  }}
                   onClick={() => {
+                    setShowOverflow(false);
+                    setIsImportFromProjectOpen(true);
+                  }}
+                >
+                  <Download size={16} />
+                  ייבא מפרויקט
+                </button>
+                <button
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    padding: "10px 14px",
+                    background: "none",
+                    border: "none",
+                    fontFamily: "inherit",
+                    fontSize: 14,
+                    color: "var(--color-text)",
+                    cursor: "pointer",
+                    borderTop: "1px solid var(--color-border)",
+                  }}
+                  onClick={() => {
+                    setShowOverflow(false);
+                    setIsImportModalOpen(true);
+                  }}
+                >
+                  <Upload size={16} />
+                  ייבא מאקסל
+                </button>
+                <button
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    padding: "10px 14px",
+                    background: "none",
+                    border: "none",
+                    fontFamily: "inherit",
+                    fontSize: 14,
+                    color: "var(--color-text)",
+                    cursor: "pointer",
+                    borderTop: "1px solid var(--color-border)",
+                  }}
+                  onClick={() => {
+                    setShowOverflow(false);
                     setEditContact(null);
                     setIsEditModalOpen(true);
                   }}
                 >
                   <Plus size={16} />
-                  <span>חדש</span>
+                  איש קשר חדש
                 </button>
-                <button
-                  className="header-btn"
-                  onClick={() => setIsImportModalOpen(true)}
-                  title="ייבא מאקסל"
-                >
-                  <Upload size={18} />
-                </button>
-                <button
-                  className="header-btn"
-                  onClick={toggleSelectionMode}
-                  title="בחירה מרובה"
-                >
-                  <CheckSquare size={18} />
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="header-btn"
-                  onClick={selectAll}
-                  title="בחר הכל"
-                >
-                  <CheckSquare size={18} />
-                </button>
-                <button
-                  className="header-btn header-btn-danger"
-                  onClick={handleBulkDelete}
-                  title="מחק נבחרים"
-                  disabled={selectedIds.size === 0}
-                >
-                  <Trash2 size={18} />
-                </button>
-                <button
-                  className="header-btn"
-                  onClick={toggleSelectionMode}
-                  title="ביטול"
-                >
-                  <X size={18} />
-                </button>
-                <span style={{ fontSize: "14px", opacity: 0.8 }}>
-                  {selectedIds.size} נבחרו
-                </span>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -269,16 +322,44 @@ export function ContactsPage({
         </div>
       </header>
 
-      {/* Quick filter tabs */}
-      <div className="tabs">
-        {(Object.keys(QUICK_FILTER_LABELS) as QuickFilterTab[]).map(
+      {/* Campaign filter tabs — horizontal scroll */}
+      <div
+        className="tabs"
+        style={{
+          overflowX: "auto",
+          flexWrap: "nowrap",
+          WebkitOverflowScrolling: "touch",
+        }}
+      >
+        {(Object.keys(CAMPAIGN_FILTER_LABELS) as CampaignQuickFilter[]).map(
           (filter) => (
             <button
               key={filter}
-              className={`tab ${quickFilter === filter ? "active" : ""}`}
-              onClick={() => onQuickFilterChange(filter)}
+              className={`tab ${campaignFilter === filter ? "active" : ""}`}
+              onClick={() => setCampaignFilter(filter)}
+              style={{
+                flexShrink: 0,
+                ...(campaignFilter === filter && filter !== "all"
+                  ? {
+                      borderBottomColor:
+                        CAMPAIGN_STATUS_COLORS[filter as CampaignStatus],
+                    }
+                  : undefined),
+              }}
             >
-              {QUICK_FILTER_LABELS[filter]}
+              {CAMPAIGN_FILTER_LABELS[filter]}
+              {tabCounts[filter] !== undefined && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.8,
+                    fontWeight: 400,
+                    marginInlineStart: 2,
+                  }}
+                >
+                  ({tabCounts[filter]})
+                </span>
+              )}
             </button>
           ),
         )}
@@ -287,69 +368,107 @@ export function ContactsPage({
       {/* Contact list */}
       <main
         className="main-content"
-        onScroll={handleScroll}
         style={{ overflowY: "auto", flex: 1, minHeight: 0 }}
       >
-        {loading && contacts.length === 0 ? (
-          <div className="loading">
-            <div className="spinner"></div>
+        {campaignLoading ? (
+          <div className="contact-list">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="card contact-card skeleton-card">
+                <div className="skeleton skeleton-avatar" />
+                <div className="contact-info">
+                  <div
+                    className="skeleton skeleton-line"
+                    style={{ width: "60%" }}
+                  />
+                  <div
+                    className="skeleton skeleton-line"
+                    style={{ width: "40%", marginTop: 6 }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
-        ) : contacts.length === 0 ? (
+        ) : campaignContacts.length === 0 ? (
           <div className="empty-state">
             <Users size={48} className="empty-state-icon" />
-            <p>לא נמצאו אנשי קשר</p>
-            {searchQuery && <p style={{ fontSize: "14px" }}>נסה חיפוש אחר</p>}
+            {debouncedSearch ? (
+              <>
+                <p>לא נמצאו תוצאות עבור "{debouncedSearch}"</p>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setSearchQuery("")}
+                  style={{ marginTop: "var(--spacing-sm)" }}
+                >
+                  <X size={16} />
+                  נקה חיפוש
+                </button>
+              </>
+            ) : campaignFilter !== "all" ? (
+              <>
+                <p>
+                  אין אנשי קשר בסטטוס "{CAMPAIGN_FILTER_LABELS[campaignFilter]}"
+                </p>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setCampaignFilter("all")}
+                  style={{ marginTop: "var(--spacing-sm)" }}
+                >
+                  הצג הכל
+                </button>
+              </>
+            ) : (
+              <>
+                <p>הקמפיין ריק</p>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setIsImportFromProjectOpen(true)}
+                  style={{ marginTop: "var(--spacing-sm)" }}
+                >
+                  <Download size={16} />
+                  ייבא אנשי קשר
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="contact-list">
-            {contacts.map((contact) => (
-              <ContactCard
-                key={contact.id}
-                contact={contact}
-                onAddNote={(c) => setNoteContact(c)}
-                onViewDetails={(c) => setSelectedContact(c)}
-                onEdit={(c) => {
-                  setEditContact(c);
-                  setIsEditModalOpen(true);
-                }}
-                selectionMode={selectionMode}
-                isSelected={selectedIds.has(contact.id)}
-                onToggleSelect={toggleSelection}
-              />
-            ))}
-
-            {loading && (
-              <div className="loading">
-                <div className="spinner"></div>
-              </div>
-            )}
-
-            {!loading && (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "20px",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                <div>מוצגים {contacts.length} אנשי קשר</div>
-                <button
-                  onClick={loadAll}
-                  className="btn"
-                  style={{
-                    background: "var(--color-bg-secondary)",
-                    border: "1px solid var(--color-border)",
-                    padding: "8px 16px",
-                    fontSize: "14px",
+            {campaignContacts.map((pc) => {
+              if (!pc.contact) return null;
+              return (
+                <ContactCard
+                  key={pc.id}
+                  contact={pc.contact}
+                  onAddNote={(c) => setNoteContact(c)}
+                  onViewDetails={(c) => setSelectedContact(c)}
+                  onEdit={(c) => {
+                    setEditContact(c);
+                    setIsEditModalOpen(true);
                   }}
-                >
-                  טען את הכל
-                </button>
-              </div>
-            )}
+                  campaignStatus={pc.campaignStatus}
+                  linkSendCount={pc.linkSendCount}
+                  onSendLink={
+                    activeProject?.landingPageUrl
+                      ? (c) =>
+                          setWhatsappContact({
+                            contact: c,
+                            pcId: pc.id,
+                            linkCount: pc.linkSendCount,
+                            lastSent: pc.lastLinkSentAt,
+                          })
+                      : undefined
+                  }
+                />
+              );
+            })}
+            <div
+              style={{
+                padding: "20px",
+                textAlign: "center",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              {campaignContacts.length} אנשי קשר בקמפיין
+            </div>
           </div>
         )}
       </main>
@@ -361,7 +480,7 @@ export function ContactsPage({
           setEditContact(null);
           setIsEditModalOpen(true);
         }}
-        title="אנשי קשר חדש"
+        title="איש קשר חדש"
       >
         <Plus size={24} />
       </button>
@@ -371,7 +490,7 @@ export function ContactsPage({
         <AddNoteModal
           contact={noteContact}
           onClose={() => setNoteContact(null)}
-          onSaved={refresh}
+          onSaved={() => refreshCampaign()}
         />
       )}
 
@@ -405,6 +524,41 @@ export function ContactsPage({
         onClose={() => setIsImportModalOpen(false)}
         onImport={handleBulkImport}
       />
+
+      {isImportFromProjectOpen && activeProject && (
+        <ImportContactsToProject
+          targetProjectId={activeProject.id}
+          onClose={() => setIsImportFromProjectOpen(false)}
+          onImported={refreshCampaign}
+        />
+      )}
+
+      {whatsappContact && activeProject && (
+        <WhatsAppSendModal
+          contact={whatsappContact.contact}
+          project={activeProject}
+          projectContact={{
+            id: whatsappContact.pcId,
+            projectId: activeProject.id,
+            contactId: whatsappContact.contact.id,
+            campaignStatus: "link_sent",
+            linkSendCount: whatsappContact.linkCount,
+            lastLinkSentAt: whatsappContact.lastSent,
+            dateCreated: "",
+            dateUpdated: "",
+          }}
+          onSent={async () => {
+            const { recordLinkSent } = pcActions;
+            await recordLinkSent(
+              whatsappContact!.pcId,
+              whatsappContact!.linkCount,
+            );
+            setWhatsappContact(null);
+            refreshCampaign();
+          }}
+          onClose={() => setWhatsappContact(null)}
+        />
+      )}
     </div>
   );
 }

@@ -164,19 +164,7 @@ export function useContacts(
     })
       .then((data) => {
         if (!cancelled) {
-          let mapped = data.map(mapDirectusToContact);
-
-          // Client-side multi-tag filter (API only handles single tag)
-          const selectedTags = [
-            ...(advancedFilters?.sheetTags || []),
-            ...(advancedFilters?.groupTags || []),
-          ];
-          if (selectedTags.length > 0) {
-            mapped = mapped.filter((c) =>
-              c.tags?.some((t) => selectedTags.includes(t)),
-            );
-          }
-
+          const mapped = data.map(mapDirectusToContact);
           setContacts(mapped);
           setLoading(false);
         }

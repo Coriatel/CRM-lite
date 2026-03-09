@@ -13,8 +13,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import {
-  ContactStatus,
-  STATUS_LABELS,
   SortOption,
   SORT_LABELS,
   AdvancedFilters,
@@ -24,8 +22,6 @@ import { useTags } from "../../hooks/useTags";
 interface DrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  statusFilter: ContactStatus | "all";
-  onStatusFilter: (status: ContactStatus | "all") => void;
   sortBy: SortOption;
   onSortChange: (sort: SortOption) => void;
   advancedFilters: AdvancedFilters;
@@ -84,8 +80,6 @@ function DrawerSection({
 export function Drawer({
   isOpen,
   onClose,
-  statusFilter,
-  onStatusFilter,
   sortBy,
   onSortChange,
   advancedFilters,
@@ -100,7 +94,6 @@ export function Drawer({
     sheets: false,
     groups: false,
     interestLevel: false,
-    callStatus: false,
   });
 
   const toggle = (key: string) =>
@@ -114,12 +107,10 @@ export function Drawer({
     advancedFilters.interestLevel ||
     advancedFilters.hideNoName ||
     (advancedFilters.sheetTags && advancedFilters.sheetTags.length > 0) ||
-    (advancedFilters.groupTags && advancedFilters.groupTags.length > 0) ||
-    statusFilter !== "all";
+    (advancedFilters.groupTags && advancedFilters.groupTags.length > 0);
 
   const clearAdvanced = () => {
     onAdvancedFilters({});
-    onStatusFilter("all");
   };
 
   const toggleFollowUpToday = () => {
@@ -193,7 +184,7 @@ export function Drawer({
         </div>
 
         <div className="drawer-body">
-          {/* Clear all filters — always visible */}
+          {/* Clear all filters */}
           <button
             className="drawer-clear-all"
             onClick={clearAdvanced}
@@ -348,29 +339,6 @@ export function Drawer({
                   ))}
                 </span>
                 {INTEREST_LABELS[level]}
-              </button>
-            ))}
-          </DrawerSection>
-
-          {/* Status filter */}
-          <DrawerSection
-            title="סטטוס שיחה"
-            isExpanded={expanded.callStatus}
-            onToggle={() => toggle("callStatus")}
-          >
-            <button
-              className={`drawer-filter-item ${statusFilter === "all" ? "active" : ""}`}
-              onClick={() => onStatusFilter("all")}
-            >
-              הכל
-            </button>
-            {(Object.keys(STATUS_LABELS) as ContactStatus[]).map((status) => (
-              <button
-                key={status}
-                className={`drawer-filter-item ${statusFilter === status ? "active" : ""}`}
-                onClick={() => onStatusFilter(status)}
-              >
-                {STATUS_LABELS[status]}
               </button>
             ))}
           </DrawerSection>

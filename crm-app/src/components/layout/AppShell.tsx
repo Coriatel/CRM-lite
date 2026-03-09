@@ -2,11 +2,9 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { BottomNav } from "./BottomNav";
 import { Drawer } from "./Drawer";
-import { ContactStatus, SortOption, AdvancedFilters } from "../../types";
+import { SortOption, AdvancedFilters } from "../../types";
 
 interface AppShellProps {
-  statusFilter: ContactStatus | "all";
-  onStatusFilter: (status: ContactStatus | "all") => void;
   sortBy: SortOption;
   onSortChange: (sort: SortOption) => void;
   advancedFilters: AdvancedFilters;
@@ -14,8 +12,6 @@ interface AppShellProps {
 }
 
 export function AppShell({
-  statusFilter,
-  onStatusFilter,
   sortBy,
   onSortChange,
   advancedFilters,
@@ -26,12 +22,23 @@ export function AppShell({
   return (
     <div className="app-shell">
       <Outlet />
-      <BottomNav onFilterClick={() => setDrawerOpen(true)} />
+      <BottomNav
+        onFilterClick={() => setDrawerOpen(true)}
+        hasActiveFilters={
+          !!(
+            advancedFilters.followUpBefore ||
+            advancedFilters.neverCalled ||
+            advancedFilters.interestLevel ||
+            advancedFilters.hideNoName ||
+            (advancedFilters.sheetTags &&
+              advancedFilters.sheetTags.length > 0) ||
+            (advancedFilters.groupTags && advancedFilters.groupTags.length > 0)
+          )
+        }
+      />
       <Drawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        statusFilter={statusFilter}
-        onStatusFilter={onStatusFilter}
         sortBy={sortBy}
         onSortChange={onSortChange}
         advancedFilters={advancedFilters}

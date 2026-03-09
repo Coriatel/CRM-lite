@@ -128,3 +128,77 @@ export const SHEET_LABELS: Record<SheetName, string> = {
   תלמידים: "תלמידים",
   להתרמות: "להתרמות",
 };
+
+// Campaign types
+export type CampaignStatus =
+  | "not_contacted"
+  | "called"
+  | "no_answer"
+  | "agreed"
+  | "link_sent"
+  | "paid"
+  | "refused";
+
+export const CAMPAIGN_STATUS_LABELS: Record<CampaignStatus, string> = {
+  not_contacted: "לא נוצר קשר",
+  called: "התקשרו",
+  no_answer: "לא ענה",
+  agreed: "הסכימו",
+  link_sent: "נשלח לינק",
+  paid: "שילמו",
+  refused: "סירבו",
+};
+
+export const CAMPAIGN_STATUS_COLORS: Record<CampaignStatus, string> = {
+  not_contacted: "#94a3b8",
+  called: "#3b82f6",
+  no_answer: "#f59e0b",
+  agreed: "#8b5cf6",
+  link_sent: "#06b6d4",
+  paid: "#22c55e",
+  refused: "#ef4444",
+};
+
+export type CampaignQuickFilter = "all" | CampaignStatus;
+
+export const CAMPAIGN_FILTER_LABELS: Record<CampaignQuickFilter, string> = {
+  all: "הכל",
+  not_contacted: "לא נוצר קשר",
+  called: "התקשרו",
+  no_answer: "לא ענה",
+  agreed: "הסכימו",
+  link_sent: "נשלח לינק",
+  paid: "שילמו",
+  refused: "סירבו",
+};
+
+export interface ProjectContact {
+  id: string;
+  projectId: string;
+  contactId: string;
+  campaignStatus: CampaignStatus;
+  donationAmount?: number;
+  donationType?: "one_time" | "recurring";
+  tierLabel?: string;
+  linkSendCount: number;
+  lastLinkSentAt?: string;
+  notes?: string;
+  dateCreated: string;
+  dateUpdated: string;
+  contact?: Contact;
+}
+
+export interface ProjectTier {
+  id: string;
+  projectId: string;
+  sortOrder: number;
+  label: string;
+  oneTimeAmount?: number;
+  monthlyAmount?: number;
+}
+
+export interface CrossProjectDonation {
+  projectId: string;
+  projectName: string;
+  amount: number;
+}

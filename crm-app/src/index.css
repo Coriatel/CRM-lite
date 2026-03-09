@@ -162,8 +162,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
-  /* Limit width to prevent pushing buttons */
 }
 
 .contact-actions {
@@ -1247,4 +1245,55 @@ textarea.input {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+}
+
+/* ============================================ */
+/* Skeleton Loading                             */
+/* ============================================ */
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-bg-secondary) 25%, #e2e8f0 50%, var(--color-bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 4px;
+}
+
+.skeleton-card {
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================ */
+/* Filter Active Dot                            */
+/* ============================================ */
+
+.bottom-nav-item.has-filter {
+  position: relative;
+}
+
+.filter-dot {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(8px);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
 }

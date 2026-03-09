@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowRight, Phone, MapPin, Mail, FileText } from "lucide-react";
+import { ArrowRight, Phone, MapPin, Mail, FileText, Send } from "lucide-react";
 import { CallHistoryTimeline } from "../components/call/CallHistoryTimeline";
 import { CallNoteForm } from "../components/call/CallNoteForm";
 import { StatusBadge } from "../components/StatusBadge";
@@ -8,12 +8,17 @@ import {
   getContact,
   getInteractions,
   updateContact as patchContact,
+  getProjectContactForContact,
+  getContactCrossProjectDonations,
   DirectusContact,
   DirectusInteraction,
 } from "../services/directus";
 import { useContactActions } from "../hooks/useContacts";
 import { useCallQueue, useCallQueueActions } from "../hooks/useCallQueue";
-import { ContactStatus } from "../types";
+import { useProjectContext } from "../contexts/ProjectContext";
+import { useProjectContactActions } from "../hooks/useProjectContacts";
+import { WhatsAppSendModal } from "../components/WhatsAppSendModal";
+import { ContactStatus, ProjectContact } from "../types";
 
 export function ActiveCallPage() {
   const { contactId } = useParams<{ contactId: string }>();
@@ -28,6 +33,16 @@ export function ActiveCallPage() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [saving, setSaving] = useState(false);
   const dialedRef = useRef(false);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [projectContact, setProjectContact] = useState<ProjectContact | null>(
+    null,
+  );
+  const [crossDonations, setCrossDonations] = useState<
+    { projectId: string; projectName: string; amount: number }[]
+  >([]);
+
+  const { activeProject, projects } = useProjectContext();
+  const { recordLinkSent } = useProjectContactActions();
 
   // Validate contactId format
   const isValidId =
@@ -86,6 +101,60 @@ export function ActiveCallPage() {
       }
     }
   }, [contact]);
+
+  // Fetch project_contact and cross-project donations
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeProject || !contactId || !isValidId) {
+      setProjectContact(null);
+      setCrossDonations([]);
+      return;
+    }
+    getProjectContactForContact(activeProject.id, contactId)
+      .then((pc) => {
+        if (cancelled) return;
+        if (pc) {
+          setProjectContact({
+            id: pc.id,
+            projectId: pc.project_id,
+            contactId: pc.contact_id,
+            campaignStatus:
+              pc.campaign_status as ProjectContact["campaignStatus"],
+            donationAmount: pc.donation_amount
+              ? Number(pc.donation_amount)
+              : undefined,
+            donationType: pc.donation_type as ProjectContact["donationType"],
+            tierLabel: pc.tier_label || undefined,
+            linkSendCount: pc.link_send_count || 0,
+            lastLinkSentAt: pc.last_link_sent_at || undefined,
+            notes: pc.notes || undefined,
+            dateCreated: pc.date_created,
+            dateUpdated: pc.date_updated,
+          });
+        }
+      })
+      .catch((err) => console.error("Failed to load project contact:", err));
+
+    getContactCrossProjectDonations(contactId)
+      .then((donations) => {
+        if (cancelled) return;
+        const other = donations
+          .filter((d) => d.project_id !== activeProject.id && d.donation_amount)
+          .map((d) => ({
+            projectId: d.project_id,
+            projectName:
+              projects.find((p) => p.id === d.project_id)?.name || "פרויקט",
+            amount: Number(d.donation_amount),
+          }));
+        setCrossDonations(other);
+      })
+      .catch((err) =>
+        console.error("Failed to load cross-project donations:", err),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject, contactId, projects]);
 
   // Find current queue item for this contact
   const currentQueueItem = queue.find(
@@ -247,6 +316,27 @@ export function ActiveCallPage() {
         <h1 className="header-title" style={{ flex: 1 }}>
           שיחה פעילה
         </h1>
+        {activeProject && activeProject.landingPageUrl && phone && (
+          <button
+            className="header-btn"
+            onClick={() => setShowWhatsApp(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "6px 10px",
+              background: "#25D366",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "13px",
+            }}
+          >
+            <Send size={16} />
+            לינק
+          </button>
+        )}
         {phone && (
           <a
             href={`tel:${phone}`}
@@ -344,6 +434,35 @@ export function ActiveCallPage() {
             </span>
           )}
         </div>
+
+        {/* Cross-project donation badges */}
+        {crossDonations.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "4px",
+              marginTop: "var(--spacing-xs)",
+            }}
+          >
+            {crossDonations.map((d) => (
+              <span
+                key={d.projectId}
+                style={{
+                  display: "inline-block",
+                  padding: "2px 8px",
+                  borderRadius: "10px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  background: "#f9731620",
+                  color: "#f97316",
+                }}
+              >
+                תרם ₪{d.amount.toLocaleString()} ב{d.projectName}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Scrollable call history */}
@@ -379,6 +498,32 @@ export function ActiveCallPage() {
           onSkip={currentQueueItem ? handleSkip : undefined}
           saving={saving}
           hasNext={!!nextQueueItem}
+        />
+      )}
+
+      {showWhatsApp && activeProject && contact && (
+        <WhatsAppSendModal
+          contact={{
+            fullName: contact.full_name,
+            phone1: contact.phone_e164 || contact.phone_raw,
+          }}
+          project={activeProject}
+          projectContact={projectContact || undefined}
+          onSent={async () => {
+            if (projectContact) {
+              await recordLinkSent(
+                projectContact.id,
+                projectContact.linkSendCount,
+              );
+              setProjectContact((prev) =>
+                prev
+                  ? { ...prev, linkSendCount: prev.linkSendCount + 1 }
+                  : prev,
+              );
+            }
+            setShowWhatsApp(false);
+          }}
+          onClose={() => setShowWhatsApp(false)}
         />
       )}
     </div>

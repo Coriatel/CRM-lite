@@ -9,15 +9,21 @@ import {
   MessageCircle,
   Pencil,
   Trash2,
+  Send,
 } from "lucide-react";
-import { Contact, Note } from "../types";
+import { Contact, Note, ProjectContact } from "../types";
 import { StatusBadge } from "./StatusBadge";
 import {
   getInteractions,
   updateContact as patchContact,
+  getProjectContactForContact,
+  getContactCrossProjectDonations,
 } from "../services/directus";
 import { IS_DEMO_MODE } from "../config";
 import { DonationProcess } from "./DonationProcess";
+import { WhatsAppSendModal } from "./WhatsAppSendModal";
+import { useProjectContext } from "../contexts/ProjectContext";
+import { useProjectContactActions } from "../hooks/useProjectContacts";
 
 interface ContactDetailModalProps {
   contact: Contact;
@@ -42,6 +48,73 @@ export function ContactDetailModal({
   const [localThankYou, setLocalThankYou] = useState(
     contact.thankYouSent || false,
   );
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [projectContact, setProjectContact] = useState<ProjectContact | null>(
+    null,
+  );
+  const [crossDonations, setCrossDonations] = useState<
+    { projectId: string; projectName: string; amount: number }[]
+  >([]);
+
+  const { activeProject, projects } = useProjectContext();
+  const { recordLinkSent } = useProjectContactActions();
+
+  const canSendLink =
+    activeProject && activeProject.landingPageUrl && contact.phone1;
+
+  // Fetch project_contact record and cross-project donations
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeProject || IS_DEMO_MODE) {
+      setProjectContact(null);
+      setCrossDonations([]);
+      return;
+    }
+    getProjectContactForContact(activeProject.id, contact.id)
+      .then((pc) => {
+        if (cancelled) return;
+        if (pc) {
+          setProjectContact({
+            id: pc.id,
+            projectId: pc.project_id,
+            contactId: pc.contact_id,
+            campaignStatus:
+              pc.campaign_status as ProjectContact["campaignStatus"],
+            donationAmount: pc.donation_amount
+              ? Number(pc.donation_amount)
+              : undefined,
+            donationType: pc.donation_type as ProjectContact["donationType"],
+            tierLabel: pc.tier_label || undefined,
+            linkSendCount: pc.link_send_count || 0,
+            lastLinkSentAt: pc.last_link_sent_at || undefined,
+            notes: pc.notes || undefined,
+            dateCreated: pc.date_created,
+            dateUpdated: pc.date_updated,
+          });
+        }
+      })
+      .catch((err) => console.error("Failed to load project contact:", err));
+
+    getContactCrossProjectDonations(contact.id)
+      .then((donations) => {
+        if (cancelled) return;
+        const other = donations
+          .filter((d) => d.project_id !== activeProject.id && d.donation_amount)
+          .map((d) => ({
+            projectId: d.project_id,
+            projectName:
+              projects.find((p) => p.id === d.project_id)?.name || "פרויקט",
+            amount: Number(d.donation_amount),
+          }));
+        setCrossDonations(other);
+      })
+      .catch((err) =>
+        console.error("Failed to load cross-project donations:", err),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject, contact.id, projects]);
 
   const handleToggleReceipt = async () => {
     const next = !localReceipt;
@@ -162,6 +235,37 @@ export function ContactDetailModal({
                 onToggleReceipt={handleToggleReceipt}
                 onToggleThankYou={handleToggleThankYou}
               />
+            </div>
+          )}
+
+          {/* Cross-project donation badges */}
+          {crossDonations.length > 0 && (
+            <div
+              style={{
+                marginBottom: "var(--spacing-md)",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                justifyContent: "center",
+              }}
+            >
+              {crossDonations.map((d) => (
+                <span
+                  key={d.projectId}
+                  style={{
+                    display: "inline-block",
+                    padding: "4px 10px",
+                    borderRadius: "12px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    background: "#f97316" + "20",
+                    color: "#f97316",
+                    border: "1px solid #f97316" + "40",
+                  }}
+                >
+                  תרם ₪{d.amount.toLocaleString()} בפרויקט {d.projectName}
+                </span>
+              ))}
             </div>
           )}
 
@@ -306,6 +410,21 @@ export function ContactDetailModal({
             <Edit2 size={18} />
             הוסף הערה
           </button>
+          {canSendLink && (
+            <button
+              className="btn"
+              style={{
+                flex: 0,
+                background: "#25D366",
+                color: "white",
+                border: "none",
+              }}
+              onClick={() => setShowWhatsApp(true)}
+              title="שלח לינק תרומה"
+            >
+              <Send size={18} />
+            </button>
+          )}
           <button
             className="btn"
             style={{
@@ -321,6 +440,29 @@ export function ContactDetailModal({
           </button>
         </div>
       </div>
+
+      {showWhatsApp && activeProject && (
+        <WhatsAppSendModal
+          contact={contact}
+          project={activeProject}
+          projectContact={projectContact || undefined}
+          onSent={async () => {
+            if (projectContact) {
+              await recordLinkSent(
+                projectContact.id,
+                projectContact.linkSendCount,
+              );
+              setProjectContact((prev) =>
+                prev
+                  ? { ...prev, linkSendCount: prev.linkSendCount + 1 }
+                  : prev,
+              );
+            }
+            setShowWhatsApp(false);
+          }}
+          onClose={() => setShowWhatsApp(false)}
+        />
+      )}
     </div>
   );
 }

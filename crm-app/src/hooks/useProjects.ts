@@ -19,6 +19,12 @@ export interface Project {
   status: "active" | "paused" | "completed";
   startDate?: string;
   endDate?: string;
+  landingPageUrl?: string;
+  takbullPageId?: string;
+  description?: string;
+  color?: string;
+  whatsappTemplate?: string;
+  callScript?: string;
   dateCreated: string;
 }
 
@@ -42,6 +48,12 @@ function mapProject(dp: DirectusProject): Project {
     status: dp.status,
     startDate: dp.start_date || undefined,
     endDate: dp.end_date || undefined,
+    landingPageUrl: dp.landing_page_url || undefined,
+    takbullPageId: dp.takbull_page_id || undefined,
+    description: dp.description || undefined,
+    color: dp.color || undefined,
+    whatsappTemplate: dp.whatsapp_template || undefined,
+    callScript: dp.call_script || undefined,
     dateCreated: dp.date_created,
   };
 }
@@ -104,6 +116,12 @@ export function useProjectActions() {
     goalAmount: number;
     startDate?: string;
     endDate?: string;
+    landingPageUrl?: string;
+    takbullPageId?: string;
+    description?: string;
+    color?: string;
+    whatsappTemplate?: string;
+    callScript?: string;
   }): Promise<Project | null> => {
     if (IS_DEMO_MODE) return null;
     const result = await postProject({
@@ -113,6 +131,12 @@ export function useProjectActions() {
       status: "active",
       start_date: data.startDate,
       end_date: data.endDate,
+      landing_page_url: data.landingPageUrl,
+      takbull_page_id: data.takbullPageId,
+      description: data.description,
+      color: data.color,
+      whatsapp_template: data.whatsappTemplate,
+      call_script: data.callScript,
     });
     return mapProject(result);
   };
@@ -125,15 +149,33 @@ export function useProjectActions() {
       status: "active" | "paused" | "completed";
       startDate: string;
       endDate: string;
+      landingPageUrl: string;
+      takbullPageId: string;
+      description: string;
+      color: string;
+      whatsappTemplate: string;
+      callScript: string;
     }>,
   ): Promise<void> => {
     if (IS_DEMO_MODE) return;
     const directusData: Partial<DirectusProject> = {};
     if (data.name !== undefined) directusData.name = data.name;
-    if (data.goalAmount !== undefined) directusData.goal_amount = data.goalAmount;
+    if (data.goalAmount !== undefined)
+      directusData.goal_amount = data.goalAmount;
     if (data.status !== undefined) directusData.status = data.status;
     if (data.startDate !== undefined) directusData.start_date = data.startDate;
     if (data.endDate !== undefined) directusData.end_date = data.endDate;
+    if (data.landingPageUrl !== undefined)
+      directusData.landing_page_url = data.landingPageUrl;
+    if (data.takbullPageId !== undefined)
+      directusData.takbull_page_id = data.takbullPageId;
+    if (data.description !== undefined)
+      directusData.description = data.description;
+    if (data.color !== undefined) directusData.color = data.color;
+    if (data.whatsappTemplate !== undefined)
+      directusData.whatsapp_template = data.whatsappTemplate;
+    if (data.callScript !== undefined)
+      directusData.call_script = data.callScript;
     await patchProject(id, directusData);
   };
 
@@ -174,7 +216,9 @@ export function useProjectActions() {
     return mapDonation(result);
   };
 
-  const getDonations = async (projectId: string): Promise<ProjectDonation[]> => {
+  const getDonations = async (
+    projectId: string,
+  ): Promise<ProjectDonation[]> => {
     if (IS_DEMO_MODE) return [];
     const data = await fetchDonations(projectId);
     return data.map(mapDonation);

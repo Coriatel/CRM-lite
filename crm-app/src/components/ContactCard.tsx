@@ -1,6 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { Phone, MessageSquarePlus, CheckCircle2, Circle } from "lucide-react";
-import { Contact } from "../types";
+import {
+  Phone,
+  MessageSquarePlus,
+  CheckCircle2,
+  Circle,
+  Send,
+} from "lucide-react";
+import { Contact, CampaignStatus, CAMPAIGN_STATUS_COLORS } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
 interface ContactCardProps {
@@ -11,6 +17,9 @@ interface ContactCardProps {
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (id: string) => void;
+  campaignStatus?: CampaignStatus;
+  linkSendCount?: number;
+  onSendLink?: (contact: Contact) => void;
 }
 
 export function ContactCard({
@@ -21,6 +30,9 @@ export function ContactCard({
   selectionMode,
   isSelected,
   onToggleSelect,
+  campaignStatus,
+  linkSendCount,
+  onSendLink,
 }: ContactCardProps) {
   const navigate = useNavigate();
   const initials = contact.fullName
@@ -56,6 +68,9 @@ export function ContactCard({
             : undefined,
         background:
           selectionMode && isSelected ? "rgba(26, 95, 122, 0.05)" : undefined,
+        borderInlineStart: campaignStatus
+          ? `4px solid ${CAMPAIGN_STATUS_COLORS[campaignStatus]}`
+          : undefined,
       }}
     >
       {selectionMode ? (
@@ -104,7 +119,8 @@ export function ContactCard({
           </div>
         )}
 
-        <StatusBadge status={contact.status} />
+        {/* Status: color strip on card edge replaces inline badge for campaign */}
+        {!campaignStatus && <StatusBadge status={contact.status} />}
 
         {lastNote && (
           <div className="contact-note" title={lastNote}>
@@ -114,6 +130,49 @@ export function ContactCard({
       </div>
 
       <div className="contact-actions">
+        {/* WhatsApp send link button for campaign mode */}
+        {onSendLink && contact.phone1 && (
+          <button
+            className="btn btn-icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSendLink(contact);
+            }}
+            title="שלח לינק תרומה"
+            style={{
+              color: "#25D366",
+              position: "relative",
+              background: "none",
+              border: "none",
+              padding: "6px",
+              cursor: "pointer",
+            }}
+          >
+            <Send size={18} />
+            {linkSendCount !== undefined && linkSendCount > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  background: "#25D366",
+                  color: "#fff",
+                  borderRadius: "50%",
+                  width: 16,
+                  height: 16,
+                  fontSize: "10px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                }}
+              >
+                {linkSendCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {contact.phone1 && (
           <button className="call-btn" onClick={handleCall} title="חייג">
             <Phone size={20} />
