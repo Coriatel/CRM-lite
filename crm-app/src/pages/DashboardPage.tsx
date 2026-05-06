@@ -72,6 +72,7 @@ export function DashboardPage() {
   const [lcFollowUps, setLcFollowUps] = useState<DirectusContact[]>([]);
   const [recentTransitions, setRecentTransitions] = useState<DirectusStageTransition[]>([]);
   const [lcLoading, setLcLoading] = useState(true);
+  const [lcError, setLcError] = useState(false);
   const [detailContact, setDetailContact] = useState<Contact | null>(null);
 
   useEffect(() => {
@@ -130,7 +131,10 @@ export function DashboardPage() {
         setLcLoading(false);
       })
       .catch(() => {
-        if (!cancelled) setLcLoading(false);
+        if (!cancelled) {
+          setLcLoading(false);
+          setLcError(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -575,7 +579,33 @@ export function DashboardPage() {
 
 
         {/* Lifecycle operational dashboard (Slice #8) */}
-        {!lcLoading && (
+        {lcLoading && (
+          <div
+            style={{
+              marginTop: "var(--spacing-lg)",
+              textAlign: "center",
+              padding: "var(--spacing-md)",
+              color: "var(--color-text-secondary)",
+              fontSize: "13px",
+            }}
+          >
+            טוען נתוני מחזור חיים...
+          </div>
+        )}
+        {lcError && !lcLoading && (
+          <div
+            className="card"
+            style={{
+              marginTop: "var(--spacing-lg)",
+              padding: "10px 12px",
+              color: "var(--color-error, #ef4444)",
+              fontSize: "13px",
+            }}
+          >
+            לא ניתן לטעון נתוני מחזור חיים. נסה לרענן את העמוד.
+          </div>
+        )}
+        {!lcLoading && !lcError && (
           <div
             style={{
               marginTop: "var(--spacing-lg)",
@@ -651,11 +681,12 @@ export function DashboardPage() {
                   <Clock size={14} />
                   מעקב לטיפול
                 </div>
-                {lcFollowUps.map((dc) => {
+                {lcFollowUps.map((dc, idx) => {
                   const stage =
                     typeof dc.lifecycle_stage_id === "object" && dc.lifecycle_stage_id
                       ? dc.lifecycle_stage_id
                       : undefined;
+                  const isLast = idx === lcFollowUps.length - 1;
                   return (
                     <div
                       key={dc.id}
@@ -665,7 +696,7 @@ export function DashboardPage() {
                         justifyContent: "space-between",
                         alignItems: "center",
                         padding: "6px 0",
-                        borderBottom: "1px solid var(--color-border)",
+                        borderBottom: isLast ? "none" : "1px solid var(--color-border)",
                         cursor: "pointer",
                         fontSize: "13px",
                       }}
@@ -714,9 +745,10 @@ export function DashboardPage() {
                 <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
                   מעברי שלב אחרונים
                 </div>
-                {recentTransitions.map((t) => {
+                {recentTransitions.map((t, idx) => {
                   const fromStage = t.from_stage_id ? stageMap[t.from_stage_id] : null;
                   const toStage = stageMap[t.to_stage_id];
+                  const isLast = idx === recentTransitions.length - 1;
                   return (
                     <div
                       key={t.id}
@@ -725,11 +757,12 @@ export function DashboardPage() {
                         justifyContent: "space-between",
                         alignItems: "center",
                         padding: "5px 0",
-                        borderBottom: "1px solid var(--color-border)",
+                        borderBottom: isLast ? "none" : "1px solid var(--color-border)",
                         fontSize: "12px",
                       }}
                     >
                       <div
+                        dir="ltr"
                         style={{
                           display: "flex",
                           alignItems: "center",
