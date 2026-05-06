@@ -18,7 +18,7 @@ function jsonResponse(body: unknown, status = 200) {
   } as unknown as Response;
 }
 
-describe("lifecycle stage service (Slice #3)", () => {
+describe("lifecycle stage service (Slice #3 + #4)", () => {
   beforeEach(() => {
     setAuthToken("test-token");
     vi.restoreAllMocks();
@@ -85,7 +85,7 @@ describe("lifecycle stage service (Slice #3)", () => {
             {
               id: "t1",
               contact_id: CONTACT_ID,
-              from_stage_id: null,
+              from_stage_id: "00000000-0000-4000-8000-000000000099",
               to_stage_id: STAGE_ID,
               transitioned_at: "2026-05-06T00:00:00.000Z",
               trigger_type: "flow",

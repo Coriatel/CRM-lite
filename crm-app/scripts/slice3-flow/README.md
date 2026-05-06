@@ -1,4 +1,4 @@
-# Slice #3 — Directus Flow
+# Slice #3 + #4 — Directus Flow
 
 `create_flow.py` creates the "Stage transition audit (Slice #3)" Flow in Directus.
 
@@ -12,6 +12,20 @@ python3 scripts/slice3-flow/create_flow.py
 
 The Flow is stored in Directus DB, not in git. Run this script after a
 Directus reset or migration to a new instance.
+
+## Flow chain
+
+```
+contacts.update
+  → condition        lifecycle_stage_id changed?
+  → extract_values   extract contactId + toStageId from trigger (keys[0], payload)
+  → fetch_prev_stage read last stage_transitions row for this contact
+  → extract_from_stage  fromStageId = prev row's to_stage_id, or null (first transition)
+  → write_audit_row  create stage_transitions row with from_stage_id + to_stage_id
+```
+
+Slice #3 introduced the Flow and simplified the client to a single PATCH.
+Slice #4 added `fetch_prev_stage` + `extract_from_stage` to populate `from_stage_id`.
 
 ## Rollback
 
