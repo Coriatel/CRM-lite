@@ -947,3 +947,60 @@ export async function writeStageTransitionReason(
     body: JSON.stringify({ reason }),
   });
 }
+
+// ---------- Dashboard helpers (Slice #7) ----------
+
+export interface StageCount {
+  stageId: string | null;
+  count: number;
+}
+
+/** Count of contacts per lifecycle stage (null = no stage assigned). */
+export async function getStageStats(): Promise<StageCount[]> {
+  const qs = buildQuery({
+    "aggregate[count]": "id",
+    "groupBy[]": "lifecycle_stage_id",
+    limit: "100",
+  });
+  const res = await directusFetch(`/items/contacts${qs}`);
+  const json: { data: { lifecycle_stage_id: string | null; count: { id: string } }[] } =
+    await res.json();
+  return json.data.map((row) => ({
+    stageId: row.lifecycle_stage_id,
+    count: Number(row.count.id),
+  }));
+}
+
+/** Most recent stage transitions across all contacts. */
+export async function getRecentStageTransitions(
+  limit = 10,
+): Promise<DirectusStageTransition[]> {
+  const qs = buildQuery({
+    fields:
+      "id,contact_id,from_stage_id,to_stage_id,transitioned_at,trigger_type,reason",
+    sort: "-transitioned_at",
+    limit: String(limit),
+  });
+  const res = await directusFetch(`/items/stage_transitions${qs}`);
+  const json: DirectusResponse<DirectusStageTransition[]> = await res.json();
+  return json.data;
+}
+
+/** Contacts with a follow_up_date on or before today that have not been actioned. */
+export async function getFollowUpCandidates(
+  limit = 50,
+): Promise<DirectusContact[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const fields =
+    "id,full_name,phone_e164,phone_raw,follow_up_date,follow_up_note,lifecycle_stage_id.id,lifecycle_stage_id.slug,lifecycle_stage_id.name,lifecycle_stage_id.color";
+  const qs = buildQuery({
+    fields,
+    "filter[follow_up_date][_lte]": today,
+    "filter[status][_neq]": "inactive",
+    sort: "follow_up_date",
+    limit: String(limit),
+  });
+  const res = await directusFetch(`/items/contacts${qs}`);
+  const json: DirectusResponse<DirectusContact[]> = await res.json();
+  return json.data;
+}
