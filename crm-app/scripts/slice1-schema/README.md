@@ -59,10 +59,47 @@ and the corresponding `directus_collections` / `directus_fields` /
 `directus_relations` rows. After it runs, flush the Directus schema cache
 or restart the container.
 
-## Atomicity caveat
+## Atomicity (Slice #2)
 
-`setContactStage()` performs two sequential REST calls (PATCH the contact, then
-POST a `stage_transitions` row). They are **not** atomic — if the audit POST
-fails after the PATCH succeeds, the contact will have a new stage with no
-transition row. Slice #2 will close this gap (Directus flow or reconciliation
-job). Until then, treat the audit log as best-effort.
+`setContactStage()` is **audit-first with compensating delete**:
+
+1. POST `stage_transitions` (audit row, marks intent)
+2. PATCH `contacts.lifecycle_stage_id`
+3. If the PATCH fails, DELETE the audit row and throw `StageChangeFailedError`.
+   If the DELETE also fails, the audit row is left orphaned but visible.
+
+**Invariant:** a contact's `lifecycle_stage_id` never changes without a
+corresponding `stage_transitions` row also being persisted. The reverse
+(orphaned audit row with no contact change) IS possible under rare double
+failure, but is observable rather than silent.
+
+To find orphan audit rows — i.e. each contact's *latest* stage_transitions
+row whose `to_stage_id` does not match the contact's current
+`lifecycle_stage_id`. Earlier transitions for the same contact are not
+orphans; only the most recent one is load-bearing.
+
+```sql
+WITH latest AS (
+  SELECT DISTINCT ON (contact_id)
+         id, contact_id, to_stage_id, transitioned_at
+  FROM   stage_transitions
+  ORDER  BY contact_id, transitioned_at DESC
+)
+SELECT l.id              AS audit_id,
+       l.contact_id,
+       l.to_stage_id     AS audit_to_stage,
+       c.lifecycle_stage_id AS contact_stage,
+       l.transitioned_at
+FROM   latest l
+JOIN   contacts c ON c.id = l.contact_id
+WHERE  c.lifecycle_stage_id IS DISTINCT FROM l.to_stage_id;
+```
+
+In steady state this query returns 0 rows. Non-zero = orphan audit rows
+left behind by a double-failure (PATCH failed, compensating DELETE also
+failed). Investigate, then either re-apply the stage to the contact or
+delete the audit row, depending on which side reflects user intent.
+
+**Future hardening (Slice #3+):** move audit creation into a Directus Flow
+keyed on `contacts.update` so the audit is wrapped in the same DB transaction
+as the contact change. The client then becomes a thin wrapper.

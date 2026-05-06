@@ -4,6 +4,7 @@ import {
   getLifecycleStages,
   getStageHistory,
   setAuthToken,
+  StageChangeFailedError,
 } from "./directus";
 
 const CONTACT_ID = "00000000-0000-4000-8000-000000000001";
@@ -25,14 +26,9 @@ describe("lifecycle stage service (Slice #1)", () => {
     vi.restoreAllMocks();
   });
 
-  it("setContactStage PATCHes the contact AND POSTs a stage_transitions row", async () => {
+  it("setContactStage POSTs the audit row FIRST, then PATCHes the contact", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockImplementationOnce(async () =>
-        jsonResponse({
-          data: { id: CONTACT_ID, lifecycle_stage_id: STAGE_ID },
-        }),
-      )
       .mockImplementationOnce(async () =>
         jsonResponse({
           data: {
@@ -45,6 +41,11 @@ describe("lifecycle stage service (Slice #1)", () => {
             reason: "test",
           },
         }),
+      )
+      .mockImplementationOnce(async () =>
+        jsonResponse({
+          data: { id: CONTACT_ID, lifecycle_stage_id: STAGE_ID },
+        }),
       );
 
     const result = await setContactStage(CONTACT_ID, STAGE_ID, {
@@ -54,23 +55,25 @@ describe("lifecycle stage service (Slice #1)", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [patchUrl, patchInit] = fetchMock.mock.calls[0];
-    expect(String(patchUrl)).toContain(`/items/contacts/${CONTACT_ID}`);
-    expect(patchInit?.method).toBe("PATCH");
-    expect(JSON.parse(patchInit?.body as string)).toEqual({
-      lifecycle_stage_id: STAGE_ID,
-    });
 
-    const [postUrl, postInit] = fetchMock.mock.calls[1];
+    // call 1: audit POST
+    const [postUrl, postInit] = fetchMock.mock.calls[0];
     expect(String(postUrl)).toContain(`/items/stage_transitions`);
     expect(postInit?.method).toBe("POST");
-    const postBody = JSON.parse(postInit?.body as string);
-    expect(postBody).toMatchObject({
+    expect(JSON.parse(postInit?.body as string)).toMatchObject({
       contact_id: CONTACT_ID,
       from_stage_id: FROM_STAGE_ID,
       to_stage_id: STAGE_ID,
       trigger_type: "manual",
       reason: "test",
+    });
+
+    // call 2: contact PATCH
+    const [patchUrl, patchInit] = fetchMock.mock.calls[1];
+    expect(String(patchUrl)).toContain(`/items/contacts/${CONTACT_ID}`);
+    expect(patchInit?.method).toBe("PATCH");
+    expect(JSON.parse(patchInit?.body as string)).toEqual({
+      lifecycle_stage_id: STAGE_ID,
     });
 
     expect(result.contact.lifecycle_stage_id).toBe(STAGE_ID);
@@ -80,9 +83,6 @@ describe("lifecycle stage service (Slice #1)", () => {
   it("setContactStage defaults trigger_type=manual and from_stage_id=null", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockImplementationOnce(async () =>
-        jsonResponse({ data: { id: CONTACT_ID, lifecycle_stage_id: STAGE_ID } }),
-      )
       .mockImplementationOnce(async () =>
         jsonResponse({
           data: {
@@ -94,14 +94,114 @@ describe("lifecycle stage service (Slice #1)", () => {
             trigger_type: "manual",
           },
         }),
+      )
+      .mockImplementationOnce(async () =>
+        jsonResponse({ data: { id: CONTACT_ID, lifecycle_stage_id: STAGE_ID } }),
       );
 
     await setContactStage(CONTACT_ID, STAGE_ID);
 
-    const postBody = JSON.parse(fetchMock.mock.calls[1][1]?.body as string);
+    const postBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
     expect(postBody.from_stage_id).toBeNull();
     expect(postBody.trigger_type).toBe("manual");
     expect(postBody.reason).toBeNull();
+  });
+
+  it("setContactStage rolls back the audit row when the contact PATCH fails", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      // 1: audit POST succeeds
+      .mockImplementationOnce(async () =>
+        jsonResponse({
+          data: {
+            id: "trans-rb-1",
+            contact_id: CONTACT_ID,
+            from_stage_id: null,
+            to_stage_id: STAGE_ID,
+            transitioned_at: "2026-05-06T00:00:00.000Z",
+            trigger_type: "manual",
+          },
+        }),
+      )
+      // 2: contact PATCH fails
+      .mockImplementationOnce(async () =>
+        jsonResponse({ errors: [{ message: "boom" }] }, 500),
+      )
+      // 3: compensating DELETE succeeds
+      .mockImplementationOnce(async () =>
+        jsonResponse(null, 204),
+      );
+
+    let caught: unknown;
+    try {
+      await setContactStage(CONTACT_ID, STAGE_ID);
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(StageChangeFailedError);
+    const err = caught as StageChangeFailedError;
+    expect(err.auditId).toBe("trans-rb-1");
+    expect(err.auditRollbackSucceeded).toBe(true);
+    expect(err.message).toMatch(/rolled back/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [delUrl, delInit] = fetchMock.mock.calls[2];
+    expect(String(delUrl)).toContain(`/items/stage_transitions/trans-rb-1`);
+    expect(delInit?.method).toBe("DELETE");
+  });
+
+  it("setContactStage marks audit as orphaned when both PATCH and DELETE fail", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      // 1: audit POST succeeds
+      .mockImplementationOnce(async () =>
+        jsonResponse({
+          data: {
+            id: "trans-orphan-1",
+            contact_id: CONTACT_ID,
+            from_stage_id: null,
+            to_stage_id: STAGE_ID,
+            transitioned_at: "2026-05-06T00:00:00.000Z",
+            trigger_type: "manual",
+          },
+        }),
+      )
+      // 2: contact PATCH fails
+      .mockImplementationOnce(async () =>
+        jsonResponse({ errors: [{ message: "boom" }] }, 500),
+      )
+      // 3: compensating DELETE also fails
+      .mockImplementationOnce(async () =>
+        jsonResponse({ errors: [{ message: "delete failed" }] }, 503),
+      );
+
+    let caught: unknown;
+    try {
+      await setContactStage(CONTACT_ID, STAGE_ID);
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(StageChangeFailedError);
+    const err = caught as StageChangeFailedError;
+    expect(err.auditId).toBe("trans-orphan-1");
+    expect(err.auditRollbackSucceeded).toBe(false);
+    expect(err.message).toMatch(/orphan/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("setContactStage propagates audit POST failure WITHOUT touching the contact", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        jsonResponse({ errors: [{ message: "audit boom" }] }, 500),
+      );
+
+    await expect(setContactStage(CONTACT_ID, STAGE_ID)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // contact PATCH never attempted
+    const [postUrl] = fetchMock.mock.calls[0];
+    expect(String(postUrl)).toContain(`/items/stage_transitions`);
   });
 
   it("getLifecycleStages requests is_active=true sorted by sort_order", async () => {

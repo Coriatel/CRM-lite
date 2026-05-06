@@ -11,8 +11,9 @@ import {
   Trash2,
   Send,
 } from "lucide-react";
-import { Contact, Note, ProjectContact } from "../types";
+import { Contact, LifecycleStage, Note, ProjectContact } from "../types";
 import { StatusBadge } from "./StatusBadge";
+import { StagePicker } from "./StagePicker";
 import {
   getInteractions,
   updateContact as patchContact,
@@ -31,6 +32,15 @@ interface ContactDetailModalProps {
   onAddNote: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /**
+   * Slice #2: notify parent when the contact's lifecycle stage changes.
+   * Parent should refresh its contact list (or update locally) so the
+   * card reflects the new stage immediately.
+   */
+  onStageChanged?: (
+    contactId: string,
+    next: Pick<LifecycleStage, "id" | "slug" | "name" | "color">,
+  ) => void;
 }
 
 export function ContactDetailModal({
@@ -39,6 +49,7 @@ export function ContactDetailModal({
   onAddNote,
   onEdit,
   onDelete,
+  onStageChanged,
 }: ContactDetailModalProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -225,6 +236,14 @@ export function ContactDetailModal({
           >
             <StatusBadge status={contact.status} />
           </div>
+
+          {/* Lifecycle stage picker (Slice #2) */}
+          <StagePicker
+            contact={contact}
+            onStageChanged={(next) => {
+              onStageChanged?.(contact.id, next);
+            }}
+          />
 
           {/* Donation process for donated contacts */}
           {contact.status === "donated" && (

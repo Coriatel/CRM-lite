@@ -899,15 +899,40 @@ export async function getStageHistory(
 }
 
 /**
+ * Raised when the contact PATCH fails AFTER the audit row was already
+ * created. Carries the orphan audit row id so ops can find / clean it
+ * up if the compensating delete also failed.
+ */
+export class StageChangeFailedError extends Error {
+  constructor(
+    message: string,
+    public readonly auditId: string,
+    public readonly auditRollbackSucceeded: boolean,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "StageChangeFailedError";
+  }
+}
+
+/**
  * Set a contact's lifecycle stage AND log a stage_transitions audit row.
  *
- * Slice #1 note: this performs two sequential REST calls and is NOT atomic.
- * If the audit POST fails after the contact PATCH succeeds, the contact will
- * have a new stage with no transition row. Slice #2 will add a reconciliation
- * job (or move this into a Directus flow) to close the gap.
+ * Strategy (Slice #2 — audit-first + compensating delete):
+ *   1. POST stage_transitions  (audit row first; records intent)
+ *   2. PATCH contacts.lifecycle_stage_id
+ *   3. If PATCH fails: try to DELETE the audit row, then throw
+ *      StageChangeFailedError so the UI shows a clear failure.
+ *      If the DELETE also fails, the audit row remains orphaned but is
+ *      visible (queryable). The contact stage never changes silently.
  *
- * Wired into the UI in Slice #2 — included here so the path is curl-validated
- * and unit-tested before any user-facing control invokes it.
+ * Invariant: a contact's lifecycle_stage_id never changes without a
+ * corresponding stage_transitions row also being persisted. The reverse
+ * (orphaned audit row with no contact change) IS possible under rare
+ * double failure, but is observable rather than silent.
+ *
+ * Future hardening (Slice #3+): move audit creation into a Directus Flow
+ * keyed on contacts.update so audit is wrapped in the same DB transaction.
  */
 export async function setContactStage(
   contactId: string,
@@ -921,15 +946,7 @@ export async function setContactStage(
   contact: { id: string; lifecycle_stage_id: string | null };
   transition: DirectusStageTransition;
 }> {
-  const patchRes = await directusFetch(`/items/contacts/${contactId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ lifecycle_stage_id: toStageId }),
-  });
-  const patchJson: DirectusResponse<{
-    id: string;
-    lifecycle_stage_id: string | null;
-  }> = await patchRes.json();
-
+  // 1. audit-first
   const postRes = await directusFetch(`/items/stage_transitions`, {
     method: "POST",
     body: JSON.stringify({
@@ -942,6 +959,39 @@ export async function setContactStage(
   });
   const postJson: DirectusResponse<DirectusStageTransition> =
     await postRes.json();
+  const auditId = postJson.data.id;
+
+  // 2. patch contact
+  let patchJson: DirectusResponse<{
+    id: string;
+    lifecycle_stage_id: string | null;
+  }>;
+  try {
+    const patchRes = await directusFetch(`/items/contacts/${contactId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ lifecycle_stage_id: toStageId }),
+    });
+    patchJson = await patchRes.json();
+  } catch (patchErr) {
+    // 3. compensating delete of the orphan audit row
+    let rollbackOk = false;
+    try {
+      await directusFetch(`/items/stage_transitions/${auditId}`, {
+        method: "DELETE",
+      });
+      rollbackOk = true;
+    } catch {
+      // rollback failed: row stays orphaned but visible — never silent
+    }
+    throw new StageChangeFailedError(
+      rollbackOk
+        ? "Stage change failed; audit row rolled back."
+        : `Stage change failed; audit row ${auditId} could not be rolled back and is orphaned.`,
+      auditId,
+      rollbackOk,
+      patchErr,
+    );
+  }
 
   return { contact: patchJson.data, transition: postJson.data };
 }

@@ -570,6 +570,12 @@ export function ContactsPage({ sortBy, advancedFilters }: ContactsPageProps) {
             setIsEditModalOpen(true);
           }}
           onDelete={handleDeleteContact}
+          onStageChanged={() => {
+            // Refresh so card list reflects the new stage. Cheap (single
+            // server hit on a manual user action) and avoids reaching
+            // into the hook to mutate row state.
+            refreshCampaign();
+          }}
         />
       )}
 
