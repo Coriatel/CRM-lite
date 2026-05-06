@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Contact, LifecycleStage } from "../types";
 import {
   DirectusLifecycleStage,
-  StageChangeFailedError,
   getLifecycleStages,
   setContactStage,
 } from "../services/directus";
@@ -28,9 +27,8 @@ type Status =
  * Stage selector for ContactDetailModal (Slice #2).
  *
  * Read-only badge by default. Click "שנה שלב" to enter edit mode, pick a
- * new stage, and save. Save uses setContactStage() which is audit-first
- * with compensating delete: a contact's lifecycle_stage_id never changes
- * without a stage_transitions row also being persisted.
+ * new stage, and save. A single PATCH is issued; the server-side Directus
+ * Flow writes the stage_transitions audit row automatically.
  */
 export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
   const [stages, setStages] = useState<DirectusLifecycleStage[]>([]);
@@ -68,10 +66,7 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
     }
     setStatus({ kind: "saving" });
     try {
-      await setContactStage(contact.id, selectedId, {
-        fromStageId: currentStage?.id ?? null,
-        triggerType: "manual",
-      });
+      await setContactStage(contact.id, selectedId);
       const next = stages.find((s) => s.id === selectedId);
       if (next) {
         onStageChanged({
@@ -84,16 +79,7 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
       setStatus({ kind: "idle" });
       setEditing(false);
     } catch (err) {
-      // User-facing copy stays generic. Operational detail goes to console
-      // so ops can grep the orphan audit id if needed.
-      if (err instanceof StageChangeFailedError) {
-        console.warn(
-          `setContactStage failed (auditId=${err.auditId}, rolledBack=${err.auditRollbackSucceeded})`,
-          err.cause,
-        );
-      } else {
-        console.warn("setContactStage failed", err);
-      }
+      console.warn("setContactStage failed", err);
       setStatus({ kind: "error" });
     }
   };

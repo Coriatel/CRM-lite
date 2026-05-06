@@ -59,24 +59,29 @@ and the corresponding `directus_collections` / `directus_fields` /
 `directus_relations` rows. After it runs, flush the Directus schema cache
 or restart the container.
 
-## Atomicity (Slice #2)
+## Atomicity (Slice #3 — server-side Flow)
 
-`setContactStage()` is **audit-first with compensating delete**:
+Stage transitions are now written **server-side** by a Directus Flow.
 
-1. POST `stage_transitions` (audit row, marks intent)
-2. PATCH `contacts.lifecycle_stage_id`
-3. If the PATCH fails, DELETE the audit row and throw `StageChangeFailedError`.
-   If the DELETE also fails, the audit row is left orphaned but visible.
+- Flow name: `Stage transition audit (Slice #3)`
+- Trigger: `event / items.update` on `contacts` collection
+- Condition: fires only when `lifecycle_stage_id` is present and non-null in the update payload
+- Action: creates a `stage_transitions` row with `trigger_type=flow`
 
-**Invariant:** a contact's `lifecycle_stage_id` never changes without a
-corresponding `stage_transitions` row also being persisted. The reverse
-(orphaned audit row with no contact change) IS possible under rare double
-failure, but is observable rather than silent.
+Client (`setContactStage`) issues a single PATCH to `contacts.lifecycle_stage_id`.
+The Flow handles audit creation automatically — no client-side POST or rollback logic.
 
-To find orphan audit rows — i.e. each contact's *latest* stage_transitions
-row whose `to_stage_id` does not match the contact's current
-`lifecycle_stage_id`. Earlier transitions for the same contact are not
-orphans; only the most recent one is load-bearing.
+**Invariant:** every change to `contacts.lifecycle_stage_id` produces exactly one
+`stage_transitions` row written by the server-side Flow synchronously after the PATCH.
+There are no orphan audit rows possible under Slice #3 (Flow either writes or does not).
+
+**Limitation:** `from_stage_id` in Flow-created rows is always `null` because the
+`items.update` action trigger does not expose the pre-update value. The chain of
+`to_stage_id` values across rows implies the from-stage implicitly. If explicit
+`from_stage_id` is needed, Slice #4 can add a Read Data step that fetches the most
+recent prior transition before creating the new row.
+
+### Orphan check (steady state = 0 rows)
 
 ```sql
 WITH latest AS (
@@ -95,11 +100,6 @@ JOIN   contacts c ON c.id = l.contact_id
 WHERE  c.lifecycle_stage_id IS DISTINCT FROM l.to_stage_id;
 ```
 
-In steady state this query returns 0 rows. Non-zero = orphan audit rows
-left behind by a double-failure (PATCH failed, compensating DELETE also
-failed). Investigate, then either re-apply the stage to the contact or
-delete the audit row, depending on which side reflects user intent.
-
-**Future hardening (Slice #3+):** move audit creation into a Directus Flow
-keyed on `contacts.update` so the audit is wrapped in the same DB transaction
-as the contact change. The client then becomes a thin wrapper.
+Pre-Slice-#3 rows with `trigger_type='system'` or `'manual'` were written by the
+client and may exist; they are not orphans. Only rows where the latest `to_stage_id`
+diverges from the contact's current stage are anomalous.
