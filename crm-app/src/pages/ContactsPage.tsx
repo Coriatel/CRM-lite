@@ -24,7 +24,11 @@ import {
 } from "../hooks/useProjectContacts";
 import { useContactActions } from "../hooks/useContacts";
 import { useProjectContext } from "../contexts/ProjectContext";
-import { getProjectStats } from "../services/directus";
+import {
+  getProjectStats,
+  getLifecycleStages,
+  DirectusLifecycleStage,
+} from "../services/directus";
 import { ContactCard } from "../components/ContactCard";
 import { AddNoteModal } from "../components/AddNoteModal";
 import { ContactDetailModal } from "../components/ContactDetailModal";
@@ -68,6 +72,15 @@ export function ContactsPage({ sortBy, advancedFilters }: ContactsPageProps) {
 
   // Tab count stats (effect is below after campaignContacts is declared)
   const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+
+  // Slice #1: lifecycle stage filter (read-only client-side filter)
+  const [stages, setStages] = useState<DirectusLifecycleStage[]>([]);
+  const [stageFilter, setStageFilter] = useState<string>("all");
+  useEffect(() => {
+    getLifecycleStages()
+      .then(setStages)
+      .catch(() => {});
+  }, []);
 
   // Close overflow on outside click
   useEffect(() => {
@@ -322,6 +335,48 @@ export function ContactsPage({ sortBy, advancedFilters }: ContactsPageProps) {
         </div>
       </header>
 
+      {/* Slice #1: lifecycle stage filter */}
+      {stages.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 12px",
+            borderBottom: "1px solid var(--color-border, #e5e7eb)",
+            background: "var(--color-surface, #fff)",
+          }}
+        >
+          <label
+            htmlFor="stage-filter"
+            style={{ fontSize: 13, color: "var(--color-text-muted, #64748b)" }}
+          >
+            שלב:
+          </label>
+          <select
+            id="stage-filter"
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            style={{
+              flex: 1,
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid var(--color-border, #d1d5db)",
+              background: "var(--color-bg, #fff)",
+              fontSize: 13,
+            }}
+          >
+            <option value="all">כל השלבים</option>
+            <option value="__none__">בלי שלב</option>
+            {stages.map((s) => (
+              <option key={s.id} value={s.slug}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Campaign filter tabs — horizontal scroll */}
       <div
         className="tabs"
@@ -432,7 +487,14 @@ export function ContactsPage({ sortBy, advancedFilters }: ContactsPageProps) {
           </div>
         ) : (
           <div className="contact-list">
-            {campaignContacts.map((pc) => {
+            {campaignContacts
+              .filter((pc) => {
+                if (stageFilter === "all") return true;
+                if (stageFilter === "__none__")
+                  return !pc.contact?.lifecycleStage;
+                return pc.contact?.lifecycleStage?.slug === stageFilter;
+              })
+              .map((pc) => {
               if (!pc.contact) return null;
               return (
                 <ContactCard

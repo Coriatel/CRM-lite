@@ -52,9 +52,18 @@ function mapDirectusToContact(dc: DirectusContact): Contact {
     }
   }
 
+  // Slice #1: extract lifecycle stage from deep-fetched FK
+  const ls =
+    dc.lifecycle_stage_id && typeof dc.lifecycle_stage_id === "object"
+      ? dc.lifecycle_stage_id
+      : undefined;
+
   return {
     id: dc.id,
     source,
+    lifecycleStage: ls
+      ? { id: ls.id, slug: ls.slug, name: ls.name, color: ls.color }
+      : undefined,
     fullName: dc.full_name,
     phone1: dc.phone_e164 || dc.phone_raw || undefined,
     phone2: dc.phone2 || undefined,

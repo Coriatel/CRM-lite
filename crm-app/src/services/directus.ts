@@ -78,6 +78,11 @@ export interface DirectusContact {
   created_at: string;
   updated_at: string;
   contact_tags?: { tag_id: string | { id: string; name: string } }[];
+  // Slice #1: lifecycle stage (deep-fetched as object)
+  lifecycle_stage_id?:
+    | string
+    | { id: string; slug: string; name: string; color?: string }
+    | null;
 }
 
 export interface DirectusInteraction {
@@ -117,7 +122,7 @@ export async function getContacts(filters: {
 }): Promise<DirectusContact[]> {
   const params: Record<string, string> = {
     fields:
-      "id,full_name,first_name,last_name,phone_e164,phone_raw,phone2,email,city,address,status,call_status,follow_up_date,follow_up_note,interest_level,assigned_to,donation_type,monthly_donation,total_donation,last_call_date,original_note,notes,classification,receipt_confirmed,thank_you_sent,created_at,updated_at,contact_tags.tag_id.id,contact_tags.tag_id.name",
+      "id,full_name,first_name,last_name,phone_e164,phone_raw,phone2,email,city,address,status,call_status,follow_up_date,follow_up_note,interest_level,assigned_to,donation_type,monthly_donation,total_donation,last_call_date,original_note,notes,classification,receipt_confirmed,thank_you_sent,created_at,updated_at,contact_tags.tag_id.id,contact_tags.tag_id.name,lifecycle_stage_id.id,lifecycle_stage_id.slug,lifecycle_stage_id.name,lifecycle_stage_id.color",
     sort: filters.sort || "full_name",
     limit: String(filters.limit || 50),
   };
@@ -580,7 +585,7 @@ export async function getProjectContacts(
   const params: Record<string, string> = {
     "filter[project_id][_eq]": projectId,
     fields:
-      "id,project_id,contact_id.id,contact_id.full_name,contact_id.first_name,contact_id.last_name,contact_id.phone_e164,contact_id.phone_raw,contact_id.phone2,contact_id.email,contact_id.city,contact_id.address,contact_id.status,contact_id.call_status,contact_id.follow_up_date,contact_id.follow_up_note,contact_id.interest_level,contact_id.assigned_to,contact_id.donation_type,contact_id.monthly_donation,contact_id.total_donation,contact_id.last_call_date,contact_id.original_note,contact_id.notes,contact_id.classification,contact_id.receipt_confirmed,contact_id.thank_you_sent,contact_id.created_at,contact_id.updated_at,contact_id.contact_tags.tag_id.id,contact_id.contact_tags.tag_id.name,campaign_status,donation_amount,donation_type,tier_label,link_send_count,last_link_sent_at,notes,date_created,date_updated",
+      "id,project_id,contact_id.id,contact_id.full_name,contact_id.first_name,contact_id.last_name,contact_id.phone_e164,contact_id.phone_raw,contact_id.phone2,contact_id.email,contact_id.city,contact_id.address,contact_id.status,contact_id.call_status,contact_id.follow_up_date,contact_id.follow_up_note,contact_id.interest_level,contact_id.assigned_to,contact_id.donation_type,contact_id.monthly_donation,contact_id.total_donation,contact_id.last_call_date,contact_id.original_note,contact_id.notes,contact_id.classification,contact_id.receipt_confirmed,contact_id.thank_you_sent,contact_id.created_at,contact_id.updated_at,contact_id.contact_tags.tag_id.id,contact_id.contact_tags.tag_id.name,contact_id.lifecycle_stage_id.id,contact_id.lifecycle_stage_id.slug,contact_id.lifecycle_stage_id.name,contact_id.lifecycle_stage_id.color,campaign_status,donation_amount,donation_type,tier_label,link_send_count,last_link_sent_at,notes,date_created,date_updated",
     sort: filters?.sort || "-date_created",
     limit: String(filters?.limit || 200),
   };
@@ -843,4 +848,100 @@ export async function updateProjectTier(
 
 export async function deleteProjectTier(id: string): Promise<void> {
   await directusFetch(`/items/project_tiers/${id}`, { method: "DELETE" });
+}
+
+// ---------- Lifecycle Stages (Slice #1, read-only UI) ----------
+
+export interface DirectusLifecycleStage {
+  id: string;
+  slug: string;
+  name: string;
+  sort_order: number;
+  color?: string;
+  is_active?: boolean;
+}
+
+export interface DirectusStageTransition {
+  id: string;
+  contact_id: string;
+  from_stage_id: string | null;
+  to_stage_id: string;
+  transitioned_at: string;
+  transitioned_by?: string | null;
+  trigger_type: string;
+  reason?: string | null;
+}
+
+export async function getLifecycleStages(): Promise<DirectusLifecycleStage[]> {
+  const qs = buildQuery({
+    fields: "id,slug,name,sort_order,color,is_active",
+    "filter[is_active][_eq]": "true",
+    sort: "sort_order",
+    limit: "50",
+  });
+  const res = await directusFetch(`/items/lifecycle_stages${qs}`);
+  const json: DirectusResponse<DirectusLifecycleStage[]> = await res.json();
+  return json.data;
+}
+
+export async function getStageHistory(
+  contactId: string,
+): Promise<DirectusStageTransition[]> {
+  const qs = buildQuery({
+    fields: "id,contact_id,from_stage_id,to_stage_id,transitioned_at,transitioned_by,trigger_type,reason",
+    "filter[contact_id][_eq]": contactId,
+    sort: "-transitioned_at",
+    limit: "50",
+  });
+  const res = await directusFetch(`/items/stage_transitions${qs}`);
+  const json: DirectusResponse<DirectusStageTransition[]> = await res.json();
+  return json.data;
+}
+
+/**
+ * Set a contact's lifecycle stage AND log a stage_transitions audit row.
+ *
+ * Slice #1 note: this performs two sequential REST calls and is NOT atomic.
+ * If the audit POST fails after the contact PATCH succeeds, the contact will
+ * have a new stage with no transition row. Slice #2 will add a reconciliation
+ * job (or move this into a Directus flow) to close the gap.
+ *
+ * Wired into the UI in Slice #2 — included here so the path is curl-validated
+ * and unit-tested before any user-facing control invokes it.
+ */
+export async function setContactStage(
+  contactId: string,
+  toStageId: string,
+  opts: {
+    fromStageId?: string | null;
+    triggerType?: "manual" | "automation" | "import" | "webhook" | "system";
+    reason?: string;
+  } = {},
+): Promise<{
+  contact: { id: string; lifecycle_stage_id: string | null };
+  transition: DirectusStageTransition;
+}> {
+  const patchRes = await directusFetch(`/items/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ lifecycle_stage_id: toStageId }),
+  });
+  const patchJson: DirectusResponse<{
+    id: string;
+    lifecycle_stage_id: string | null;
+  }> = await patchRes.json();
+
+  const postRes = await directusFetch(`/items/stage_transitions`, {
+    method: "POST",
+    body: JSON.stringify({
+      contact_id: contactId,
+      from_stage_id: opts.fromStageId ?? null,
+      to_stage_id: toStageId,
+      trigger_type: opts.triggerType ?? "manual",
+      reason: opts.reason ?? null,
+    }),
+  });
+  const postJson: DirectusResponse<DirectusStageTransition> =
+    await postRes.json();
+
+  return { contact: patchJson.data, transition: postJson.data };
 }

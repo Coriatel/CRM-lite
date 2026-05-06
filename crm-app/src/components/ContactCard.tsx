@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Contact, CampaignStatus, CAMPAIGN_STATUS_COLORS } from "../types";
 import { StatusBadge } from "./StatusBadge";
+import { StageBadge } from "./StageBadge";
 
 interface ContactCardProps {
   contact: Contact;
@@ -121,6 +122,13 @@ export function ContactCard({
 
         {/* Status: color strip on card edge replaces inline badge for campaign */}
         {!campaignStatus && <StatusBadge status={contact.status} />}
+
+        {/* Slice #1: lifecycle stage (read-only) */}
+        {contact.lifecycleStage && (
+          <div style={{ marginTop: 4 }}>
+            <StageBadge stage={contact.lifecycleStage} />
+          </div>
+        )}
 
         {lastNote && (
           <div className="contact-note" title={lastNote}>
