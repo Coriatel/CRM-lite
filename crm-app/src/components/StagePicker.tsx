@@ -4,6 +4,7 @@ import {
   DirectusLifecycleStage,
   getLifecycleStages,
   setContactStage,
+  writeStageTransitionReason,
 } from "../services/directus";
 import { StageBadge } from "./StageBadge";
 
@@ -37,6 +38,8 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
     contact.lifecycleStage?.id ?? "",
   );
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [reason, setReason] = useState<string>("");
+  const [showReason, setShowReason] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +70,9 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
     setStatus({ kind: "saving" });
     try {
       await setContactStage(contact.id, selectedId);
+      if (reason.trim()) {
+        await writeStageTransitionReason(contact.id, selectedId, reason.trim());
+      }
       const next = stages.find((s) => s.id === selectedId);
       if (next) {
         onStageChanged({
@@ -78,6 +84,8 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
       }
       setStatus({ kind: "idle" });
       setEditing(false);
+      setReason("");
+      setShowReason(false);
     } catch (err) {
       console.warn("setContactStage failed", err);
       setStatus({ kind: "error" });
@@ -88,6 +96,8 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
     setSelectedId(currentStage?.id ?? "");
     setEditing(false);
     setStatus({ kind: "idle" });
+    setReason("");
+    setShowReason(false);
   };
 
   return (
@@ -177,6 +187,48 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
               </option>
             ))}
           </select>
+
+          {/* Optional reason (Slice #6) */}
+          <div>
+            {!showReason ? (
+              <button
+                type="button"
+                onClick={() => setShowReason(true)}
+                disabled={status.kind === "saving"}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  fontSize: 12,
+                  color: "var(--color-text-muted, #64748b)",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  fontFamily: "inherit",
+                }}
+              >
+                + הוסף הסבר
+              </button>
+            ) : (
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="הסבר (אופציונלי)..."
+                disabled={status.kind === "saving"}
+                rows={2}
+                style={{
+                  width: "100%",
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "1px solid var(--color-border, #d1d5db)",
+                  background: "var(--color-bg, #fff)",
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+              />
+            )}
+          </div>
 
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button

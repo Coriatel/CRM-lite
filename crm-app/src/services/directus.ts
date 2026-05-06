@@ -918,3 +918,32 @@ export async function setContactStage(
   }> = await res.json();
   return { contact: json.data };
 }
+
+/**
+ * Write reason to a Flow-created stage_transitions row.
+ *
+ * Slice #6: called after setContactStage succeeds. Fetches the most recent
+ * row for (contactId, toStageId) and PATCHes its reason field.
+ * Errors propagate — caller decides how to surface them.
+ */
+export async function writeStageTransitionReason(
+  contactId: string,
+  toStageId: string,
+  reason: string,
+): Promise<void> {
+  const qs = buildQuery({
+    "filter[contact_id][_eq]": contactId,
+    "filter[to_stage_id][_eq]": toStageId,
+    sort: "-transitioned_at",
+    limit: "1",
+    fields: "id",
+  });
+  const rowRes = await directusFetch(`/items/stage_transitions${qs}`);
+  const rowJson: DirectusResponse<{ id: string }[]> = await rowRes.json();
+  const row = rowJson.data[0];
+  if (!row) throw new Error("stage_transitions row not found");
+  await directusFetch(`/items/stage_transitions/${row.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason }),
+  });
+}
