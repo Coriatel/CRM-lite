@@ -22,6 +22,7 @@ import {
 } from "../services/directus";
 import { IS_DEMO_MODE } from "../config";
 import { DonationProcess } from "./DonationProcess";
+import { StageHistory } from "./StageHistory";
 import { WhatsAppSendModal } from "./WhatsAppSendModal";
 import { useProjectContext } from "../contexts/ProjectContext";
 import { useProjectContactActions } from "../hooks/useProjectContacts";
@@ -244,6 +245,9 @@ export function ContactDetailModal({
               onStageChanged?.(contact.id, next);
             }}
           />
+
+          {/* Stage transition history (Slice #5) */}
+          <StageHistory contactId={contact.id} />
 
           {/* Donation process for donated contacts */}
           {contact.status === "donated" && (
