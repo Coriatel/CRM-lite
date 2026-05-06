@@ -26,9 +26,32 @@ export interface Note {
   result?: string;
 }
 
+// Lifecycle stage (Slice #1, read-only UI)
+export interface LifecycleStage {
+  id: string;
+  slug: string;
+  name: string;
+  sort_order: number;
+  color?: string;
+  is_active?: boolean;
+}
+
+// Stage transition audit row (Slice #1)
+export interface StageTransition {
+  id: string;
+  contact_id: string;
+  from_stage_id: string | null;
+  to_stage_id: string;
+  transitioned_at: string;
+  transitioned_by?: string | null;
+  trigger_type: "manual" | "automation" | "import" | "webhook" | "system";
+  reason?: string | null;
+}
+
 export interface Contact {
   id: string;
   source: SheetName;
+  lifecycleStage?: Pick<LifecycleStage, "id" | "slug" | "name" | "color">;
   category?: string;
   fullName: string;
   phone1?: string;
