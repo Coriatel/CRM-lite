@@ -690,7 +690,15 @@ export function DashboardPage() {
                   return (
                     <div
                       key={dc.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setDetailContact(mapDirectusToContact(dc))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setDetailContact(mapDirectusToContact(dc));
+                        }
+                      }}
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
@@ -779,9 +787,7 @@ export function DashboardPage() {
                         {toStage ? (
                           <StageBadge stage={toStage} size="sm" />
                         ) : (
-                          <span style={{ color: "var(--color-text-secondary)" }}>
-                            {t.to_stage_id}
-                          </span>
+                          <span style={{ color: "var(--color-text-secondary)" }}>—</span>
                         )}
                       </div>
                       <span

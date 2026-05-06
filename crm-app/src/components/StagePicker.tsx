@@ -33,6 +33,7 @@ type Status =
  */
 export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
   const [stages, setStages] = useState<DirectusLifecycleStage[]>([]);
+  const [stagesError, setStagesError] = useState(false);
   const [editing, setEditing] = useState(false);
   const [selectedId, setSelectedId] = useState<string>(
     contact.lifecycleStage?.id ?? "",
@@ -47,7 +48,9 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
       .then((s) => {
         if (!cancelled) setStages(s);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setStagesError(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -145,23 +148,29 @@ export function StagePicker({ contact, onStageChanged }: StagePickerProps) {
           )}
         </div>
         {!editing && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            disabled={stages.length === 0}
-            style={{
-              background: "transparent",
-              border: "1px solid var(--color-border, #d1d5db)",
-              borderRadius: 6,
-              padding: "4px 10px",
-              fontSize: 12,
-              cursor: stages.length === 0 ? "not-allowed" : "pointer",
-              opacity: stages.length === 0 ? 0.5 : 1,
-              fontFamily: "inherit",
-            }}
-          >
-            שנה שלב
-          </button>
+          stagesError ? (
+            <span style={{ fontSize: 11, color: "var(--color-error, #ef4444)" }}>
+              שלבים לא זמינים
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              disabled={stages.length === 0}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--color-border, #d1d5db)",
+                borderRadius: 6,
+                padding: "4px 10px",
+                fontSize: 12,
+                cursor: stages.length === 0 ? "not-allowed" : "pointer",
+                opacity: stages.length === 0 ? 0.5 : 1,
+                fontFamily: "inherit",
+              }}
+            >
+              שנה שלב
+            </button>
+          )
         )}
       </div>
 

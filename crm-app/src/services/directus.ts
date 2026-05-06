@@ -992,7 +992,12 @@ export async function getFollowUpCandidates(
 ): Promise<DirectusContact[]> {
   const today = new Date().toISOString().slice(0, 10);
   const fields =
-    "id,full_name,phone_e164,phone_raw,follow_up_date,follow_up_note,lifecycle_stage_id.id,lifecycle_stage_id.slug,lifecycle_stage_id.name,lifecycle_stage_id.color";
+    "id,full_name,phone_e164,phone_raw,phone2,email,city,address,call_status," +
+    "last_call_date,follow_up_date,follow_up_note,interest_level,assigned_to," +
+    "donation_type,monthly_donation,total_donation,original_note,status," +
+    "receipt_confirmed,thank_you_sent,created_at,updated_at," +
+    "lifecycle_stage_id.id,lifecycle_stage_id.slug,lifecycle_stage_id.name,lifecycle_stage_id.color," +
+    "contact_tags.tag_id.id,contact_tags.tag_id.name";
   const qs = buildQuery({
     fields,
     "filter[follow_up_date][_lte]": today,
