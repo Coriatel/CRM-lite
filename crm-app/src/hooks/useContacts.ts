@@ -34,7 +34,7 @@ const SHEET_TAG_NAMES: Record<SheetName, string> = {
   להתרמות: "להתרמות",
 };
 
-function mapDirectusToContact(dc: DirectusContact): Contact {
+export function mapDirectusToContact(dc: DirectusContact): Contact {
   // Extract source from first matching sheet tag
   let source: SheetName = "אנשי_קשר";
   const tagNames = (dc.contact_tags || [])

@@ -14,11 +14,21 @@ import { useProjectTiers } from "../hooks/useProjectConfig";
 import {
   getContact,
   getProjectFollowUps,
+  getStageStats,
+  getLifecycleStages,
+  getFollowUpCandidates,
+  getRecentStageTransitions,
   DirectusContact,
+  DirectusLifecycleStage,
+  DirectusStageTransition,
+  StageCount,
 } from "../services/directus";
 import { Project } from "../hooks/useProjects";
 import { CallQueueItem } from "../hooks/useCallQueue";
-import { CAMPAIGN_STATUS_LABELS } from "../types";
+import { CAMPAIGN_STATUS_LABELS, Contact } from "../types";
+import { StageBadge } from "../components/StageBadge";
+import { ContactDetailModal } from "../components/ContactDetailModal";
+import { mapDirectusToContact } from "../hooks/useContacts";
 
 export function DashboardPage() {
   const { activeProject } = useProjectContext();
@@ -55,6 +65,14 @@ export function DashboardPage() {
   const [followUps, setFollowUps] = useState<
     { contactId: string; name: string; status: string; dateUpdated: string }[]
   >([]);
+
+  // Lifecycle operational dashboard (Slice #8)
+  const [stageStats, setStageStats] = useState<StageCount[]>([]);
+  const [lifecycleStages, setLifecycleStages] = useState<DirectusLifecycleStage[]>([]);
+  const [lcFollowUps, setLcFollowUps] = useState<DirectusContact[]>([]);
+  const [recentTransitions, setRecentTransitions] = useState<DirectusStageTransition[]>([]);
+  const [lcLoading, setLcLoading] = useState(true);
+  const [detailContact, setDetailContact] = useState<Contact | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +112,31 @@ export function DashboardPage() {
     };
   }, [activeProject]);
 
+  // Lifecycle dashboard data (Slice #8)
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      getStageStats(),
+      getLifecycleStages(),
+      getFollowUpCandidates(20),
+      getRecentStageTransitions(10),
+    ])
+      .then(([stats, stages, follows, transitions]) => {
+        if (cancelled) return;
+        setStageStats(stats);
+        setLifecycleStages(stages);
+        setLcFollowUps(follows);
+        setRecentTransitions(transitions);
+        setLcLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLcLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Contact names cache for queue items
   const [contactNames, setContactNames] = useState<
     Record<string, { name: string; phone?: string }>
@@ -108,6 +151,12 @@ export function DashboardPage() {
     }
     return map;
   }, [projects]);
+
+  const stageMap = useMemo(() => {
+    const m: Record<string, DirectusLifecycleStage> = {};
+    for (const s of lifecycleStages) m[s.id] = s;
+    return m;
+  }, [lifecycleStages]);
 
   // Fetch contact details for queue items
   useEffect(() => {
@@ -524,9 +573,215 @@ export function DashboardPage() {
           </div>
         )}
 
+
+        {/* Lifecycle operational dashboard (Slice #8) */}
+        {!lcLoading && (
+          <div
+            style={{
+              marginTop: "var(--spacing-lg)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-sm)",
+            }}
+          >
+            {/* Stage summary bar */}
+            {lifecycleStages.length > 0 && (
+              <div className="card" style={{ padding: "10px 12px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "8px" }}>
+                  שלבי מחזור חיים
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {lifecycleStages.map((stage) => {
+                    const stat = stageStats.find((s) => s.stageId === stage.id);
+                    const count = stat?.count ?? 0;
+                    return (
+                      <div
+                        key={stage.id}
+                        style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <StageBadge stage={stage} size="sm" />
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            color: "var(--color-text-secondary)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {(() => {
+                    const unassigned = stageStats.find((s) => s.stageId === null);
+                    return unassigned && unassigned.count > 0 ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontSize: "11px", color: "var(--color-text-secondary)" }}>
+                          ללא שלב
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            color: "var(--color-text-secondary)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {unassigned.count}
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Follow-up candidates */}
+            {lcFollowUps.length > 0 && (
+              <div className="card" style={{ padding: "10px 12px" }}>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    marginBottom: "6px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <Clock size={14} />
+                  מעקב לטיפול
+                </div>
+                {lcFollowUps.map((dc) => {
+                  const stage =
+                    typeof dc.lifecycle_stage_id === "object" && dc.lifecycle_stage_id
+                      ? dc.lifecycle_stage_id
+                      : undefined;
+                  return (
+                    <div
+                      key={dc.id}
+                      onClick={() => setDetailContact(mapDirectusToContact(dc))}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "6px 0",
+                        borderBottom: "1px solid var(--color-border)",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          minWidth: 0,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {dc.full_name}
+                        </span>
+                        {stage && <StageBadge stage={stage} size="sm" />}
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--color-text-secondary)",
+                          flexShrink: 0,
+                          marginInlineStart: "8px",
+                        }}
+                      >
+                        {dc.follow_up_date
+                          ? new Date(dc.follow_up_date).toLocaleDateString("he-IL")
+                          : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Recent stage transitions */}
+            {recentTransitions.length > 0 && (
+              <div className="card" style={{ padding: "10px 12px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+                  מעברי שלב אחרונים
+                </div>
+                {recentTransitions.map((t) => {
+                  const fromStage = t.from_stage_id ? stageMap[t.from_stage_id] : null;
+                  const toStage = stageMap[t.to_stage_id];
+                  return (
+                    <div
+                      key={t.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "5px 0",
+                        borderBottom: "1px solid var(--color-border)",
+                        fontSize: "12px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        {fromStage ? (
+                          <StageBadge stage={fromStage} size="sm" />
+                        ) : (
+                          <span style={{ color: "var(--color-text-secondary)" }}>ראשוני</span>
+                        )}
+                        <span style={{ color: "var(--color-text-secondary)" }}>→</span>
+                        {toStage ? (
+                          <StageBadge stage={toStage} size="sm" />
+                        ) : (
+                          <span style={{ color: "var(--color-text-secondary)" }}>
+                            {t.to_stage_id}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--color-text-secondary)",
+                          flexShrink: 0,
+                          marginInlineStart: "8px",
+                        }}
+                      >
+                        {new Date(t.transitioned_at).toLocaleDateString("he-IL")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Bottom spacer for nav */}
         <div style={{ height: "var(--spacing-lg)" }} />
       </main>
+
+      {detailContact && (
+        <ContactDetailModal
+          contact={detailContact}
+          onClose={() => setDetailContact(null)}
+          onAddNote={() => setDetailContact(null)}
+          onEdit={() => setDetailContact(null)}
+          onDelete={() => setDetailContact(null)}
+        />
+      )}
     </div>
   );
 }
