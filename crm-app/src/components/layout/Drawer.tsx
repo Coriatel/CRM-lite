@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   getLifecycleStages,
   DirectusLifecycleStage,
@@ -14,6 +15,7 @@ import {
   UserX,
   ArrowUpDown,
   Check,
+  Users,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import {
@@ -90,6 +92,7 @@ export function Drawer({
   onAdvancedFilters,
 }: DrawerProps) {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const { tags } = useTags();
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
@@ -207,6 +210,19 @@ export function Drawer({
         </div>
 
         <div className="drawer-body">
+          {/* Slice A: navigation entry to contacts hub */}
+          <button
+            className="drawer-filter-item"
+            onClick={() => {
+              navigate("/people");
+              onClose();
+            }}
+            style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "var(--spacing-md)" }}
+          >
+            <Users size={16} />
+            אנשי קשר (כל הקהילה)
+          </button>
+
           {/* Clear all filters */}
           <button
             className="drawer-clear-all"
