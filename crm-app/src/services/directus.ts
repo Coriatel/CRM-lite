@@ -585,6 +585,7 @@ export async function getProjectContacts(
     search?: string;
     sort?: string;
     tagNames?: string[];
+    lifecycleStageSlug?: string;
     limit?: number;
     offset?: number;
   },
@@ -608,6 +609,14 @@ export async function getProjectContacts(
     params["filter[_or][1][contact_id][phone_e164][_contains]"] =
       filters.search;
     params["filter[_or][2][contact_id][phone2][_contains]"] = filters.search;
+  }
+
+  // Lifecycle stage filter on related contact
+  if (filters?.lifecycleStageSlug === "__unset__") {
+    params["filter[contact_id][lifecycle_stage_id][_null]"] = "true";
+  } else if (filters?.lifecycleStageSlug) {
+    params["filter[contact_id][lifecycle_stage_id][slug][_eq]"] =
+      filters.lifecycleStageSlug;
   }
 
   // Tag filter on related contact
