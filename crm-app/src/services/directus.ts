@@ -119,6 +119,7 @@ export async function getContacts(filters: {
   hideNoName?: boolean;
   sheetTags?: string[];
   groupTags?: string[];
+  lifecycleStageSlug?: string;
 }): Promise<DirectusContact[]> {
   const params: Record<string, string> = {
     fields:
@@ -197,6 +198,12 @@ export async function getContacts(filters: {
 
   if (filters.neverCalled) {
     params["filter[last_call_date][_null]"] = "true";
+  }
+
+  if (filters.lifecycleStageSlug === "__unset__") {
+    params["filter[lifecycle_stage_id][_null]"] = "true";
+  } else if (filters.lifecycleStageSlug) {
+    params["filter[lifecycle_stage_id][slug][_eq]"] = filters.lifecycleStageSlug;
   }
 
   if (filters.interestLevel) {
