@@ -122,6 +122,7 @@ export function useContacts(
     JSON.stringify(advancedFilters?.sheetTags),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     JSON.stringify(advancedFilters?.groupTags),
+    advancedFilters?.lifecycleStageSlug,
   ]);
 
   const loadAll = useCallback(() => {
@@ -170,6 +171,7 @@ export function useContacts(
       hideNoName: advancedFilters?.hideNoName,
       sheetTags: advancedFilters?.sheetTags,
       groupTags: advancedFilters?.groupTags,
+      lifecycleStageSlug: advancedFilters?.lifecycleStageSlug,
     })
       .then((data) => {
         if (!cancelled) {
@@ -201,6 +203,7 @@ export function useContacts(
     JSON.stringify(advancedFilters?.sheetTags),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     JSON.stringify(advancedFilters?.groupTags),
+    advancedFilters?.lifecycleStageSlug,
   ]);
 
   const hasMore = contacts.length >= currentLimit;

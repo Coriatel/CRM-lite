@@ -91,6 +91,8 @@ export interface AdvancedFilters {
   hideNoName?: boolean;
   sheetTags?: string[];
   groupTags?: string[];
+  // Lifecycle stage slug; "__unset__" filters contacts with NULL lifecycle_stage_id.
+  lifecycleStageSlug?: string;
 }
 
 export type SortOption =

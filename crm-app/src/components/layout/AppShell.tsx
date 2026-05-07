@@ -32,7 +32,8 @@ export function AppShell({
             advancedFilters.hideNoName ||
             (advancedFilters.sheetTags &&
               advancedFilters.sheetTags.length > 0) ||
-            (advancedFilters.groupTags && advancedFilters.groupTags.length > 0)
+            (advancedFilters.groupTags && advancedFilters.groupTags.length > 0) ||
+            advancedFilters.lifecycleStageSlug
           )
         }
       />

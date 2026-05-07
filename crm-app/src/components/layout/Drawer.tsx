@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import {
+  getLifecycleStages,
+  DirectusLifecycleStage,
+} from "../../services/directus";
 import {
   X,
   LogOut,
@@ -94,7 +98,21 @@ export function Drawer({
     sheets: false,
     groups: false,
     interestLevel: false,
+    lifecycle: false,
   });
+
+  const [stages, setStages] = useState<DirectusLifecycleStage[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    getLifecycleStages()
+      .then((s) => {
+        if (!cancelled) setStages(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggle = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -107,7 +125,8 @@ export function Drawer({
     advancedFilters.interestLevel ||
     advancedFilters.hideNoName ||
     (advancedFilters.sheetTags && advancedFilters.sheetTags.length > 0) ||
-    (advancedFilters.groupTags && advancedFilters.groupTags.length > 0);
+    (advancedFilters.groupTags && advancedFilters.groupTags.length > 0) ||
+    advancedFilters.lifecycleStageSlug;
 
   const clearAdvanced = () => {
     onAdvancedFilters({});
@@ -137,6 +156,10 @@ export function Drawer({
 
   const setInterestLevel = (level: number | undefined) => {
     onAdvancedFilters({ ...advancedFilters, interestLevel: level });
+  };
+
+  const setLifecycleStage = (slug: string | undefined) => {
+    onAdvancedFilters({ ...advancedFilters, lifecycleStageSlug: slug });
   };
 
   const toggleSheetTag = (tagName: string) => {
@@ -298,6 +321,35 @@ export function Drawer({
               })}
             </DrawerSection>
           )}
+
+          {/* Lifecycle stage filter (server-side, pagination-safe) */}
+          <DrawerSection
+            title="מחזור חיים"
+            isExpanded={expanded.lifecycle}
+            onToggle={() => toggle("lifecycle")}
+          >
+            <button
+              className={`drawer-filter-item ${!advancedFilters.lifecycleStageSlug ? "active" : ""}`}
+              onClick={() => setLifecycleStage(undefined)}
+            >
+              הכל
+            </button>
+            {stages.map((s) => (
+              <button
+                key={s.id}
+                className={`drawer-filter-item ${advancedFilters.lifecycleStageSlug === s.slug ? "active" : ""}`}
+                onClick={() => setLifecycleStage(s.slug)}
+              >
+                {s.name}
+              </button>
+            ))}
+            <button
+              className={`drawer-filter-item ${advancedFilters.lifecycleStageSlug === "__unset__" ? "active" : ""}`}
+              onClick={() => setLifecycleStage("__unset__")}
+            >
+              ללא שיוך
+            </button>
+          </DrawerSection>
 
           {/* Interest level filter */}
           <DrawerSection
