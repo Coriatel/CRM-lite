@@ -112,7 +112,9 @@ export function PeopleHubPage({ sortBy, advancedFilters }: PeopleHubPageProps) {
                 contact={c}
                 onAddNote={(contact) => setNoteContact(contact)}
                 onViewDetails={(contact) => setSelectedContact(contact)}
-                onEdit={(contact) => setSelectedContact(contact)}
+                // Slice A is read-only — avatar-click edit is a no-op.
+                // Wiring to EditContactModal is deferred to Slice E.
+                onEdit={() => {}}
               />
             ))}
             {hasMore && (
