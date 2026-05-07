@@ -92,6 +92,7 @@ export function useProjectContacts(
   search?: string,
   sort?: string,
   tagNames?: string[],
+  lifecycleStageSlug?: string,
 ) {
   const [contacts, setContacts] = useState<ProjectContact[]>([]);
   const [loading, setLoading] = useState(false);
@@ -113,6 +114,7 @@ export function useProjectContacts(
       search: search || undefined,
       sort,
       tagNames: tagNames && tagNames.length > 0 ? tagNames : undefined,
+      lifecycleStageSlug,
     })
       .then((pcs) => {
         if (cancelled) return;
@@ -135,7 +137,7 @@ export function useProjectContacts(
     return () => {
       cancelled = true;
     };
-  }, [projectId, statusFilter, search, sort, JSON.stringify(tagNames), refreshKey]);
+  }, [projectId, statusFilter, search, sort, JSON.stringify(tagNames), lifecycleStageSlug, refreshKey]);
 
   return { contacts, loading, refresh };
 }
