@@ -19,6 +19,8 @@ import {
   logout as authLogout,
   clearTokens,
   isTokenExpiringSoon,
+  loginWithPassword,
+  requestPasswordReset,
 } from "../services/auth";
 
 interface AuthContextType {
@@ -26,6 +28,8 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<boolean>;
+  requestPasswordReset: (email: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   isDemo: boolean;
 }
@@ -154,6 +158,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [startTokenRefresh]);
 
+  const signInWithEmail = useCallback(async (email: string, password: string): Promise<boolean> => {
+    if (AUTH_MODE !== "oauth") return false;
+    try {
+      setError(null);
+      const tokens = await loginWithPassword(email, password);
+      if (!tokens) {
+        setError("אימייל או סיסמה שגויים");
+        return false;
+      }
+      setAuthToken(tokens.accessToken);
+      const currentUser = await getCurrentUser(tokens.accessToken);
+      if (!currentUser) {
+        setError("שגיאה בטעינת המשתמש");
+        clearTokens();
+        setAuthToken("");
+        return false;
+      }
+      setUser(currentUser);
+      startTokenRefresh();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "שגיאת אימות");
+      return false;
+    }
+  }, [startTokenRefresh]);
+
+  const requestPasswordResetCb = useCallback(async (email: string): Promise<boolean> => {
+    try {
+      setError(null);
+      return await requestPasswordReset(email);
+    } catch {
+      return false;
+    }
+  }, []);
+
   const signInWithGoogle = useCallback(async () => {
     if (AUTH_MODE !== "oauth") return;
 
@@ -187,6 +226,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         error,
         signInWithGoogle,
+        signInWithEmail,
+        requestPasswordReset: requestPasswordResetCb,
         signOut,
         isDemo: AUTH_MODE === "demo",
       }}
