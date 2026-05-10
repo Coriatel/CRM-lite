@@ -16,13 +16,14 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ActiveCallPage } from "./pages/ActiveCallPage";
 import { ImportPage } from "./pages/ImportPage";
 import { PeopleHubPage } from "./pages/PeopleHubPage";
+import { TodayPage } from "./pages/TodayPage";
 
 import { AppShell } from "./components/layout/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SortOption, AdvancedFilters } from "./types";
 
 const LAST_ROUTE_KEY = "crm_last_route";
-const ROUTE_WHITELIST = ["/", "/dashboard", "/settings", "/people"];
+const ROUTE_WHITELIST = ["/", "/dashboard", "/settings", "/people", "/today"];
 
 function RouteTracker() {
   const location = useLocation();
@@ -101,6 +102,7 @@ function AppContent() {
             }
           />
           <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="today" element={<TodayPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="people"
