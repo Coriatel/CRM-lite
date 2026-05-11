@@ -126,6 +126,10 @@ export function TodayPage() {
           setAdvancedFilters({ followUpBefore: todayIso() });
           navigate("/");
         }}
+        onNeverCalledClick={() => {
+          setAdvancedFilters({ neverCalled: true });
+          navigate("/");
+        }}
       />
       <CallsTodayCard
         calls={calls}
@@ -196,10 +200,12 @@ function PeopleCareCard({
   people,
   error,
   onFollowUpDueClick,
+  onNeverCalledClick,
 }: {
   people: PeopleCounts | null;
   error: string | null;
   onFollowUpDueClick: () => void;
+  onNeverCalledClick: () => void;
 }) {
   return (
     <CardFrame icon={<Users size={20} />} title="אנשים / חיזוק">
@@ -250,10 +256,23 @@ function PeopleCareCard({
                 דיברנו עם כל אנשי הקשר
               </span>
             ) : (
-              <>
+              <button
+                type="button"
+                onClick={onNeverCalledClick}
+                aria-label="הצג אנשי קשר שלא דיברנו איתם עדיין"
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  font: "inherit",
+                  color: "inherit",
+                  cursor: "pointer",
+                  textAlign: "inherit",
+                }}
+              >
                 <strong>{people.neverCalled}</strong>
                 {people.neverCalledOver ? "+" : ""} לא דיברנו איתן עדיין
-              </>
+              </button>
             )}
           </li>
         </ul>
