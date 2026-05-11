@@ -590,21 +590,26 @@ export async function getCallQueueInRange(filters: {
   status?: string;
   fromInclusive?: string;
   toExclusive?: string;
+  scheduledDateNull?: boolean;
   limit?: number;
 }): Promise<DirectusCallQueueItem[]> {
   const params: Record<string, string> = {
-    fields: "id,status,scheduled_date,priority",
+    fields: "id,contact_id,status,scheduled_date,priority,notes",
     sort: "priority,scheduled_date",
     limit: String(filters.limit ?? 200),
   };
   if (filters.status) {
     params["filter[status][_eq]"] = filters.status;
   }
-  if (filters.fromInclusive) {
-    params["filter[scheduled_date][_gte]"] = filters.fromInclusive;
-  }
-  if (filters.toExclusive) {
-    params["filter[scheduled_date][_lt]"] = filters.toExclusive;
+  if (filters.scheduledDateNull) {
+    params["filter[scheduled_date][_null]"] = "true";
+  } else {
+    if (filters.fromInclusive) {
+      params["filter[scheduled_date][_gte]"] = filters.fromInclusive;
+    }
+    if (filters.toExclusive) {
+      params["filter[scheduled_date][_lt]"] = filters.toExclusive;
+    }
   }
   const res = await directusFetch(`/items/call_queue${buildQuery(params)}`);
   const json: DirectusResponse<DirectusCallQueueItem[]> = await res.json();

@@ -19,7 +19,7 @@ import { useCallsToday } from "../hooks/useCallsToday";
 interface Row {
   queue: DirectusCallQueueItem;
   contact?: DirectusContact;
-  bucket: "today" | "overdue";
+  bucket: "today" | "overdue" | "undated";
 }
 
 const SOFT_CAP = 100;
@@ -32,7 +32,7 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: "#6b7280",
 };
 
-type BucketFilter = "all" | "overdue" | "today";
+type BucketFilter = "all" | "overdue" | "today" | "undated";
 
 export function CallsTodayPage() {
   const { buckets, error: bucketsError, refresh } = useCallsToday(SOFT_CAP);
@@ -61,6 +61,10 @@ export function CallsTodayPage() {
             queue: q,
             bucket: "today" as const,
           })),
+          ...buckets.undated.map((q) => ({
+            queue: q,
+            bucket: "undated" as const,
+          })),
         ];
         const ids = Array.from(new Set(all.map((r) => r.queue.contact_id)));
         const contacts = ids.length > 0 ? await getContactsByIds(ids) : [];
@@ -78,16 +82,20 @@ export function CallsTodayPage() {
     };
   }, [buckets]);
 
-  const { overdue, today, totalOverdue, totalToday } = useMemo(() => {
-    const allOverdue = (rows ?? []).filter((r) => r.bucket === "overdue");
-    const allToday = (rows ?? []).filter((r) => r.bucket === "today");
-    return {
-      totalOverdue: allOverdue.length,
-      totalToday: allToday.length,
-      overdue: filter === "today" ? [] : allOverdue,
-      today: filter === "overdue" ? [] : allToday,
-    };
-  }, [rows, filter]);
+  const { overdue, today, undated, totalOverdue, totalToday, totalUndated } =
+    useMemo(() => {
+      const allOverdue = (rows ?? []).filter((r) => r.bucket === "overdue");
+      const allToday = (rows ?? []).filter((r) => r.bucket === "today");
+      const allUndated = (rows ?? []).filter((r) => r.bucket === "undated");
+      return {
+        totalOverdue: allOverdue.length,
+        totalToday: allToday.length,
+        totalUndated: allUndated.length,
+        overdue: filter === "all" || filter === "overdue" ? allOverdue : [],
+        today: filter === "all" || filter === "today" ? allToday : [],
+        undated: filter === "all" || filter === "undated" ? allUndated : [],
+      };
+    }, [rows, filter]);
 
   async function handleComplete(row: Row) {
     setPendingId(row.queue.id);
@@ -119,7 +127,17 @@ export function CallsTodayPage() {
 
   return (
     <main className="main-content">
-      <header style={{ marginBottom: "var(--spacing-md)" }}>
+      <header
+        style={{
+          marginBottom: "var(--spacing-md)",
+          position: "sticky",
+          top: 0,
+          background: "var(--color-bg)",
+          paddingTop: "var(--spacing-xs)",
+          paddingBottom: "var(--spacing-sm)",
+          zIndex: 5,
+        }}
+      >
         <Link
           to="/today"
           style={{
@@ -178,7 +196,7 @@ export function CallsTodayPage() {
         >
           <FilterChip
             active={filter === "all"}
-            label={`הכול (${totalOverdue + totalToday})`}
+            label={`הכול (${totalOverdue + totalToday + totalUndated})`}
             onClick={() => setFilter("all")}
           />
           <FilterChip
@@ -192,6 +210,13 @@ export function CallsTodayPage() {
             label={`להיום (${totalToday})`}
             onClick={() => setFilter("today")}
           />
+          {totalUndated > 0 && (
+            <FilterChip
+              active={filter === "undated"}
+              label={`ללא תאריך (${totalUndated})`}
+              onClick={() => setFilter("undated")}
+            />
+          )}
         </div>
       </header>
 
@@ -222,7 +247,7 @@ export function CallsTodayPage() {
         >
           אין שיחות פתוחות להיום
         </p>
-      ) : overdue.length === 0 && today.length === 0 ? (
+      ) : overdue.length === 0 && today.length === 0 && undated.length === 0 ? (
         <p
           style={{
             color: "var(--color-text-secondary)",
@@ -232,7 +257,11 @@ export function CallsTodayPage() {
         >
           {filter === "overdue"
             ? "אין שיחות באיחור"
-            : "אין שיחות מתוזמנות להיום"}
+            : filter === "today"
+              ? "אין שיחות מתוזמנות להיום"
+              : filter === "undated"
+                ? "אין שיחות ללא תאריך"
+                : "אין שיחות בתור"}
         </p>
       ) : (
         <>
@@ -256,6 +285,20 @@ export function CallsTodayPage() {
           {today.length > 0 && (
             <Section title={`להיום (${today.length})`}>
               {today.map((r) => (
+                <CallRow
+                  key={r.queue.id}
+                  row={r}
+                  disabled={pendingId === r.queue.id}
+                  onCall={() => navigate(`/call/${r.queue.contact_id}`)}
+                  onComplete={() => handleComplete(r)}
+                  onSkip={() => handleSkip(r)}
+                />
+              ))}
+            </Section>
+          )}
+          {undated.length > 0 && (
+            <Section title={`ללא תאריך (${undated.length})`}>
+              {undated.map((r) => (
                 <CallRow
                   key={r.queue.id}
                   row={r}
@@ -399,6 +442,21 @@ function CallRow({
           {phone && <span dir="ltr">{phone}</span>}
           {stamp && <span aria-label="זמן מתוזמן">{stamp}</span>}
         </div>
+        {row.queue.notes && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--color-text-secondary)",
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={row.queue.notes}
+          >
+            {row.queue.notes}
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         <button

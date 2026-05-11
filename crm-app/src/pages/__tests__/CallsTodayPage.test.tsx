@@ -182,6 +182,43 @@ describe("CallsTodayPage", () => {
     });
   });
 
+  it("surfaces pending rows with no scheduled_date in an 'ללא תאריך' section", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (
+        url.includes("/items/call_queue") &&
+        url.includes("filter%5Bscheduled_date%5D%5B_null%5D=true")
+      ) {
+        return jsonResponse({
+          data: [
+            {
+              id: "q-undated",
+              contact_id: "c-a",
+              priority: 3,
+              status: "pending",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items/contacts")) {
+        return jsonResponse({ data: [CONTACT_A] });
+      }
+      return jsonResponse({ data: [] });
+    });
+    render(
+      <MemoryRouter initialEntries={["/calls-today"]}>
+        <Routes>
+          <Route path="/calls-today" element={<CallsTodayPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /ללא תאריך/ })).toBeTruthy();
+      expect(screen.getByText("אסתר כהן")).toBeTruthy();
+    });
+  });
+
   it("shows filter-specific zero-state when buckets are filtered to empty", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -224,6 +261,40 @@ describe("CallsTodayPage", () => {
     await waitFor(() => {
       const after = urls.filter((u) => u.includes("/items/call_queue")).length;
       expect(after).toBeGreaterThan(before);
+    });
+  });
+
+  it("shows the queue row notes when present", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (
+        url.includes("/items/call_queue") &&
+        url.includes("filter%5Bscheduled_date%5D%5B_gte%5D")
+      ) {
+        return jsonResponse({
+          data: [
+            {
+              id: "q-today",
+              contact_id: "c-a",
+              priority: 2,
+              status: "pending",
+              scheduled_date: "2026-05-11T10:00:00Z",
+              notes: "להזכיר על השיעור של יום שלישי",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items/contacts")) {
+        return jsonResponse({ data: [CONTACT_A] });
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(
+        screen.getByText("להזכיר על השיעור של יום שלישי"),
+      ).toBeTruthy();
     });
   });
 

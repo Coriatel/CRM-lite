@@ -1,7 +1,14 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { Users, LayoutDashboard, Filter, Settings } from "lucide-react";
+import {
+  Users,
+  LayoutDashboard,
+  Filter,
+  Settings,
+  CalendarClock,
+} from "lucide-react";
 
 const NAV_ITEMS = [
+  { path: "/today", label: "היום", icon: CalendarClock },
   { path: "/", label: "אנשי קשר", icon: Users },
   { path: "/dashboard", label: "לוח בקרה", icon: LayoutDashboard },
   { path: "/filter", label: "סינון", icon: Filter },
@@ -28,6 +35,13 @@ export function BottomNav({ onFilterClick, hasActiveFilters }: BottomNavProps) {
   const isActive = (path: string) => {
     if (path === "/filter") return false;
     if (path === "/") return location.pathname === "/";
+    // /calls-today is a child of the Today flow — keep the Today tab active there.
+    if (path === "/today") {
+      return (
+        location.pathname === "/today" ||
+        location.pathname.startsWith("/calls-today")
+      );
+    }
     return location.pathname.startsWith(path);
   };
 
