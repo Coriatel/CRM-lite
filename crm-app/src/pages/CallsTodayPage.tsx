@@ -127,7 +127,17 @@ export function CallsTodayPage() {
 
   return (
     <main className="main-content">
-      <header style={{ marginBottom: "var(--spacing-md)" }}>
+      <header
+        style={{
+          marginBottom: "var(--spacing-md)",
+          position: "sticky",
+          top: 0,
+          background: "var(--color-bg)",
+          paddingTop: "var(--spacing-xs)",
+          paddingBottom: "var(--spacing-sm)",
+          zIndex: 5,
+        }}
+      >
         <Link
           to="/today"
           style={{
