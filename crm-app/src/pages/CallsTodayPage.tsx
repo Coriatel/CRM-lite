@@ -442,6 +442,21 @@ function CallRow({
           {phone && <span dir="ltr">{phone}</span>}
           {stamp && <span aria-label="זמן מתוזמן">{stamp}</span>}
         </div>
+        {row.queue.notes && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--color-text-secondary)",
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={row.queue.notes}
+          >
+            {row.queue.notes}
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         <button

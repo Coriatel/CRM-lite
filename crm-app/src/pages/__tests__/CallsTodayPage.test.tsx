@@ -264,6 +264,40 @@ describe("CallsTodayPage", () => {
     });
   });
 
+  it("shows the queue row notes when present", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (
+        url.includes("/items/call_queue") &&
+        url.includes("filter%5Bscheduled_date%5D%5B_gte%5D")
+      ) {
+        return jsonResponse({
+          data: [
+            {
+              id: "q-today",
+              contact_id: "c-a",
+              priority: 2,
+              status: "pending",
+              scheduled_date: "2026-05-11T10:00:00Z",
+              notes: "להזכיר על השיעור של יום שלישי",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items/contacts")) {
+        return jsonResponse({ data: [CONTACT_A] });
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(
+        screen.getByText("להזכיר על השיעור של יום שלישי"),
+      ).toBeTruthy();
+    });
+  });
+
   it("shows zero-state when both buckets are empty", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
