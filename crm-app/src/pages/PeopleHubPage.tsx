@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { Search, X, Loader2 } from "lucide-react";
 import { useContacts } from "../hooks/useContacts";
 import { useDebounce } from "../hooks/useDebounce";
@@ -18,7 +19,22 @@ interface PeopleHubPageProps {
   advancedFilters: AdvancedFilters;
 }
 
+const FILTER_CHIP_LABELS: Partial<Record<keyof AdvancedFilters, string>> = {
+  followUpBefore: "צריך חיזוק",
+  neverCalled: "לא נוצר קשר",
+  donationType: "תורמים קבועים",
+};
+const FILTER_CHIP_KEYS = Object.keys(FILTER_CHIP_LABELS) as Array<
+  keyof typeof FILTER_CHIP_LABELS
+>;
+
 export function PeopleHubPage({ sortBy, advancedFilters }: PeopleHubPageProps) {
+  const { setAdvancedFilters } = useOutletContext<{
+    setAdvancedFilters: (f: AdvancedFilters) => void;
+  }>();
+  const activeChipKeys = FILTER_CHIP_KEYS.filter(
+    (k) => advancedFilters[k] !== undefined,
+  );
   const [quickFilter] = useState<QuickFilterTab>("all");
   const [statusFilter] = useState<ContactStatus | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -79,6 +95,55 @@ export function PeopleHubPage({ sortBy, advancedFilters }: PeopleHubPageProps) {
           )}
         </div>
       </header>
+
+      {activeChipKeys.length > 0 && (
+        <div
+          role="list"
+          aria-label="מסננים פעילים"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            padding: "var(--spacing-sm) var(--spacing-md)",
+          }}
+        >
+          {activeChipKeys.map((k) => (
+            <span
+              key={k}
+              role="listitem"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                background: "var(--color-primary-bg, #e0eef2)",
+                color: "var(--color-primary, #1a5f7a)",
+                borderRadius: 999,
+                padding: "4px 10px",
+                fontSize: 13,
+              }}
+            >
+              מסונן: {FILTER_CHIP_LABELS[k]}
+              <button
+                type="button"
+                onClick={() =>
+                  setAdvancedFilters({ ...advancedFilters, [k]: undefined })
+                }
+                aria-label={`הסר סינון ${FILTER_CHIP_LABELS[k]}`}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  color: "inherit",
+                  display: "inline-flex",
+                }}
+              >
+                <X size={14} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <main
         style={{
