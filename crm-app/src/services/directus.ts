@@ -120,6 +120,7 @@ export async function getContacts(filters: {
   sheetTags?: string[];
   groupTags?: string[];
   lifecycleStageSlug?: string;
+  donationType?: "recurring" | "one_time";
 }): Promise<DirectusContact[]> {
   const params: Record<string, string> = {
     fields:
@@ -208,6 +209,10 @@ export async function getContacts(filters: {
 
   if (filters.interestLevel) {
     params["filter[interest_level][_eq]"] = String(filters.interestLevel);
+  }
+
+  if (filters.donationType) {
+    params["filter[donation_type][_eq]"] = filters.donationType;
   }
 
   const res = await directusFetch(`/items/contacts${buildQuery(params)}`);
