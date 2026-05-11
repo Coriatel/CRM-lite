@@ -231,6 +231,20 @@ describe("TodayPage", () => {
     });
   });
 
+  it("clicking the neverCalled line sets neverCalled filter and navigates to /", async () => {
+    const setFilters = vi.fn();
+    renderTodayPage(setFilters);
+    const btn = await screen.findByRole("button", {
+      name: "הצג אנשי קשר שלא דיברנו איתם עדיין",
+    });
+    fireEvent.click(btn);
+    expect(setFilters).toHaveBeenCalledTimes(1);
+    expect(setFilters.mock.calls[0][0]).toEqual({ neverCalled: true });
+    await waitFor(() => {
+      expect(screen.getByTestId("loc-pathname").textContent).toBe("/");
+    });
+  });
+
   it("shows error copy when Directus rejects the donors query", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
