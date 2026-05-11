@@ -9,8 +9,8 @@ import {
   HandHeart,
   PhoneCall,
 } from "lucide-react";
-import { getContacts, getCallQueueInRange } from "../services/directus";
-import { todayWindowIsrael } from "../utils/dateWindow";
+import { getContacts } from "../services/directus";
+import { useCallsToday } from "../hooks/useCallsToday";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -42,8 +42,15 @@ export function TodayPage() {
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
   const [donorsError, setDonorsError] = useState<string | null>(null);
-  const [calls, setCalls] = useState<CallsCounts | null>(null);
-  const [callsError, setCallsError] = useState<string | null>(null);
+  const { buckets: callBuckets, error: callsError } = useCallsToday(SOFT_CAP);
+  const calls: CallsCounts | null = callBuckets
+    ? {
+        today: callBuckets.today.length,
+        todayOver: callBuckets.today.length >= SOFT_CAP,
+        overdue: callBuckets.overdue.length,
+        overdueOver: callBuckets.overdue.length >= SOFT_CAP,
+      }
+    : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -77,33 +84,6 @@ export function TodayPage() {
         });
       } catch {
         if (!cancelled) setDonorsError("שגיאה בטעינת נתוני תורמים");
-      }
-    })();
-    (async () => {
-      try {
-        const { startIso, endIso } = todayWindowIsrael();
-        const [todayRows, overdueRows] = await Promise.all([
-          getCallQueueInRange({
-            status: "pending",
-            fromInclusive: startIso,
-            toExclusive: endIso,
-            limit: SOFT_CAP,
-          }),
-          getCallQueueInRange({
-            status: "pending",
-            toExclusive: startIso,
-            limit: SOFT_CAP,
-          }),
-        ]);
-        if (cancelled) return;
-        setCalls({
-          today: todayRows.length,
-          todayOver: todayRows.length >= SOFT_CAP,
-          overdue: overdueRows.length,
-          overdueOver: overdueRows.length >= SOFT_CAP,
-        });
-      } catch {
-        if (!cancelled) setCallsError("שגיאה בטעינת שיחות להיום");
       }
     })();
     return () => {
@@ -294,7 +274,7 @@ function CallsTodayCard({
         </ul>
       )}
       <Link
-        to="/dashboard"
+        to="/calls-today"
         style={{
           display: "inline-block",
           marginTop: "var(--spacing-sm)",

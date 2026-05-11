@@ -207,7 +207,7 @@ describe("TodayPage", () => {
       </MemoryRouter>,
     );
     await waitFor(() => {
-      expect(screen.getByText("שגיאה בטעינת שיחות להיום")).toBeTruthy();
+      expect(screen.getByText("שגיאה בטעינת תור השיחות")).toBeTruthy();
     });
   });
 
