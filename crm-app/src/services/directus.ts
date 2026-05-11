@@ -566,6 +566,35 @@ export async function updateCallQueueItem(
   return json.data;
 }
 
+// Fetch call_queue rows by scheduled_date range. Used by the Today card to
+// count today's vs overdue calls; the two windows share the same shape, so the
+// same helper backs both queries. `fromInclusive` maps to _gte, `toExclusive`
+// to _lt — caller passes ISO timestamps (use todayWindowIsrael for TZ safety).
+export async function getCallQueueInRange(filters: {
+  status?: string;
+  fromInclusive?: string;
+  toExclusive?: string;
+  limit?: number;
+}): Promise<DirectusCallQueueItem[]> {
+  const params: Record<string, string> = {
+    fields: "id,status,scheduled_date,priority",
+    sort: "priority,scheduled_date",
+    limit: String(filters.limit ?? 200),
+  };
+  if (filters.status) {
+    params["filter[status][_eq]"] = filters.status;
+  }
+  if (filters.fromInclusive) {
+    params["filter[scheduled_date][_gte]"] = filters.fromInclusive;
+  }
+  if (filters.toExclusive) {
+    params["filter[scheduled_date][_lt]"] = filters.toExclusive;
+  }
+  const res = await directusFetch(`/items/call_queue${buildQuery(params)}`);
+  const json: DirectusResponse<DirectusCallQueueItem[]> = await res.json();
+  return json.data;
+}
+
 // ---------- Project Contacts ----------
 
 export interface DirectusProjectContact {
