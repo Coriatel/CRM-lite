@@ -106,7 +106,8 @@ describe("CallsTodayPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/שיחות באיחור/)).toBeTruthy();
-      expect(screen.getByText(/להיום/)).toBeTruthy();
+      // Section title for today bucket lives in an h2; chip label also says להיום.
+      expect(screen.getByRole("heading", { name: /להיום/ })).toBeTruthy();
       expect(screen.getByText("אסתר כהן")).toBeTruthy();
       expect(screen.getByText("מרים לוי")).toBeTruthy();
     });
@@ -158,6 +159,37 @@ describe("CallsTodayPage", () => {
     await waitFor(() => {
       expect(patches.length).toBe(1);
       expect((patches[0].body as { status: string }).status).toBe("skipped");
+    });
+  });
+
+  it("filter chip 'באיחור' hides today rows", async () => {
+    renderPage();
+    await waitFor(() => screen.getByText("אסתר כהן"));
+    fireEvent.click(screen.getByRole("tab", { name: /באיחור/ }));
+    await waitFor(() => {
+      expect(screen.queryByText("אסתר כהן")).toBeNull();
+      expect(screen.getByText("מרים לוי")).toBeTruthy();
+    });
+  });
+
+  it("filter chip 'להיום' hides overdue rows", async () => {
+    renderPage();
+    await waitFor(() => screen.getByText("אסתר כהן"));
+    fireEvent.click(screen.getByRole("tab", { name: /להיום/ }));
+    await waitFor(() => {
+      expect(screen.queryByText("מרים לוי")).toBeNull();
+      expect(screen.getByText("אסתר כהן")).toBeTruthy();
+    });
+  });
+
+  it("refresh button refetches call_queue", async () => {
+    renderPage();
+    await waitFor(() => screen.getByText("אסתר כהן"));
+    const before = urls.filter((u) => u.includes("/items/call_queue")).length;
+    fireEvent.click(screen.getByLabelText("רענן"));
+    await waitFor(() => {
+      const after = urls.filter((u) => u.includes("/items/call_queue")).length;
+      expect(after).toBeGreaterThan(before);
     });
   });
 

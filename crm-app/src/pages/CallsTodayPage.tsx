@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { PhoneCall, CheckCircle2, SkipForward, Phone } from "lucide-react";
+import {
+  PhoneCall,
+  CheckCircle2,
+  SkipForward,
+  Phone,
+  RefreshCw,
+} from "lucide-react";
 import {
   getCallQueueInRange,
   getContactsByIds,
@@ -27,12 +33,22 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: "#6b7280",
 };
 
+type BucketFilter = "all" | "overdue" | "today";
+
 export function CallsTodayPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [filter, setFilter] = useState<BucketFilter>("all");
   const { markCompleted, skip } = useCallQueueActions();
   const navigate = useNavigate();
+
+  const refresh = useCallback(() => {
+    setError(null);
+    setRows(null);
+    setRefreshTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,13 +86,18 @@ export function CallsTodayPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshTick]);
 
-  const { overdue, today } = useMemo(() => {
-    const overdue = (rows ?? []).filter((r) => r.bucket === "overdue");
-    const today = (rows ?? []).filter((r) => r.bucket === "today");
-    return { overdue, today };
-  }, [rows]);
+  const { overdue, today, totalOverdue, totalToday } = useMemo(() => {
+    const allOverdue = (rows ?? []).filter((r) => r.bucket === "overdue");
+    const allToday = (rows ?? []).filter((r) => r.bucket === "today");
+    return {
+      totalOverdue: allOverdue.length,
+      totalToday: allToday.length,
+      overdue: filter === "today" ? [] : allOverdue,
+      today: filter === "overdue" ? [] : allToday,
+    };
+  }, [rows, filter]);
 
   async function handleComplete(row: Row) {
     setPendingId(row.queue.id);
@@ -119,18 +140,69 @@ export function CallsTodayPage() {
         >
           ← חזרה ללוח היום
         </Link>
-        <h1
+        <div
           style={{
-            fontSize: 22,
-            fontWeight: 700,
-            marginTop: 4,
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 8,
+            marginTop: 4,
           }}
         >
-          <PhoneCall size={22} /> תור שיחות
-        </h1>
+          <h1
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <PhoneCall size={22} /> תור שיחות
+          </h1>
+          <button
+            type="button"
+            onClick={refresh}
+            aria-label="רענן"
+            title="רענן"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-secondary)",
+              width: 36,
+              height: 36,
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
+        <div
+          role="tablist"
+          aria-label="סינון"
+          style={{ display: "flex", gap: 6, marginTop: "var(--spacing-sm)" }}
+        >
+          <FilterChip
+            active={filter === "all"}
+            label={`הכול (${totalOverdue + totalToday})`}
+            onClick={() => setFilter("all")}
+          />
+          <FilterChip
+            active={filter === "overdue"}
+            label={`באיחור (${totalOverdue})`}
+            onClick={() => setFilter("overdue")}
+            tone="danger"
+          />
+          <FilterChip
+            active={filter === "today"}
+            label={`להיום (${totalToday})`}
+            onClick={() => setFilter("today")}
+          />
+        </div>
       </header>
 
       {error && (
@@ -196,6 +268,40 @@ export function CallsTodayPage() {
         </>
       )}
     </main>
+  );
+}
+
+function FilterChip({
+  active,
+  label,
+  onClick,
+  tone,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  tone?: "danger";
+}) {
+  const accent =
+    tone === "danger" ? "var(--color-danger)" : "var(--color-primary)";
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      style={{
+        padding: "4px 10px",
+        borderRadius: 999,
+        border: `1px solid ${active ? accent : "var(--color-border)"}`,
+        background: active ? accent : "transparent",
+        color: active ? "#fff" : "var(--color-text-secondary)",
+        fontSize: 13,
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
