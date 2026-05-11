@@ -93,4 +93,60 @@ describe("TodayPage", () => {
       ),
     ).toBe(true);
   });
+
+  it("shows zero-state copy on the People card when both counts are 0", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      jsonResponse({ data: [] }),
+    );
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("אין מעקבים חוזרים להיום")).toBeTruthy();
+      expect(screen.getByText("דיברנו עם כל אנשי הקשר")).toBeTruthy();
+    });
+    expect(screen.queryByText(/ממתינות למעקב חוזר היום/)).toBeNull();
+    expect(screen.queryByText(/לא דיברנו איתן עדיין/)).toBeNull();
+  });
+
+  it("shows error copy when Directus rejects the People queries", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("filter%5Bdonation_type%5D%5B_eq%5D=recurring")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ errors: [{ message: "boom" }] }, 500);
+    });
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("שגיאה בטעינת נתוני אנשים")).toBeTruthy();
+    });
+  });
+
+  it("shows error copy when Directus rejects the donors query", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("filter%5Bdonation_type%5D%5B_eq%5D=recurring")) {
+        return jsonResponse({ errors: [{ message: "boom" }] }, 500);
+      }
+      return jsonResponse({ data: [] });
+    });
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("שגיאה בטעינת נתוני תורמים")).toBeTruthy();
+    });
+  });
 });
