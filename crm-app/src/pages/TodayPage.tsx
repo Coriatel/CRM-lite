@@ -136,7 +136,14 @@ export function TodayPage() {
         error={callsError}
         onRefresh={refreshCalls}
       />
-      <RecurringDonorsCard donors={donors} error={donorsError} />
+      <RecurringDonorsCard
+        donors={donors}
+        error={donorsError}
+        onRecurringClick={() => {
+          setAdvancedFilters({ donationType: "recurring" });
+          navigate("/");
+        }}
+      />
 
       <ShellCard
         icon={<Coins size={20} />}
@@ -384,9 +391,11 @@ function CallsTodayCard({
 function RecurringDonorsCard({
   donors,
   error,
+  onRecurringClick,
 }: {
   donors: DonorCounts | null;
   error: string | null;
+  onRecurringClick: () => void;
 }) {
   return (
     <CardFrame icon={<HandHeart size={20} />} title="תורמים קבועים">
@@ -396,10 +405,29 @@ function RecurringDonorsCard({
         <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
           טוען…
         </p>
+      ) : donors.recurring === 0 ? (
+        <p style={{ fontSize: 14 }}>
+          <strong>0</strong> אנשי קשר מסומנים בכרטיס כתורמים קבועים
+        </p>
       ) : (
         <p style={{ fontSize: 14 }}>
-          <strong>{donors.recurring}</strong>
-          {donors.recurringOver ? "+" : ""} אנשי קשר מסומנים בכרטיס כתורמים קבועים
+          <button
+            type="button"
+            onClick={onRecurringClick}
+            aria-label="הצג תורמים קבועים"
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              color: "inherit",
+              cursor: "pointer",
+              textAlign: "inherit",
+            }}
+          >
+            <strong>{donors.recurring}</strong>
+            {donors.recurringOver ? "+" : ""} אנשי קשר מסומנים בכרטיס כתורמים קבועים
+          </button>
         </p>
       )}
     </CardFrame>

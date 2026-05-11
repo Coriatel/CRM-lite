@@ -245,6 +245,20 @@ describe("TodayPage", () => {
     });
   });
 
+  it("clicking the recurring-donors count sets donationType filter and navigates to /", async () => {
+    const setFilters = vi.fn();
+    renderTodayPage(setFilters);
+    const btn = await screen.findByRole("button", {
+      name: "הצג תורמים קבועים",
+    });
+    fireEvent.click(btn);
+    expect(setFilters).toHaveBeenCalledTimes(1);
+    expect(setFilters.mock.calls[0][0]).toEqual({ donationType: "recurring" });
+    await waitFor(() => {
+      expect(screen.getByTestId("loc-pathname").textContent).toBe("/");
+    });
+  });
+
   it("shows error copy when Directus rejects the donors query", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
