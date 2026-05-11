@@ -182,6 +182,40 @@ describe("CallsTodayPage", () => {
     });
   });
 
+  it("shows filter-specific zero-state when buckets are filtered to empty", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (
+        url.includes("/items/call_queue") &&
+        url.includes("filter%5Bscheduled_date%5D%5B_gte%5D")
+      ) {
+        // Has 'today' rows only; overdue is empty.
+        return jsonResponse({
+          data: [
+            {
+              id: "q-today",
+              contact_id: "c-a",
+              priority: 2,
+              status: "pending",
+              scheduled_date: "2026-05-11T10:00:00Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items/contacts")) {
+        return jsonResponse({ data: [CONTACT_A] });
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderPage();
+    await waitFor(() => screen.getByText("אסתר כהן"));
+    fireEvent.click(screen.getByRole("tab", { name: /באיחור/ }));
+    await waitFor(() => {
+      expect(screen.getByText("אין שיחות באיחור")).toBeTruthy();
+    });
+  });
+
   it("refresh button refetches call_queue", async () => {
     renderPage();
     await waitFor(() => screen.getByText("אסתר כהן"));

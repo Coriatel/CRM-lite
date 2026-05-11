@@ -232,6 +232,18 @@ export function CallsTodayPage() {
         >
           אין שיחות פתוחות להיום
         </p>
+      ) : overdue.length === 0 && today.length === 0 ? (
+        <p
+          style={{
+            color: "var(--color-text-secondary)",
+            fontSize: 14,
+            padding: "var(--spacing-md) 0",
+          }}
+        >
+          {filter === "overdue"
+            ? "אין שיחות באיחור"
+            : "אין שיחות מתוזמנות להיום"}
+        </p>
       ) : (
         <>
           {overdue.length > 0 && (
