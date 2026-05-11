@@ -89,6 +89,7 @@ export function TodayPage() {
       </p>
 
       <PeopleCareCard people={people} error={peopleError} />
+      <RecurringDonorsCard donors={donors} error={donorsError} />
 
       <ShellCard
         icon={<Coins size={20} />}
@@ -110,7 +111,6 @@ export function TodayPage() {
         title="תכנים"
         missing="lesson_processing_runs + Windmill bridge"
       />
-      <RecurringDonorsCard donors={donors} error={donorsError} />
     </main>
   );
 }
@@ -172,12 +172,28 @@ function PeopleCareCard({
           }}
         >
           <li>
-            <strong>{people.followUpDue}</strong>
-            {people.followUpOver ? "+" : ""} ממתינות למעקב חוזר היום
+            {people.followUpDue === 0 ? (
+              <span style={{ color: "var(--color-text-secondary)" }}>
+                אין מעקבים חוזרים להיום
+              </span>
+            ) : (
+              <>
+                <strong>{people.followUpDue}</strong>
+                {people.followUpOver ? "+" : ""} ממתינות למעקב חוזר היום
+              </>
+            )}
           </li>
           <li>
-            <strong>{people.neverCalled}</strong>
-            {people.neverCalledOver ? "+" : ""} לא דיברנו איתן עדיין
+            {people.neverCalled === 0 ? (
+              <span style={{ color: "var(--color-text-secondary)" }}>
+                דיברנו עם כל אנשי הקשר
+              </span>
+            ) : (
+              <>
+                <strong>{people.neverCalled}</strong>
+                {people.neverCalledOver ? "+" : ""} לא דיברנו איתן עדיין
+              </>
+            )}
           </li>
         </ul>
       )}
