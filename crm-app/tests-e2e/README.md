@@ -43,14 +43,15 @@ Pick one before wiring `CRM_SMOKE_EMAIL`/`CRM_SMOKE_PASSWORD` to a real flow. Th
 
 ## What the spec currently asserts
 
-Pre-auth (always runs):
-- App shell responds at `baseURL` (HTTP < 400).
-- Login screen renders the Google button on Pixel 7 viewport.
+Three checks, all unconditional (work against current prod build where `AUTH_MODE` auto-logs the user in):
 
-Authenticated (skipped without creds AND requires the auth-mode decision):
-- `/today` loads.
-- Three live cards visible: אנשים/חיזוק, שיחות להיום, תורמים קבועים.
-- Click `תורמים קבועים` → lands on `/people` with active-filter chip visible.
+1. App shell responds at `baseURL` (HTTP < 400).
+2. Landed view renders — either the OAuth Google button OR the auto-logged-in app header (`משפחה מאנ"ש` / search box). Resilient to AUTH_MODE flips.
+3. `/today` renders the three live cards: `אנשים/חיזוק`, `שיחות להיום`, `תורמים קבועים`.
+
+**Deferred:** card-level deep-link assertions. CTAs (e.g. RecurringDonorsCard → `/people` filter) are **data-conditional** — when the underlying count is `0`, no link is rendered, so the assertion flaps. Deep-link integration belongs in a seeded e2e tier with fixture data, not in mobile-smoke.
+
+Verified against `https://crmphone.merkazneshama.co.il` 2026-05-11: **3 passed (2.3s)**.
 
 ## Out of scope (explicit non-goals)
 

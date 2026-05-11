@@ -1,43 +1,29 @@
 import { test, expect } from '@playwright/test';
 
 const BASE_URL = process.env.CRM_SMOKE_BASE_URL ?? 'http://127.0.0.1:5173';
-const EMAIL = process.env.CRM_SMOKE_EMAIL;
-const PASSWORD = process.env.CRM_SMOKE_PASSWORD;
 
-test.describe('mobile-smoke (pre-auth surface)', () => {
-  test('login screen renders on mobile viewport', async ({ page }) => {
-    await page.goto('/');
-    await expect(page).toHaveURL(/.*/);
-    const googleBtn = page.getByRole('button', { name: /Google/i });
-    await expect(googleBtn).toBeVisible({ timeout: 10_000 });
-  });
-
+test.describe('mobile-smoke', () => {
   test('app shell responds at baseURL', async ({ page }) => {
     const resp = await page.goto('/');
     expect(resp?.status(), `expected 2xx from ${BASE_URL}/`).toBeLessThan(400);
   });
-});
 
-test.describe('mobile-smoke (authenticated)', () => {
-  test.skip(
-    !EMAIL || !PASSWORD,
-    'CRM_SMOKE_EMAIL/CRM_SMOKE_PASSWORD missing — authenticated flow deferred until auth-mode decision (Google OAuth vs static/demo vs token-bypass). See tests-e2e/README.md.'
-  );
+  test('landed view renders (auto-login OR oauth screen)', async ({ page }) => {
+    await page.goto('/');
+    const oauthBtn = page.getByRole('button', { name: /Google/i });
+    const landedHeader = page.getByText(/משפחה מאנ|חיפוש לפי שם או טלפון/);
+    await expect(oauthBtn.or(landedHeader).first()).toBeVisible({ timeout: 10_000 });
+  });
 
-  test('navigate to /today and verify 3 live cards + deep-link to /people', async ({ page }) => {
+  test('/today renders the 3 live cards', async ({ page }) => {
     await page.goto('/today');
     await expect(page).toHaveURL(/\/today/);
-
-    const peopleCare = page.getByText(/אנשים.*חיזוק/);
-    const callsToday = page.getByText(/שיחות.*להיום/);
-    const recurring = page.getByText(/תורמים קבועים/);
-    await expect(peopleCare).toBeVisible();
-    await expect(callsToday).toBeVisible();
-    await expect(recurring).toBeVisible();
-
-    await recurring.click();
-    await expect(page).toHaveURL(/\/people/);
-    const activeFilter = page.getByText(/תורמים קבועים|donationType/i);
-    await expect(activeFilter.first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/אנשים.*חיזוק/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/שיחות.*להיום/)).toBeVisible();
+    await expect(page.getByText(/תורמים קבועים/)).toBeVisible();
   });
+
+  // Deep-link verification deferred: card-level CTAs are data-conditional
+  // (e.g. RecurringDonorsCard renders no link when 0 contacts marked recurring).
+  // Smoke checks rendering only; deep-link integration belongs in a seeded e2e tier.
 });
