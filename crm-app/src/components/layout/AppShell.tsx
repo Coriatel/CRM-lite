@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { BottomNav } from "./BottomNav";
 import { Drawer } from "./Drawer";
@@ -21,7 +21,9 @@ export function AppShell({
 
   return (
     <div className="app-shell">
-      <Outlet />
+      <Suspense fallback={null}>
+        <Outlet />
+      </Suspense>
       <BottomNav
         onFilterClick={() => setDrawerOpen(true)}
         hasActiveFilters={

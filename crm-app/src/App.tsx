@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -10,14 +10,31 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ProjectProvider, useProjectContext } from "./contexts/ProjectContext";
 import { LoginPage } from "./pages/LoginPage";
 import { OAuthCallback } from "./pages/OAuthCallback";
-import { ContactsPage } from "./pages/ContactsPage";
-import { DashboardPage } from "./pages/DashboardPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { ActiveCallPage } from "./pages/ActiveCallPage";
-import { ImportPage } from "./pages/ImportPage";
-import { PeopleHubPage } from "./pages/PeopleHubPage";
-import { TodayPage } from "./pages/TodayPage";
-import { CallsTodayPage } from "./pages/CallsTodayPage";
+
+const ContactsPage = lazy(() =>
+  import("./pages/ContactsPage").then((m) => ({ default: m.ContactsPage })),
+);
+const DashboardPage = lazy(() =>
+  import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const ActiveCallPage = lazy(() =>
+  import("./pages/ActiveCallPage").then((m) => ({ default: m.ActiveCallPage })),
+);
+const ImportPage = lazy(() =>
+  import("./pages/ImportPage").then((m) => ({ default: m.ImportPage })),
+);
+const PeopleHubPage = lazy(() =>
+  import("./pages/PeopleHubPage").then((m) => ({ default: m.PeopleHubPage })),
+);
+const TodayPage = lazy(() =>
+  import("./pages/TodayPage").then((m) => ({ default: m.TodayPage })),
+);
+const CallsTodayPage = lazy(() =>
+  import("./pages/CallsTodayPage").then((m) => ({ default: m.CallsTodayPage })),
+);
 
 import { AppShell } from "./components/layout/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -123,8 +140,22 @@ function AppContent() {
             }
           />
         </Route>
-        <Route path="call/:contactId" element={<ActiveCallPage />} />
-        <Route path="import" element={<ImportPage />} />
+        <Route
+          path="call/:contactId"
+          element={
+            <Suspense fallback={null}>
+              <ActiveCallPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="import"
+          element={
+            <Suspense fallback={null}>
+              <ImportPage />
+            </Suspense>
+          }
+        />
         {lastRoute && lastRoute !== "/" && (
           <Route path="*" element={<Navigate to={lastRoute} replace />} />
         )}
