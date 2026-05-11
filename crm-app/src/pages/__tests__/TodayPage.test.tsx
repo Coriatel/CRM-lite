@@ -211,6 +211,21 @@ describe("TodayPage", () => {
     });
   });
 
+  it("CallsTodayCard refresh button re-runs the call_queue fetch", async () => {
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => screen.getByLabelText("רענן שיחות"));
+    const before = urls.filter((u) => u.includes("/items/call_queue")).length;
+    (await screen.findByLabelText("רענן שיחות")).click();
+    await waitFor(() => {
+      const after = urls.filter((u) => u.includes("/items/call_queue")).length;
+      expect(after).toBeGreaterThan(before);
+    });
+  });
+
   it("shows error copy when Directus rejects the donors query", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

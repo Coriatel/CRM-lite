@@ -29,6 +29,8 @@ interface CallsCounts {
   todayOver: boolean;
   overdue: number;
   overdueOver: boolean;
+  undated: number;
+  undatedOver: boolean;
 }
 
 const SOFT_CAP = 50;
@@ -42,13 +44,19 @@ export function TodayPage() {
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
   const [donorsError, setDonorsError] = useState<string | null>(null);
-  const { buckets: callBuckets, error: callsError } = useCallsToday(SOFT_CAP);
+  const {
+    buckets: callBuckets,
+    error: callsError,
+    refresh: refreshCalls,
+  } = useCallsToday(SOFT_CAP);
   const calls: CallsCounts | null = callBuckets
     ? {
         today: callBuckets.today.length,
         todayOver: callBuckets.today.length >= SOFT_CAP,
         overdue: callBuckets.overdue.length,
         overdueOver: callBuckets.overdue.length >= SOFT_CAP,
+        undated: callBuckets.undated.length,
+        undatedOver: callBuckets.undated.length >= SOFT_CAP,
       }
     : null;
 
@@ -107,7 +115,11 @@ export function TodayPage() {
       </p>
 
       <PeopleCareCard people={people} error={peopleError} />
-      <CallsTodayCard calls={calls} error={callsError} />
+      <CallsTodayCard
+        calls={calls}
+        error={callsError}
+        onRefresh={refreshCalls}
+      />
       <RecurringDonorsCard donors={donors} error={donorsError} />
 
       <ShellCard
@@ -137,10 +149,12 @@ export function TodayPage() {
 function CardFrame({
   icon,
   title,
+  action,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -158,7 +172,8 @@ function CardFrame({
         }}
       >
         <span style={{ color: "var(--color-primary)" }}>{icon}</span>
-        <h2 style={{ fontSize: 16, fontWeight: 600 }}>{title}</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 600, flex: 1 }}>{title}</h2>
+        {action}
       </header>
       {children}
     </section>
@@ -235,19 +250,44 @@ function PeopleCareCard({
 function CallsTodayCard({
   calls,
   error,
+  onRefresh,
 }: {
   calls: CallsCounts | null;
   error: string | null;
+  onRefresh: () => void;
 }) {
   return (
-    <CardFrame icon={<PhoneCall size={20} />} title="שיחות להיום">
+    <CardFrame
+      icon={<PhoneCall size={20} />}
+      title="שיחות להיום"
+      action={
+        <button
+          type="button"
+          onClick={onRefresh}
+          aria-label="רענן שיחות"
+          title="רענן"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "var(--color-text-secondary)",
+            cursor: "pointer",
+            padding: 4,
+            fontSize: 13,
+          }}
+        >
+          ↻
+        </button>
+      }
+    >
       {error ? (
         <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
       ) : !calls ? (
         <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
           טוען…
         </p>
-      ) : calls.today === 0 && calls.overdue === 0 ? (
+      ) : calls.today === 0 &&
+        calls.overdue === 0 &&
+        calls.undated === 0 ? (
         <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
           אין שיחות פתוחות להיום
         </p>
@@ -269,6 +309,12 @@ function CallsTodayCard({
             <li>
               <strong>{calls.overdue}</strong>
               {calls.overdueOver ? "+" : ""} שיחות באיחור
+            </li>
+          )}
+          {calls.undated > 0 && (
+            <li>
+              <strong>{calls.undated}</strong>
+              {calls.undatedOver ? "+" : ""} שיחות ללא תאריך
             </li>
           )}
         </ul>
