@@ -22,7 +22,7 @@ function renderTodayPage(
       <Routes>
         <Route element={<Outlet context={{ setAdvancedFilters }} />}>
           <Route path="/today" element={<TodayPage />} />
-          <Route path="/" element={<LocationProbe />} />
+          <Route path="/people" element={<LocationProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -227,7 +227,7 @@ describe("TodayPage", () => {
     const call = setFilters.mock.calls[0][0] as AdvancedFilters;
     expect(call.followUpBefore).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     await waitFor(() => {
-      expect(screen.getByTestId("loc-pathname").textContent).toBe("/");
+      expect(screen.getByTestId("loc-pathname").textContent).toBe("/people");
     });
   });
 
@@ -241,7 +241,7 @@ describe("TodayPage", () => {
     expect(setFilters).toHaveBeenCalledTimes(1);
     expect(setFilters.mock.calls[0][0]).toEqual({ neverCalled: true });
     await waitFor(() => {
-      expect(screen.getByTestId("loc-pathname").textContent).toBe("/");
+      expect(screen.getByTestId("loc-pathname").textContent).toBe("/people");
     });
   });
 
@@ -255,7 +255,7 @@ describe("TodayPage", () => {
     expect(setFilters).toHaveBeenCalledTimes(1);
     expect(setFilters.mock.calls[0][0]).toEqual({ donationType: "recurring" });
     await waitFor(() => {
-      expect(screen.getByTestId("loc-pathname").textContent).toBe("/");
+      expect(screen.getByTestId("loc-pathname").textContent).toBe("/people");
     });
   });
 

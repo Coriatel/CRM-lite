@@ -124,11 +124,11 @@ export function TodayPage() {
         error={peopleError}
         onFollowUpDueClick={() => {
           setAdvancedFilters({ followUpBefore: todayIso() });
-          navigate("/");
+          navigate("/people");
         }}
         onNeverCalledClick={() => {
           setAdvancedFilters({ neverCalled: true });
-          navigate("/");
+          navigate("/people");
         }}
       />
       <CallsTodayCard
@@ -141,7 +141,7 @@ export function TodayPage() {
         error={donorsError}
         onRecurringClick={() => {
           setAdvancedFilters({ donationType: "recurring" });
-          navigate("/");
+          navigate("/people");
         }}
       />
 
