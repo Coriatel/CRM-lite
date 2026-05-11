@@ -566,6 +566,22 @@ export async function updateCallQueueItem(
   return json.data;
 }
 
+// Batch-fetch contacts by id. Used to hydrate a list of call_queue rows
+// into displayable names/phones without N round-trips.
+export async function getContactsByIds(
+  ids: string[],
+): Promise<DirectusContact[]> {
+  if (ids.length === 0) return [];
+  const params: Record<string, string> = {
+    fields: "id,full_name,first_name,last_name,phone_e164,phone2",
+    "filter[id][_in]": ids.join(","),
+    limit: String(Math.max(ids.length, 50)),
+  };
+  const res = await directusFetch(`/items/contacts${buildQuery(params)}`);
+  const json: DirectusResponse<DirectusContact[]> = await res.json();
+  return json.data;
+}
+
 // Fetch call_queue rows by scheduled_date range. Used by the Today card to
 // count today's vs overdue calls; the two windows share the same shape, so the
 // same helper backs both queries. `fromInclusive` maps to _gte, `toExclusive`

@@ -294,7 +294,7 @@ function CallsTodayCard({
         </ul>
       )}
       <Link
-        to="/dashboard"
+        to="/calls-today"
         style={{
           display: "inline-block",
           marginTop: "var(--spacing-sm)",
