@@ -1,7 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  MemoryRouter,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
+import type { AdvancedFilters } from "../../types";
 import { TodayPage } from "../TodayPage";
+
+function renderTodayPage(
+  setAdvancedFilters: (f: AdvancedFilters) => void = () => {},
+) {
+  function LocationProbe() {
+    const loc = useLocation();
+    return <div data-testid="loc-pathname">{loc.pathname}</div>;
+  }
+  return render(
+    <MemoryRouter initialEntries={["/today"]}>
+      <Routes>
+        <Route element={<Outlet context={{ setAdvancedFilters }} />}>
+          <Route path="/today" element={<TodayPage />} />
+          <Route path="/" element={<LocationProbe />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 // TodayPage smoke:
 // - renders header, 4 owner-gated shells with explicit "צריך:" labels,
@@ -53,11 +79,7 @@ describe("TodayPage", () => {
   });
 
   it("renders shells with explicit owner-gated labels", async () => {
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     expect(screen.getByText(/מרכז נשמה — היום/)).toBeTruthy();
     expect(screen.getByText(/כסף קריטי/)).toBeTruthy();
     expect(screen.getByText(/הקבוצה הבאה/)).toBeTruthy();
@@ -66,11 +88,7 @@ describe("TodayPage", () => {
   });
 
   it("renders live People counts from server", async () => {
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText(/ממתינות למעקב חוזר היום/)).toBeTruthy();
       expect(screen.getByText(/לא דיברנו איתן עדיין/)).toBeTruthy();
@@ -78,11 +96,7 @@ describe("TodayPage", () => {
   });
 
   it("renders recurring donors count and queries Directus with donation_type=recurring", async () => {
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /תורמים קבועים/ })).toBeTruthy();
       expect(screen.getByText(/אנשי קשר מסומנים בכרטיס כתורמים קבועים/)).toBeTruthy();
@@ -99,11 +113,7 @@ describe("TodayPage", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       jsonResponse({ data: [] }),
     );
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText("אין מעקבים חוזרים להיום")).toBeTruthy();
       expect(screen.getByText("דיברנו עם כל אנשי הקשר")).toBeTruthy();
@@ -121,11 +131,7 @@ describe("TodayPage", () => {
       }
       return jsonResponse({ errors: [{ message: "boom" }] }, 500);
     });
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText("שגיאה בטעינת נתוני אנשים")).toBeTruthy();
     });
@@ -159,11 +165,7 @@ describe("TodayPage", () => {
       }
       return jsonResponse({ data: [] });
     });
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText(/שיחות מתוזמנות להיום/)).toBeTruthy();
       expect(screen.getByText(/שיחות באיחור/)).toBeTruthy();
@@ -182,11 +184,7 @@ describe("TodayPage", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       jsonResponse({ data: [] }),
     );
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText("אין שיחות פתוחות להיום")).toBeTruthy();
     });
@@ -201,28 +199,35 @@ describe("TodayPage", () => {
       }
       return jsonResponse({ data: [] });
     });
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText("שגיאה בטעינת תור השיחות")).toBeTruthy();
     });
   });
 
   it("CallsTodayCard refresh button re-runs the call_queue fetch", async () => {
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => screen.getByLabelText("רענן שיחות"));
     const before = urls.filter((u) => u.includes("/items/call_queue")).length;
     (await screen.findByLabelText("רענן שיחות")).click();
     await waitFor(() => {
       const after = urls.filter((u) => u.includes("/items/call_queue")).length;
       expect(after).toBeGreaterThan(before);
+    });
+  });
+
+  it("clicking the followUpDue line sets followUpBefore filter and navigates to /", async () => {
+    const setFilters = vi.fn();
+    renderTodayPage(setFilters);
+    const btn = await screen.findByRole("button", {
+      name: "הצג אנשים שממתינים למעקב חוזר היום",
+    });
+    fireEvent.click(btn);
+    expect(setFilters).toHaveBeenCalledTimes(1);
+    const call = setFilters.mock.calls[0][0] as AdvancedFilters;
+    expect(call.followUpBefore).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await waitFor(() => {
+      expect(screen.getByTestId("loc-pathname").textContent).toBe("/");
     });
   });
 
@@ -235,11 +240,7 @@ describe("TodayPage", () => {
       }
       return jsonResponse({ data: [] });
     });
-    render(
-      <MemoryRouter>
-        <TodayPage />
-      </MemoryRouter>,
-    );
+    renderTodayPage();
     await waitFor(() => {
       expect(screen.getByText("שגיאה בטעינת נתוני תורמים")).toBeTruthy();
     });

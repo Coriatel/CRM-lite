@@ -22,7 +22,7 @@ export function AppShell({
   return (
     <div className="app-shell">
       <Suspense fallback={null}>
-        <Outlet />
+        <Outlet context={{ setAdvancedFilters: onAdvancedFilters }} />
       </Suspense>
       <BottomNav
         onFilterClick={() => setDrawerOpen(true)}

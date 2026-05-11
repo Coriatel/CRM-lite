@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import type { AdvancedFilters } from "../types";
 import {
   Users,
   Coins,
@@ -40,6 +41,10 @@ function todayIso(): string {
 }
 
 export function TodayPage() {
+  const navigate = useNavigate();
+  const { setAdvancedFilters } = useOutletContext<{
+    setAdvancedFilters: (f: AdvancedFilters) => void;
+  }>();
   const [people, setPeople] = useState<PeopleCounts | null>(null);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
@@ -114,7 +119,14 @@ export function TodayPage() {
         תצוגה ראשונית. רוב הקלפים ממתינים לחיבור נתונים.
       </p>
 
-      <PeopleCareCard people={people} error={peopleError} />
+      <PeopleCareCard
+        people={people}
+        error={peopleError}
+        onFollowUpDueClick={() => {
+          setAdvancedFilters({ followUpBefore: todayIso() });
+          navigate("/");
+        }}
+      />
       <CallsTodayCard
         calls={calls}
         error={callsError}
@@ -183,9 +195,11 @@ function CardFrame({
 function PeopleCareCard({
   people,
   error,
+  onFollowUpDueClick,
 }: {
   people: PeopleCounts | null;
   error: string | null;
+  onFollowUpDueClick: () => void;
 }) {
   return (
     <CardFrame icon={<Users size={20} />} title="אנשים / חיזוק">
@@ -211,10 +225,23 @@ function PeopleCareCard({
                 אין מעקבים חוזרים להיום
               </span>
             ) : (
-              <>
+              <button
+                type="button"
+                onClick={onFollowUpDueClick}
+                aria-label="הצג אנשים שממתינים למעקב חוזר היום"
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  font: "inherit",
+                  color: "inherit",
+                  cursor: "pointer",
+                  textAlign: "inherit",
+                }}
+              >
                 <strong>{people.followUpDue}</strong>
                 {people.followUpOver ? "+" : ""} ממתינות למעקב חוזר היום
-              </>
+              </button>
             )}
           </li>
           <li>
