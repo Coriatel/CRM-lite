@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   PhoneCall,
@@ -8,14 +8,13 @@ import {
   RefreshCw,
 } from "lucide-react";
 import {
-  getCallQueueInRange,
   getContactsByIds,
   DirectusCallQueueItem,
   DirectusContact,
 } from "../services/directus";
-import { todayWindowIsrael } from "../utils/dateWindow";
 import { relativeFromNow, clockIsrael } from "../utils/relativeTime";
 import { useCallQueueActions } from "../hooks/useCallQueue";
+import { useCallsToday } from "../hooks/useCallsToday";
 
 interface Row {
   queue: DirectusCallQueueItem;
@@ -36,41 +35,32 @@ const PRIORITY_COLORS: Record<number, string> = {
 type BucketFilter = "all" | "overdue" | "today";
 
 export function CallsTodayPage() {
+  const { buckets, error: bucketsError, refresh } = useCallsToday(SOFT_CAP);
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [refreshTick, setRefreshTick] = useState(0);
   const [filter, setFilter] = useState<BucketFilter>("all");
   const { markCompleted, skip } = useCallQueueActions();
   const navigate = useNavigate();
-
-  const refresh = useCallback(() => {
-    setError(null);
-    setRows(null);
-    setRefreshTick((t) => t + 1);
-  }, []);
+  const error = bucketsError || localError;
 
   useEffect(() => {
+    if (!buckets) {
+      setRows(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const { startIso, endIso } = todayWindowIsrael();
-        const [todayRows, overdueRows] = await Promise.all([
-          getCallQueueInRange({
-            status: "pending",
-            fromInclusive: startIso,
-            toExclusive: endIso,
-            limit: SOFT_CAP,
-          }),
-          getCallQueueInRange({
-            status: "pending",
-            toExclusive: startIso,
-            limit: SOFT_CAP,
-          }),
-        ]);
         const all: Row[] = [
-          ...overdueRows.map((q) => ({ queue: q, bucket: "overdue" as const })),
-          ...todayRows.map((q) => ({ queue: q, bucket: "today" as const })),
+          ...buckets.overdue.map((q) => ({
+            queue: q,
+            bucket: "overdue" as const,
+          })),
+          ...buckets.today.map((q) => ({
+            queue: q,
+            bucket: "today" as const,
+          })),
         ];
         const ids = Array.from(new Set(all.map((r) => r.queue.contact_id)));
         const contacts = ids.length > 0 ? await getContactsByIds(ids) : [];
@@ -80,13 +70,13 @@ export function CallsTodayPage() {
           all.map((r) => ({ ...r, contact: byId.get(r.queue.contact_id) })),
         );
       } catch {
-        if (!cancelled) setError("שגיאה בטעינת תור השיחות");
+        if (!cancelled) setLocalError("שגיאה בטעינת תור השיחות");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshTick]);
+  }, [buckets]);
 
   const { overdue, today, totalOverdue, totalToday } = useMemo(() => {
     const allOverdue = (rows ?? []).filter((r) => r.bucket === "overdue");
@@ -107,7 +97,7 @@ export function CallsTodayPage() {
         prev ? prev.filter((r) => r.queue.id !== row.queue.id) : prev,
       );
     } catch {
-      setError("נכשל סימון השיחה כהושלמה");
+      setLocalError("נכשל סימון השיחה כהושלמה");
     } finally {
       setPendingId(null);
     }
@@ -121,7 +111,7 @@ export function CallsTodayPage() {
         prev ? prev.filter((r) => r.queue.id !== row.queue.id) : prev,
       );
     } catch {
-      setError("נכשל דחיית השיחה");
+      setLocalError("נכשל דחיית השיחה");
     } finally {
       setPendingId(null);
     }
