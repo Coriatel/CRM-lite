@@ -17,6 +17,11 @@ interface PeopleCounts {
   neverCalledOver: boolean;
 }
 
+interface DonorCounts {
+  recurring: number;
+  recurringOver: boolean;
+}
+
 const SOFT_CAP = 50;
 
 function todayIso(): string {
@@ -25,7 +30,9 @@ function todayIso(): string {
 
 export function TodayPage() {
   const [people, setPeople] = useState<PeopleCounts | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [donors, setDonors] = useState<DonorCounts | null>(null);
+  const [donorsError, setDonorsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +50,22 @@ export function TodayPage() {
           neverCalledOver: neverCalled.length >= SOFT_CAP,
         });
       } catch {
-        if (!cancelled) setError("שגיאה בטעינת נתוני אנשים");
+        if (!cancelled) setPeopleError("שגיאה בטעינת נתוני אנשים");
+      }
+    })();
+    (async () => {
+      try {
+        const recurring = await getContacts({
+          donationType: "recurring",
+          limit: SOFT_CAP,
+        });
+        if (cancelled) return;
+        setDonors({
+          recurring: recurring.length,
+          recurringOver: recurring.length >= SOFT_CAP,
+        });
+      } catch {
+        if (!cancelled) setDonorsError("שגיאה בטעינת נתוני תורמים");
       }
     })();
     return () => {
@@ -66,7 +88,7 @@ export function TodayPage() {
         תצוגה ראשונית. רוב הקלפים ממתינים לחיבור נתונים.
       </p>
 
-      <PeopleCareCard people={people} error={error} />
+      <PeopleCareCard people={people} error={peopleError} />
 
       <ShellCard
         icon={<Coins size={20} />}
@@ -88,11 +110,7 @@ export function TodayPage() {
         title="תכנים"
         missing="lesson_processing_runs + Windmill bridge"
       />
-      <ShellCard
-        icon={<HandHeart size={20} />}
-        title="תורמים / גיוס"
-        missing="donors view"
-      />
+      <RecurringDonorsCard donors={donors} error={donorsError} />
     </main>
   );
 }
@@ -175,6 +193,31 @@ function PeopleCareCard({
       >
         פתח רשימת אנשי קשר ←
       </Link>
+    </CardFrame>
+  );
+}
+
+function RecurringDonorsCard({
+  donors,
+  error,
+}: {
+  donors: DonorCounts | null;
+  error: string | null;
+}) {
+  return (
+    <CardFrame icon={<HandHeart size={20} />} title="תורמים קבועים">
+      {error ? (
+        <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
+      ) : !donors ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          טוען…
+        </p>
+      ) : (
+        <p style={{ fontSize: 14 }}>
+          <strong>{donors.recurring}</strong>
+          {donors.recurringOver ? "+" : ""} אנשי קשר מסומנים בכרטיס כתורמים קבועים
+        </p>
+      )}
     </CardFrame>
   );
 }
