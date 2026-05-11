@@ -8,6 +8,7 @@ import { todayWindowIsrael } from "../utils/dateWindow";
 export interface CallsTodayBuckets {
   today: DirectusCallQueueItem[];
   overdue: DirectusCallQueueItem[];
+  undated: DirectusCallQueueItem[];
 }
 
 export interface UseCallsTodayResult {
@@ -35,7 +36,7 @@ export function useCallsToday(softCap: number = 100): UseCallsTodayResult {
     (async () => {
       try {
         const { startIso, endIso } = todayWindowIsrael();
-        const [today, overdue] = await Promise.all([
+        const [today, overdue, undated] = await Promise.all([
           getCallQueueInRange({
             status: "pending",
             fromInclusive: startIso,
@@ -47,9 +48,14 @@ export function useCallsToday(softCap: number = 100): UseCallsTodayResult {
             toExclusive: startIso,
             limit: softCap,
           }),
+          getCallQueueInRange({
+            status: "pending",
+            scheduledDateNull: true,
+            limit: softCap,
+          }),
         ]);
         if (cancelled) return;
-        setBuckets({ today, overdue });
+        setBuckets({ today, overdue, undated });
       } catch {
         if (!cancelled) setError("שגיאה בטעינת תור השיחות");
       }
