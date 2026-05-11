@@ -131,6 +131,86 @@ describe("TodayPage", () => {
     });
   });
 
+  it("renders calls-today counts and queries call_queue with status=pending + range filters", async () => {
+    vi.restoreAllMocks();
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push(url);
+      if (!url.includes("/items/call_queue")) {
+        return jsonResponse({ data: [] });
+      }
+      // Today window (has _gte + _lt) → 2 rows. Overdue (_lt only) → 1 row.
+      if (
+        url.includes("filter%5Bscheduled_date%5D%5B_gte%5D") &&
+        url.includes("filter%5Bscheduled_date%5D%5B_lt%5D")
+      ) {
+        return jsonResponse({
+          data: [
+            { id: "a", status: "pending", priority: 1 },
+            { id: "b", status: "pending", priority: 2 },
+          ],
+        });
+      }
+      if (url.includes("filter%5Bscheduled_date%5D%5B_lt%5D")) {
+        return jsonResponse({
+          data: [{ id: "c", status: "pending", priority: 1 }],
+        });
+      }
+      return jsonResponse({ data: [] });
+    });
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/שיחות מתוזמנות להיום/)).toBeTruthy();
+      expect(screen.getByText(/שיחות באיחור/)).toBeTruthy();
+    });
+    expect(
+      calls.some(
+        (u) =>
+          u.includes("/items/call_queue") &&
+          u.includes("filter%5Bstatus%5D%5B_eq%5D=pending"),
+      ),
+    ).toBe(true);
+  });
+
+  it("shows zero-state copy on the Calls card when both counts are 0", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      jsonResponse({ data: [] }),
+    );
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("אין שיחות פתוחות להיום")).toBeTruthy();
+    });
+  });
+
+  it("shows error copy when Directus rejects the call_queue queries", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/items/call_queue")) {
+        return jsonResponse({ errors: [{ message: "boom" }] }, 500);
+      }
+      return jsonResponse({ data: [] });
+    });
+    render(
+      <MemoryRouter>
+        <TodayPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("שגיאה בטעינת שיחות להיום")).toBeTruthy();
+    });
+  });
+
   it("shows error copy when Directus rejects the donors query", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

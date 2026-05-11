@@ -7,8 +7,10 @@ import {
   GraduationCap,
   PlaySquare,
   HandHeart,
+  PhoneCall,
 } from "lucide-react";
-import { getContacts } from "../services/directus";
+import { getContacts, getCallQueueInRange } from "../services/directus";
+import { todayWindowIsrael } from "../utils/dateWindow";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -22,6 +24,13 @@ interface DonorCounts {
   recurringOver: boolean;
 }
 
+interface CallsCounts {
+  today: number;
+  todayOver: boolean;
+  overdue: number;
+  overdueOver: boolean;
+}
+
 const SOFT_CAP = 50;
 
 function todayIso(): string {
@@ -33,6 +42,8 @@ export function TodayPage() {
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
   const [donorsError, setDonorsError] = useState<string | null>(null);
+  const [calls, setCalls] = useState<CallsCounts | null>(null);
+  const [callsError, setCallsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +79,33 @@ export function TodayPage() {
         if (!cancelled) setDonorsError("שגיאה בטעינת נתוני תורמים");
       }
     })();
+    (async () => {
+      try {
+        const { startIso, endIso } = todayWindowIsrael();
+        const [todayRows, overdueRows] = await Promise.all([
+          getCallQueueInRange({
+            status: "pending",
+            fromInclusive: startIso,
+            toExclusive: endIso,
+            limit: SOFT_CAP,
+          }),
+          getCallQueueInRange({
+            status: "pending",
+            toExclusive: startIso,
+            limit: SOFT_CAP,
+          }),
+        ]);
+        if (cancelled) return;
+        setCalls({
+          today: todayRows.length,
+          todayOver: todayRows.length >= SOFT_CAP,
+          overdue: overdueRows.length,
+          overdueOver: overdueRows.length >= SOFT_CAP,
+        });
+      } catch {
+        if (!cancelled) setCallsError("שגיאה בטעינת שיחות להיום");
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -89,6 +127,7 @@ export function TodayPage() {
       </p>
 
       <PeopleCareCard people={people} error={peopleError} />
+      <CallsTodayCard calls={calls} error={callsError} />
       <RecurringDonorsCard donors={donors} error={donorsError} />
 
       <ShellCard
@@ -208,6 +247,63 @@ function PeopleCareCard({
         }}
       >
         פתח רשימת אנשי קשר ←
+      </Link>
+    </CardFrame>
+  );
+}
+
+function CallsTodayCard({
+  calls,
+  error,
+}: {
+  calls: CallsCounts | null;
+  error: string | null;
+}) {
+  return (
+    <CardFrame icon={<PhoneCall size={20} />} title="שיחות להיום">
+      {error ? (
+        <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
+      ) : !calls ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          טוען…
+        </p>
+      ) : calls.today === 0 && calls.overdue === 0 ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          אין שיחות פתוחות להיום
+        </p>
+      ) : (
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            display: "grid",
+            gap: 6,
+            fontSize: 14,
+          }}
+        >
+          <li>
+            <strong>{calls.today}</strong>
+            {calls.todayOver ? "+" : ""} שיחות מתוזמנות להיום
+          </li>
+          {calls.overdue > 0 && (
+            <li>
+              <strong>{calls.overdue}</strong>
+              {calls.overdueOver ? "+" : ""} שיחות באיחור
+            </li>
+          )}
+        </ul>
+      )}
+      <Link
+        to="/dashboard"
+        style={{
+          display: "inline-block",
+          marginTop: "var(--spacing-sm)",
+          color: "var(--color-primary)",
+          fontSize: 14,
+          fontWeight: 500,
+        }}
+      >
+        פתח תור שיחות ←
       </Link>
     </CardFrame>
   );
