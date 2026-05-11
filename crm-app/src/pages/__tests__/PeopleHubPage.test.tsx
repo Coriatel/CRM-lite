@@ -1,10 +1,38 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { PeopleHubPage } from "../PeopleHubPage";
 import { ProjectProvider } from "../../contexts/ProjectContext";
 import { AuthProvider } from "../../contexts/AuthContext";
 import type { AdvancedFilters } from "../../types";
+
+function renderPeopleHubPage(
+  filters: AdvancedFilters,
+  setFilters: (f: AdvancedFilters) => void = () => {},
+) {
+  return render(
+    <MemoryRouter initialEntries={["/people"]}>
+      <AuthProvider>
+        <ProjectProvider>
+          <Routes>
+            <Route
+              element={
+                <Outlet context={{ setAdvancedFilters: setFilters }} />
+              }
+            >
+              <Route
+                path="/people"
+                element={
+                  <PeopleHubPage sortBy="full_name" advancedFilters={filters} />
+                }
+              />
+            </Route>
+          </Routes>
+        </ProjectProvider>
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
 
 // Slice A smoke test:
 // PeopleHubPage must render the contacts universe WITHOUT requiring an
@@ -72,50 +100,56 @@ describe("PeopleHubPage (Slice A)", () => {
   });
 
   it("renders the contacts universe without an activeProject", async () => {
-    const filters: AdvancedFilters = {};
-    render(
-      <MemoryRouter initialEntries={["/people"]}>
-        <AuthProvider>
-          <ProjectProvider>
-            <PeopleHubPage sortBy="full_name" advancedFilters={filters} />
-          </ProjectProvider>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
-
-    // Header title proves the new hub mounted (not the project-gated empty state).
+    renderPeopleHubPage({});
     expect(
       await screen.findByRole("heading", { name: /אנשי קשר — כל הקהילה/ }),
     ).toBeTruthy();
-
-    // The mocked contact appears (proves useContacts ran and fed the list).
     await waitFor(() =>
       expect(screen.getByText(/טסט קונטקט/)).toBeTruthy(),
     );
   });
 
   it("opens ContactDetailModal without crashing when activeProject is null", async () => {
-    const filters: AdvancedFilters = {};
-    render(
-      <MemoryRouter initialEntries={["/people"]}>
-        <AuthProvider>
-          <ProjectProvider>
-            <PeopleHubPage sortBy="full_name" advancedFilters={filters} />
-          </ProjectProvider>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
-
-    // Wait for the contact card to be present.
+    renderPeopleHubPage({});
     const card = await screen.findByText(/טסט קונטקט/);
     fireEvent.click(card);
-
-    // ContactDetailModal opens. It uses useProjectContext internally; with no
-    // activeProject, it must NOT crash and must render its own header.
-    // (Modal's contact name should appear at least twice now: once in the card
-    // behind the modal, once in the modal itself. We assert >= 1 to be loose.)
     await waitFor(() =>
       expect(screen.getAllByText(/טסט קונטקט/).length).toBeGreaterThanOrEqual(1),
     );
+  });
+
+  it("renders no filter chips when advancedFilters is empty", async () => {
+    renderPeopleHubPage({});
+    await screen.findByRole("heading", { name: /אנשי קשר — כל הקהילה/ });
+    expect(screen.queryByRole("list", { name: "מסננים פעילים" })).toBeNull();
+  });
+
+  it("renders one chip per active deep-link filter", async () => {
+    renderPeopleHubPage({
+      followUpBefore: "2026-05-11",
+      neverCalled: true,
+      donationType: "recurring",
+    });
+    await screen.findByRole("list", { name: "מסננים פעילים" });
+    expect(screen.getByText(/מסונן: צריך חיזוק/)).toBeTruthy();
+    expect(screen.getByText(/מסונן: לא נוצר קשר/)).toBeTruthy();
+    expect(screen.getByText(/מסונן: תורמים קבועים/)).toBeTruthy();
+  });
+
+  it("clicking a chip × clears that filter only", async () => {
+    const setFilters = vi.fn();
+    renderPeopleHubPage(
+      { neverCalled: true, donationType: "recurring" },
+      setFilters,
+    );
+    const btn = await screen.findByRole("button", {
+      name: "הסר סינון לא נוצר קשר",
+    });
+    fireEvent.click(btn);
+    expect(setFilters).toHaveBeenCalledTimes(1);
+    expect(setFilters.mock.calls[0][0]).toEqual({
+      neverCalled: undefined,
+      donationType: "recurring",
+    });
   });
 });
