@@ -8,6 +8,7 @@ import {
   DirectusContact,
 } from "../services/directus";
 import { todayWindowIsrael } from "../utils/dateWindow";
+import { relativeFromNow, clockIsrael } from "../utils/relativeTime";
 import { useCallQueueActions } from "../hooks/useCallQueue";
 
 interface Row {
@@ -242,6 +243,10 @@ function CallRow({
 }) {
   const name = row.contact?.full_name || "(ללא שם)";
   const phone = row.contact?.phone_e164 || row.contact?.phone2;
+  const stamp =
+    row.bucket === "today"
+      ? clockIsrael(row.queue.scheduled_date)
+      : relativeFromNow(row.queue.scheduled_date);
   return (
     <div
       className="card"
@@ -274,14 +279,18 @@ function CallRow({
         >
           {name}
         </div>
-        {phone && (
-          <div
-            dir="ltr"
-            style={{ fontSize: 13, color: "var(--color-text-secondary)" }}
-          >
-            {phone}
-          </div>
-        )}
+        <div
+          style={{
+            fontSize: 13,
+            color: "var(--color-text-secondary)",
+            display: "flex",
+            gap: 8,
+            alignItems: "baseline",
+          }}
+        >
+          {phone && <span dir="ltr">{phone}</span>}
+          {stamp && <span aria-label="זמן מתוזמן">{stamp}</span>}
+        </div>
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         <button
