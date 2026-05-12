@@ -43,6 +43,32 @@ type HealthEndpoint = {
   error?: string | null;
 };
 
+type LaneRow = {
+  key: string;
+  title?: string;
+  primary_user?: string;
+  doc?: string;
+};
+
+type LanesDoc = Record<string, unknown>;
+
+function parseLanes(doc: LanesDoc | null): LaneRow[] {
+  if (!doc) return [];
+  const out: LaneRow[] = [];
+  for (const [k, v] of Object.entries(doc)) {
+    if (k.startsWith("_")) continue;
+    if (typeof v !== "object" || v === null) continue;
+    const l = v as Record<string, unknown>;
+    out.push({
+      key: k,
+      title: l.title as string | undefined,
+      primary_user: l.primary_user as string | undefined,
+      doc: l.doc as string | undefined,
+    });
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key));
+}
+
 type HealthDoc = {
   ts?: string;
   host?: string;
@@ -116,26 +142,29 @@ export function OpsPage() {
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [health, setHealth] = useState<HealthDoc | null>(null);
+  const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd] = await Promise.all([
+      const [pd, bd, sd, hd, ld] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
         fetchJson<HealthDoc>("/ops-data/health.json"),
+        fetchJson<LanesDoc>("/ops-data/lanes.json"),
       ]);
       if (cancelled) return;
-      if (!pd && !bd && !sd && !hd) {
+      if (!pd && !bd && !sd && !hd && !ld) {
         setLoadError("ops-data unavailable — was the page built without /srv/ops-vault?");
       }
       setProjects(parseProjects(pd));
       setBlockers(bd?.blockers ?? []);
       setSessions(sd?.sessions ?? []);
       setHealth(hd ?? null);
+      setLanes(parseLanes(ld));
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -181,6 +210,7 @@ export function OpsPage() {
       )}
 
       <HealthOverview health={health} />
+      <LanesOverview lanes={lanes} />
       <BlockersOverview blockers={blockers} />
 
       {rows.length === 0 && !loadError && (
@@ -243,7 +273,51 @@ export function OpsPage() {
           );
         })}
       </ul>
+      <SessionsStrip sessions={sessions} />
     </div>
+  );
+}
+
+function LanesOverview({ lanes }: { lanes: LaneRow[] }) {
+  if (lanes.length === 0) return null;
+  return (
+    <section style={overviewCard}>
+      <div style={overviewHead}>
+        <span>מסלולי עבודה מקבילים</span>
+        <span style={overviewCount}>{lanes.length}</span>
+      </div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 4 }}>
+        {lanes.map((l) => (
+          <li key={l.key} style={{ fontSize: 13, color: "#404040" }}>
+            <b>מסלול {l.key}</b>
+            {l.title ? ` · ${l.title}` : ""}
+            {l.primary_user ? ` · ${l.primary_user}` : ""}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SessionsStrip({ sessions }: { sessions: SessionRow[] }) {
+  const recent = sessions.slice(0, 10);
+  if (recent.length === 0) return null;
+  return (
+    <section style={{ ...card, marginTop: 14 }}>
+      <div style={sectionLabel}>פעילות אחרונה (10 מפגשים)</div>
+      <ol style={{ listStyle: "decimal inside", padding: 0, margin: 0 }}>
+        {recent.map((s) => (
+          <li key={s.file} style={{ fontSize: 12, color: "#525252", marginBottom: 3 }}>
+            <span style={{ color: "#737373" }}>{s.date}</span>
+            {" · "}
+            <code style={{ fontSize: 11 }}>{s.file.replace(/^sessions\//, "")}</code>
+            {s.projects && s.projects.length > 0 && (
+              <span style={{ color: "#a3a3a3" }}> · {s.projects.join(", ")}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
