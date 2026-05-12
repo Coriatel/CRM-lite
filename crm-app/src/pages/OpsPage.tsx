@@ -78,6 +78,15 @@ function lastActivity(
   return null;
 }
 
+function ageDays(since?: string): number | null {
+  if (!since) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(since);
+  if (!m) return null;
+  const t = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+}
+
 const statusColor: Record<string, string> = {
   active: "#22c55e",
   dormant: "#a3a3a3",
@@ -142,6 +151,8 @@ export function OpsPage() {
         <div style={errorBox}>{loadError}</div>
       )}
 
+      <BlockersOverview blockers={blockers} />
+
       {rows.length === 0 && !loadError && (
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
       )}
@@ -203,6 +214,50 @@ export function OpsPage() {
         })}
       </ul>
     </div>
+  );
+}
+
+function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
+  if (blockers.length === 0) return null;
+  const sorted = [...blockers].sort((a, b) => {
+    const da = ageDays(a.since);
+    const db = ageDays(b.since);
+    if (da == null && db == null) return 0;
+    if (da == null) return 1;
+    if (db == null) return -1;
+    return db - da;
+  });
+  const top = sorted.slice(0, 10);
+  const oldest = sorted.find((b) => ageDays(b.since) != null);
+  const oldestDays = oldest ? ageDays(oldest.since) : null;
+  return (
+    <section style={overviewCard}>
+      <div style={overviewHead}>
+        <span>חסמים פעילים</span>
+        <span style={overviewCount}>
+          {blockers.length}
+          {oldestDays != null ? ` · ותיק ביותר ${oldestDays} ימים` : ""}
+        </span>
+      </div>
+      <ol style={overviewList}>
+        {top.map((b) => {
+          const d = ageDays(b.since);
+          return (
+            <li key={b.id} style={overviewItem}>
+              <div style={{ fontWeight: 500 }}>{b.summary}</div>
+              <div style={subLine}>
+                {b.lane ? `מסלול ${b.lane}` : ""}
+                {b.since ? ` · מאז ${b.since}` : ""}
+                {d != null ? ` · ${d} ימים` : ""}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {blockers.length > top.length && (
+        <div style={subLine}>+ {blockers.length - top.length} נוספים</div>
+      )}
+    </section>
   );
 }
 
@@ -281,6 +336,42 @@ const emptyBox: React.CSSProperties = {
   color: "#737373",
   border: "1px dashed #d4d4d4",
   borderRadius: 10,
+};
+
+const overviewCard: React.CSSProperties = {
+  border: "1px solid #fde68a",
+  background: "#fffbeb",
+  borderRadius: 10,
+  padding: 12,
+  marginBottom: 14,
+};
+
+const overviewHead: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "baseline",
+  fontWeight: 600,
+  fontSize: 14,
+  marginBottom: 8,
+  color: "#78350f",
+};
+
+const overviewCount: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 400,
+  color: "#92400e",
+};
+
+const overviewList: React.CSSProperties = {
+  listStyle: "decimal inside",
+  padding: 0,
+  margin: 0,
+};
+
+const overviewItem: React.CSSProperties = {
+  marginBottom: 6,
+  fontSize: 13,
+  color: "#404040",
 };
 
 const errorBox: React.CSSProperties = {
