@@ -2,13 +2,16 @@
 
 Implements the schema proposed in `/srv/ops-vault/proposals/approvals-schema-proposal.md` (§C narrowed by §M, owner-gated by §N).
 
-**Status:** drafted 2026-05-12 (elron-lane, autonomous loop). `apply.py` / `validate.py` / `rollback.sh` follow as separate slices (4b, 4c). This dir starts with the payload shape contracts (slice 4a) because Codex round-1 made them a blocker (N5).
+**Status:** drafted 2026-05-12 (elron-lane, autonomous loop). All three slices (4a/4b/4c) shipped locally; awaiting owner-run `python apply.py` in production.
 
 ## Contents
 
 ```
 slice4-schema/
 ├── README.md                                     ← this file
+├── apply.py        ← idempotent Directus admin-API migration (4b)
+├── rollback.sh     ← pg_dump pre-flight + drop tables + cache clear (4b)
+├── validate.py     ← exercises CHECK constraints + state machine (4c)
 └── schemas/
     └── approvals/
         ├── whatsapp_group_send.v1.json           ← N5 / Codex round-1
@@ -16,13 +19,17 @@ slice4-schema/
         └── other.v1.json                         ← escape hatch
 ```
 
-To be added in slice 4b (apply + rollback) and slice 4c (validate):
+## Review provenance
 
-```
-├── apply.py        ← idempotent Directus admin-API migration (4b)
-├── rollback.sh     ← pg_dump pre-flight + drop tables + cache clear (4b)
-└── validate.py     ← exercises CHECK constraints + state machine (4c)
-```
+- karpathy-critic round 1 (plan): CUT → split into 4a / 4b / 4c. Followed.
+- Codex round 1 (proposal §M+N): REVISE → 6 changes incorporated into proposal.
+- Codex round 2 (apply.py): REVISE → 4 changes incorporated:
+  1. `chk_approval_executed` tightened to biconditional.
+  2. `pg_constraint` guard scoped to `conrelid='approvals'::regclass` + `duplicate_object` swallow.
+  3. New `chk_approval_idempotency_key_length` ≤120.
+  4. Rollback delete-order child-first + cache-clear API call.
+
+Codex budget exhausted for this slice (max 2 rounds/action per `codex-routing.md`). Next Codex round opens with the next migration.
 
 ## Shape contracts (slice 4a)
 
