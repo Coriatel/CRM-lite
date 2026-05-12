@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "approvals/lms_grant.v1.json",
+  "title": "approvals.proposed_payload — action_type=lms_grant (v1)",
+  "description": "Payload contract for a proposed LMS access grant. Validated app-side (Windmill + Lane A UI). Not enforced in Postgres.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contact_id", "course_slug", "context"],
+  "properties": {
+    "contact_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "FK target in the `contacts` collection. Polymorphic context_id should usually point to this same row."
+    },
+    "course_slug": {
+      "type": "string",
+      "description": "Stable LMS course identifier. Slug, not numeric ID, to survive LMS-side renumbering.",
+      "pattern": "^[a-z0-9][a-z0-9_\\-]{1,80}$"
+    },
+    "grant_kind": {
+      "enum": ["full", "preview", "audit"],
+      "default": "full",
+      "description": "Access level. v1 supports the three LMS roles in production today."
+    },
+    "grant_until": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Optional access expiration. If null, grant is open-ended (LMS-side default applies)."
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "summary_hebrew": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 280,
+          "description": "1–2 sentence Hebrew summary for the approval card."
+        },
+        "cohort_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "description": "Optional reference to a cohort row driving the grant."
+        }
+      },
+      "required": ["summary_hebrew"]
+    }
+  }
+}

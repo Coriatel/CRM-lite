@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "approvals/whatsapp_group_send.v1.json",
+  "title": "approvals.proposed_payload — action_type=whatsapp_group_send (v1)",
+  "description": "Payload contract for a proposed WhatsApp group send. Validated app-side (Windmill + Lane A UI). Not enforced in Postgres.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["group_jid", "message_text", "context"],
+  "properties": {
+    "group_jid": {
+      "type": "string",
+      "description": "WhatsApp group JID, e.g. '120363025...@g.us'.",
+      "pattern": "^[0-9]+@g\\.us$",
+      "minLength": 10,
+      "maxLength": 80
+    },
+    "group_label": {
+      "type": "string",
+      "description": "Human-readable group label for the approval UI; not used for routing.",
+      "maxLength": 120
+    },
+    "message_text": {
+      "type": "string",
+      "description": "Hebrew-aware message body. Plain text in v1; templates/markdown deferred.",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "media_ref": {
+      "type": ["object", "null"],
+      "description": "Optional media attachment reference. Resolved by Windmill at execution time, not stored inline.",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["image", "video", "audio", "document"] },
+        "storage_key": { "type": "string", "maxLength": 256 },
+        "caption": { "type": "string", "maxLength": 1024 }
+      },
+      "required": ["kind", "storage_key"]
+    },
+    "scheduled_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Optional ISO-8601 UTC timestamp. If null, send on approval. Windmill enforces; not a CHECK."
+    },
+    "context": {
+      "type": "object",
+      "description": "Free-form context for the approval UI / audit. Does not control routing.",
+      "additionalProperties": true,
+      "properties": {
+        "summary_hebrew": {
+          "type": "string",
+          "description": "1–2 sentence Hebrew summary shown in the approval card.",
+          "minLength": 1,
+          "maxLength": 280
+        }
+      },
+      "required": ["summary_hebrew"]
+    }
+  }
+}
