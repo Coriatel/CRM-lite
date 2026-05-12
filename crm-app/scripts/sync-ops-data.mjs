@@ -11,7 +11,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "..", "public", "ops-data");
 const vaultState = "/srv/ops-vault/state";
 
-const files = ["projects.json", "blockers.json", "session_index.json"];
+const files = [
+  "projects.json",
+  "blockers.json",
+  "session_index.json",
+  "health.json",
+];
 
 mkdirSync(out, { recursive: true });
 

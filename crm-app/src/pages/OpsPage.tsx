@@ -33,6 +33,24 @@ type ProjectsDoc = Record<string, unknown> & {
 type BlockersDoc = { blockers?: Blocker[] };
 type SessionsDoc = { sessions?: SessionRow[] };
 
+type HealthEndpoint = {
+  name: string;
+  url?: string;
+  ok: boolean;
+  status?: number;
+  latency_ms?: number;
+  required?: boolean;
+  error?: string | null;
+};
+
+type HealthDoc = {
+  ts?: string;
+  host?: string;
+  ok?: boolean;
+  failed?: string[];
+  endpoints?: HealthEndpoint[];
+};
+
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
     const r = await fetch(url, { cache: "no-store" });
@@ -97,28 +115,39 @@ export function OpsPage() {
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [health, setHealth] = useState<HealthDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const [pd, bd, sd] = await Promise.all([
+    const load = async () => {
+      const [pd, bd, sd, hd] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
+        fetchJson<HealthDoc>("/ops-data/health.json"),
       ]);
       if (cancelled) return;
-      if (!pd && !bd && !sd) {
+      if (!pd && !bd && !sd && !hd) {
         setLoadError("ops-data unavailable — was the page built without /srv/ops-vault?");
       }
       setProjects(parseProjects(pd));
       setBlockers(bd?.blockers ?? []);
       setSessions(sd?.sessions ?? []);
+      setHealth(hd ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
-    })();
+    };
+    load();
+    // Refresh health every 60s; other docs change slowly so one read at mount is fine.
+    const id = window.setInterval(() => {
+      fetchJson<HealthDoc>("/ops-data/health.json").then((hd) => {
+        if (!cancelled && hd) setHealth(hd);
+      });
+    }, 60_000);
     return () => {
       cancelled = true;
+      window.clearInterval(id);
     };
   }, []);
 
@@ -151,6 +180,7 @@ export function OpsPage() {
         <div style={errorBox}>{loadError}</div>
       )}
 
+      <HealthOverview health={health} />
       <BlockersOverview blockers={blockers} />
 
       {rows.length === 0 && !loadError && (
@@ -214,6 +244,76 @@ export function OpsPage() {
         })}
       </ul>
     </div>
+  );
+}
+
+function HealthOverview({ health }: { health: HealthDoc | null }) {
+  if (!health) return null;
+  const endpoints = health.endpoints ?? [];
+  if (endpoints.length === 0) return null;
+  const required = endpoints.filter((e) => e.required);
+  const optional = endpoints.filter((e) => !e.required);
+  const requiredOk = required.every((e) => e.ok);
+  const overallOk = health.ok ?? requiredOk;
+  const failed = health.failed ?? endpoints.filter((e) => !e.ok).map((e) => e.name);
+  return (
+    <section
+      style={{
+        ...overviewCard,
+        background: overallOk ? "#f0fdf4" : "#fef2f2",
+        borderColor: overallOk ? "#bbf7d0" : "#fecaca",
+      }}
+    >
+      <div
+        style={{
+          ...overviewHead,
+          color: overallOk ? "#166534" : "#991b1b",
+        }}
+      >
+        <span>שירותים · {overallOk ? "תקין" : "תקלה"}</span>
+        <span style={{ ...overviewCount, color: overallOk ? "#15803d" : "#b91c1c" }}>
+          {endpoints.filter((e) => e.ok).length}/{endpoints.length}
+          {health.ts ? ` · ${health.ts.replace("T", " ").replace("Z", "")}` : ""}
+        </span>
+      </div>
+      {failed.length > 0 && (
+        <div style={{ ...subLine, color: "#991b1b", marginBottom: 6 }}>
+          נופלים: {failed.join(", ")}
+        </div>
+      )}
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 4 }}>
+        {[...required, ...optional].map((e) => (
+          <li
+            key={e.name}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: 12,
+              color: e.ok ? "#404040" : "#991b1b",
+            }}
+          >
+            <span>
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: e.ok ? "#22c55e" : "#ef4444",
+                  marginInlineEnd: 6,
+                }}
+              />
+              {e.name}
+              {e.required ? "" : " (לא חובה)"}
+            </span>
+            <span style={{ color: "#737373" }}>
+              {e.status ?? "—"}
+              {typeof e.latency_ms === "number" ? ` · ${e.latency_ms}ms` : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
