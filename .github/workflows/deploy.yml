@@ -29,8 +29,41 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      - name: Deploy dist
+      - name: Rsync to staging dir on host
         run: |
           rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=no" \
-            crm-app/dist/ deploy@${{ secrets.DEPLOY_HOST }}:/home/elron/services/crm-lite/crm-app/dist/
+            crm-app/dist/ \
+            deploy@${{ secrets.DEPLOY_HOST }}:/home/elron/services/crm-lite/crm-app/dist-prod-staging/
+
+      - name: Atomic swap + prune (no docker restart needed — Caddy file_server reads live bind-mount)
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            deploy@${{ secrets.DEPLOY_HOST }} \
+            "set -e; \
+             cd /home/elron/services/crm-lite/crm-app && \
+             STAMP=\$(date -u +%Y%m%d-%H%M%SZ) && \
+             SHA=\$(echo '${{ github.sha }}' | cut -c1-7) && \
+             test -f dist-prod-staging/index.html || { echo 'staging missing index.html — abort'; exit 1; } && \
+             ls dist-prod-staging/assets/index-*.js >/dev/null || { echo 'staging missing main bundle — abort'; exit 1; } && \
+             if [ -d dist-prod ]; then mv dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi && \
+             mv dist-prod-staging dist-prod && \
+             echo \"deployed; live SHA=\${SHA}\" && \
+             ls -dt dist-prod.bak-* 2>/dev/null | tail -n +4 | xargs -r rm -rf && \
+             echo 'pruned to last 3 backups'"
+
+      - name: Smoke test live URL
+        run: |
+          set -e
+          SHA_SHORT=$(echo '${{ github.sha }}' | cut -c1-7)
+          for i in 1 2 3 4 5; do
+            CODE=$(curl -fsS -o /dev/null -w "%{http_code}" https://crmphone.merkazneshama.co.il/ops || echo "000")
+            if [ "$CODE" = "200" ]; then
+              echo "smoke OK: /ops 200 (sha=$SHA_SHORT)"
+              exit 0
+            fi
+            echo "smoke retry $i: got $CODE"
+            sleep 3
+          done
+          echo "smoke FAIL after retries"
+          exit 1
