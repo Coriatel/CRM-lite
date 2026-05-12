@@ -31,7 +31,7 @@ type ProjectsDoc = Record<string, unknown> & {
 };
 
 type BlockersDoc = { blockers?: Blocker[] };
-type SessionsDoc = { sessions?: SessionRow[] };
+type SessionsDoc = { sessions?: SessionRow[]; owner_gates?: string[] };
 
 type HealthEndpoint = {
   name: string;
@@ -141,6 +141,7 @@ export function OpsPage() {
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [ownerGates, setOwnerGates] = useState<string[]>([]);
   const [health, setHealth] = useState<HealthDoc | null>(null);
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
@@ -163,6 +164,7 @@ export function OpsPage() {
       setProjects(parseProjects(pd));
       setBlockers(bd?.blockers ?? []);
       setSessions(sd?.sessions ?? []);
+      setOwnerGates(sd?.owner_gates ?? []);
       setHealth(hd ?? null);
       setLanes(parseLanes(ld));
       setLastVerified(pd?._meta?.last_verified ?? null);
@@ -212,6 +214,7 @@ export function OpsPage() {
       <HealthOverview health={health} />
       <LanesOverview lanes={lanes} />
       <BlockersOverview blockers={blockers} />
+      <OwnerGatesCard gates={ownerGates} />
 
       {rows.length === 0 && !loadError && (
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
@@ -292,6 +295,50 @@ function LanesOverview({ lanes }: { lanes: LaneRow[] }) {
             <b>מסלול {l.key}</b>
             {l.title ? ` · ${l.title}` : ""}
             {l.primary_user ? ` · ${l.primary_user}` : ""}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Strip markdown emphasis/strikethrough markers so the gate text reads cleanly.
+// Raw source is bullet text scraped from CURRENT.md by scripts/build-session-index.sh.
+function plainifyGate(s: string): string {
+  return s
+    .replace(/~~([^~]+)~~/g, "")        // drop strikethrough segments entirely (resolved)
+    .replace(/\*\*([^*]+)\*\*/g, "$1")  // unwrap bold
+    .replace(/`([^`]+)`/g, "$1")        // unwrap inline code
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function OwnerGatesCard({ gates }: { gates: string[] }) {
+  const clean = gates.map(plainifyGate).filter((g) => g.length > 0);
+  if (clean.length === 0) return null;
+  return (
+    <section
+      style={{
+        ...overviewCard,
+        background: "#fffbeb",
+        borderColor: "#fde68a",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#92400e" }}>
+        <span>החלטות שממתינות לבעלים</span>
+        <span style={{ ...overviewCount, color: "#b45309" }}>{clean.length}</span>
+      </div>
+      <ul style={{ listStyle: "disc inside", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+        {clean.map((g, i) => (
+          <li
+            key={i}
+            style={{
+              fontSize: 13,
+              color: "#78350f",
+              lineHeight: 1.45,
+            }}
+          >
+            {g}
           </li>
         ))}
       </ul>
