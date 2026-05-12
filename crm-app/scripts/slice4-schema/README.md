@@ -66,13 +66,26 @@ DB_NAME                 hycrm
 ## Run order (when ready — DO NOT RUN YET)
 
 ```bash
-# Pre-flight
+# Pre-flight (baseline; expect empty dump for fresh state)
 sudo docker exec hycrm-directus-db pg_dump -U hycrm -d hycrm \
     -t approvals -t automation_runs \
-    > /tmp/slice4-pre.dump  # expect empty; safety baseline
+    > /tmp/slice4-pre.dump
 
-python apply.py            # idempotent; safe to re-run
-python validate.py         # asserts CHECKs and state machine
-# if anything fails:
-bash rollback.sh           # interactive (yes/NO prompt)
+# 1. Apply — idempotent; safe to re-run. Does NOT mutate existing data.
+DIRECTUS_URL=https://crm.merkazneshama.co.il \
+DIRECTUS_ADMIN_TOKEN=<admin-token> \
+python apply.py
+
+# 2. Validate — WRITES test rows to verify CHECKs/state machine/FK RESTRICT.
+#    Each row tagged with idempotency_key prefix 'test_slice4_<uuid>_*'.
+#    Owner must run the cleanup SQL the script prints at the end.
+DIRECTUS_URL=... DIRECTUS_ADMIN_TOKEN=... python validate.py
+
+# 3. Rollback (only if apply/validate fails or owner reverts).
+#    Interactive yes/NO prompt; requires exact "yes".
+DIRECTUS_URL=... DIRECTUS_ADMIN_TOKEN=... bash rollback.sh
 ```
+
+**validate.py is NOT read-only.** It POSTs ~3 approvals + 1 automation_runs and
+PATCHes status transitions to exercise constraints. Test rows survive past the
+script unless cleaned up; the script prints the exact `DELETE` SQL at the end.
