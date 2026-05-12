@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "approvals/other.v1.json",
+  "title": "approvals.proposed_payload — action_type=other (v1)",
+  "description": "Escape-hatch contract for ad-hoc approvals that do not match a typed action_type yet. Forces a human-readable summary so the approval card is meaningful even when the payload is bespoke. Validated app-side.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary_hebrew", "human_intent"],
+  "properties": {
+    "summary_hebrew": {
+      "type": "string",
+      "description": "Mandatory Hebrew one-liner shown in the approval card.",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "human_intent": {
+      "type": "string",
+      "description": "Plain-language description of what will happen if approved. Audit-grade.",
+      "minLength": 10,
+      "maxLength": 2000
+    },
+    "external_target": {
+      "type": ["string", "null"],
+      "description": "Optional pointer to the external system (URL, slug, or freeform identifier).",
+      "maxLength": 512
+    },
+    "payload": {
+      "type": ["object", "null"],
+      "description": "Optional freeform payload. The consuming automation is responsible for interpretation; no schema in v1.",
+      "additionalProperties": true
+    },
+    "promotion_note": {
+      "type": ["string", "null"],
+      "description": "Author's note on whether this should be promoted to a typed action_type in a future enum addition. Audit-only.",
+      "maxLength": 280
+    }
+  }
+}
