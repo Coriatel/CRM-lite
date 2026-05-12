@@ -170,11 +170,11 @@ export function OpsPage() {
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
-    // Refresh health every 60s; other docs change slowly so one read at mount is fine.
+    // Live refresh: re-fetch all /ops-data every 60s. Caddy serves these directly from
+    // /srv/ops-vault/state, so edits to CURRENT.md / blockers.json / regen of session_index
+    // appear on the page within a minute — no rebuild/deploy needed.
     const id = window.setInterval(() => {
-      fetchJson<HealthDoc>("/ops-data/health.json").then((hd) => {
-        if (!cancelled && hd) setHealth(hd);
-      });
+      load();
     }, 60_000);
     return () => {
       cancelled = true;
