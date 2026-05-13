@@ -36,7 +36,14 @@ jobs:
             crm-app/dist/ \
             deploy@${{ secrets.DEPLOY_HOST }}:/home/elron/services/crm-lite/crm-app/dist-prod-staging/
 
-      - name: Atomic swap + prune (no docker restart needed — Caddy file_server reads live bind-mount)
+      - name: Atomic swap + container refresh + prune
+        # docker restart is required: Caddy's bind-mount holds the original
+        # inode of dist-prod, so `mv dist-prod ...` leaves the container
+        # serving the stale tree until the mount re-resolves on restart.
+        # Sudoers drop-in /etc/sudoers.d/deploy-crmlite-restart authorises
+        # only `docker restart crmlite-web` for the deploy user (least
+        # privilege). Prune is non-fatal: legacy backups owned by other
+        # users may resist rm and that should not fail the deploy.
         run: |
           ssh -o StrictHostKeyChecking=no \
             deploy@${{ secrets.DEPLOY_HOST }} \
@@ -48,9 +55,10 @@ jobs:
              ls dist-prod-staging/assets/index-*.js >/dev/null || { echo 'staging missing main bundle — abort'; exit 1; } && \
              if [ -d dist-prod ]; then mv dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi && \
              mv dist-prod-staging dist-prod && \
-             echo \"deployed; live SHA=\${SHA}\" && \
-             ls -dt dist-prod.bak-* 2>/dev/null | tail -n +4 | xargs -r rm -rf && \
-             echo 'pruned to last 3 backups'"
+             echo \"swapped; live SHA=\${SHA}\" && \
+             sudo -n /usr/bin/docker restart crmlite-web && \
+             echo 'container refreshed' && \
+             { ls -dt dist-prod.bak-* 2>/dev/null | tail -n +4 | xargs -r rm -rf 2>/dev/null && echo 'pruned to last 3 backups'; } || echo '(prune partial — non-fatal: some legacy backups not owned by deploy user)'"
 
       - name: Smoke test live URL
         run: |
