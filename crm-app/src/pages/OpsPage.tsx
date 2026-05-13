@@ -52,6 +52,32 @@ type LaneRow = {
 
 type LanesDoc = Record<string, unknown>;
 
+type RecentMerge = {
+  number: number;
+  title: string;
+  mergedAt: string;
+  login: string;
+  url: string;
+};
+
+type RecentMergesDoc = {
+  _meta?: { fetched_at?: string; repo?: string; error?: string };
+  merges?: RecentMerge[];
+};
+
+export function relativeTimeHe(iso: string, now: Date = new Date()): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const diffMin = Math.round((now.getTime() - t) / 60000);
+  if (diffMin < 1) return "עכשיו";
+  if (diffMin < 60) return `לפני ${diffMin} דק'`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `לפני ${diffHr} שע'`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 7) return `לפני ${diffDay} ימים`;
+  return iso.substring(0, 10);
+}
+
 function parseLanes(doc: LanesDoc | null): LaneRow[] {
   if (!doc) return [];
   const out: LaneRow[] = [];
@@ -144,21 +170,23 @@ export function OpsPage() {
   const [ownerGates, setOwnerGates] = useState<string[]>([]);
   const [health, setHealth] = useState<HealthDoc | null>(null);
   const [lanes, setLanes] = useState<LaneRow[]>([]);
+  const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
         fetchJson<HealthDoc>("/ops-data/health.json"),
         fetchJson<LanesDoc>("/ops-data/lanes.json"),
+        fetchJson<RecentMergesDoc>("/ops-data/recent_merges.json"),
       ]);
       if (cancelled) return;
-      if (!pd && !bd && !sd && !hd && !ld) {
+      if (!pd && !bd && !sd && !hd && !ld && !rm) {
         setLoadError("ops-data unavailable — was the page built without /srv/ops-vault?");
       }
       setProjects(parseProjects(pd));
@@ -167,6 +195,7 @@ export function OpsPage() {
       setOwnerGates(sd?.owner_gates ?? []);
       setHealth(hd ?? null);
       setLanes(parseLanes(ld));
+      setRecentMerges(rm ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -213,6 +242,7 @@ export function OpsPage() {
 
       <HealthOverview health={health} />
       <LanesOverview lanes={lanes} />
+      <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
       <OwnerGatesCard gates={ownerGates} />
 
@@ -278,6 +308,45 @@ export function OpsPage() {
       </ul>
       <SessionsStrip sessions={sessions} />
     </div>
+  );
+}
+
+function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
+  if (doc === null) return null;
+  const merges = doc.merges ?? [];
+  return (
+    <section style={overviewCard}>
+      <div style={overviewHead}>
+        <span>שופץ לאחרונה</span>
+        <span style={overviewCount}>{merges.length}</span>
+      </div>
+      {merges.length === 0 ? (
+        <div style={{ fontSize: 13, color: "#737373" }}>
+          {doc._meta?.error
+            ? `שגיאת fetch: ${doc._meta.error.substring(0, 80)}`
+            : "אין מיזוגים אחרונים"}
+        </div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+          {merges.map((m) => (
+            <li key={m.number} style={{ fontSize: 13, color: "#404040" }}>
+              <a
+                href={m.url}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "#1d4ed8", textDecoration: "none" }}
+              >
+                #{m.number}
+              </a>{" "}
+              <span style={{ color: "#171717" }}>{m.title}</span>
+              <div style={{ fontSize: 11, color: "#737373", marginTop: 2 }}>
+                {relativeTimeHe(m.mergedAt)} · {m.login}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
