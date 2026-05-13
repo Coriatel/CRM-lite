@@ -41,7 +41,7 @@ test.describe('mobile-smoke', () => {
     await expect(page).toHaveURL(/\/today/);
     await expect(page.getByText(/אנשים.*חיזוק/)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/שיחות.*להיום/)).toBeVisible();
-    await expect(page.getByText(/תורמים קבועים/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'תורמים קבועים' })).toBeVisible();
     await assertNoErrorSentinel(page);
   });
 
