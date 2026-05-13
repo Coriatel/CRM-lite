@@ -7,3 +7,11 @@
 
 # Production-served bundle (populated by scripts/deploy.sh, never by `npm run build`)
 crm-app/dist-prod/
+
+# Generated deploy artifacts (CI atomic-swap):
+# - dist-prod.bak-<sha>-<stamp>/ created on every swap (3 kept, older pruned)
+# - dist-prod.pre-swap-*/ legacy variant from earlier deploy scripts
+# - dist-prod-staging/ transient rsync target
+crm-app/dist-prod.bak-*/
+crm-app/dist-prod.pre-swap-*/
+crm-app/dist-prod-staging/
