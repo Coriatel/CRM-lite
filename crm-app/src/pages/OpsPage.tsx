@@ -65,6 +65,27 @@ type RecentMergesDoc = {
   merges?: RecentMerge[];
 };
 
+type FreshnessDoc = {
+  ts?: string;
+  files?: Record<string, { mtime: string; age_seconds: number }>;
+};
+
+type StaleEntry = { name: string; hours: number };
+
+function stalenessEntries(
+  f: FreshnessDoc | null,
+  thresholdHours: number,
+): StaleEntry[] {
+  if (!f?.files) return [];
+  return Object.entries(f.files)
+    .map(([name, v]) => ({
+      name,
+      hours: Math.floor((v?.age_seconds ?? 0) / 3600),
+    }))
+    .filter((x) => x.hours >= thresholdHours)
+    .sort((a, b) => b.hours - a.hours);
+}
+
 export function relativeTimeHe(iso: string, now: Date = new Date()): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return iso;
@@ -171,19 +192,21 @@ export function OpsPage() {
   const [health, setHealth] = useState<HealthDoc | null>(null);
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
+  const [freshness, setFreshness] = useState<FreshnessDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
         fetchJson<HealthDoc>("/ops-data/health.json"),
         fetchJson<LanesDoc>("/ops-data/lanes.json"),
         fetchJson<RecentMergesDoc>("/ops-data/recent_merges.json"),
+        fetchJson<FreshnessDoc>("/ops-data/_freshness.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -196,6 +219,7 @@ export function OpsPage() {
       setHealth(hd ?? null);
       setLanes(parseLanes(ld));
       setRecentMerges(rm ?? null);
+      setFreshness(fr ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -239,6 +263,8 @@ export function OpsPage() {
       {loadError && (
         <div style={errorBox}>{loadError}</div>
       )}
+
+      <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
       <HealthOverview health={health} />
       <LanesOverview lanes={lanes} />
@@ -308,6 +334,48 @@ export function OpsPage() {
       </ul>
       <SessionsStrip sessions={sessions} />
     </div>
+  );
+}
+
+function StalenessBanner({ stale }: { stale: StaleEntry[] }) {
+  if (stale.length === 0) return null;
+  const worst = stale[0].hours;
+  const critical = worst >= 48;
+  return (
+    <section
+      style={{
+        ...overviewCard,
+        background: critical ? "#fef2f2" : "#fffbeb",
+        borderColor: critical ? "#fecaca" : "#fde68a",
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ ...overviewHead, color: critical ? "#991b1b" : "#78350f" }}>
+        <span>נתונים מתיישנים</span>
+        <span
+          style={{
+            ...overviewCount,
+            color: critical ? "#b91c1c" : "#92400e",
+          }}
+        >
+          {stale.length} קבצים · ותיק ביותר {worst} שע'
+        </span>
+      </div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 3 }}>
+        {stale.map((s) => (
+          <li
+            key={s.name}
+            style={{
+              fontSize: 12,
+              color: critical ? "#7f1d1d" : "#78350f",
+              fontFamily: "monospace",
+            }}
+          >
+            {s.name.replace(/\.json$/, "")} · {s.hours} שע'
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
