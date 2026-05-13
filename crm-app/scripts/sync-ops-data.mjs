@@ -17,6 +17,7 @@ const files = [
   "session_index.json",
   "health.json",
   "lanes.json",
+  "recent_merges.json",
 ];
 
 mkdirSync(out, { recursive: true });
