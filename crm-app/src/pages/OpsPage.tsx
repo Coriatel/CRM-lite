@@ -31,7 +31,7 @@ type ProjectsDoc = Record<string, unknown> & {
 };
 
 type BlockersDoc = { blockers?: Blocker[] };
-type SessionsDoc = { sessions?: SessionRow[]; owner_gates?: string[] };
+type SessionsDoc = { sessions?: SessionRow[]; owner_gates?: string[]; active_incidents?: string[] };
 
 type HealthEndpoint = {
   name: string;
@@ -341,6 +341,7 @@ export function OpsPage() {
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [ownerGates, setOwnerGates] = useState<string[]>([]);
+  const [activeIncidents, setActiveIncidents] = useState<string[]>([]);
   const [health, setHealth] = useState<HealthDoc | null>(null);
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
@@ -376,6 +377,7 @@ export function OpsPage() {
       setBlockers(bd?.blockers ?? []);
       setSessions(sd?.sessions ?? []);
       setOwnerGates(sd?.owner_gates ?? []);
+      setActiveIncidents(sd?.active_incidents ?? []);
       setHealth(hd ?? null);
       setLanes(parseLanes(ld));
       setRecentMerges(rm ?? null);
@@ -437,6 +439,7 @@ export function OpsPage() {
       <LanesOverview lanes={lanes} />
       <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
+      <ActiveIncidentsCard incidents={activeIncidents} />
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
       <HandoffsCard doc={handoffs} />
@@ -622,6 +625,40 @@ function plainifyGate(s: string): string {
     .replace(/`([^`]+)`/g, "$1")        // unwrap inline code
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function ActiveIncidentsCard({ incidents }: { incidents: string[] }) {
+  const clean = incidents.map(plainifyGate).filter((s) => s.length > 0);
+  if (clean.length === 0) return null;
+  return (
+    <section
+      aria-label="אירועים פעילים"
+      style={{
+        ...overviewCard,
+        background: "#fef2f2",
+        borderColor: "#fecaca",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#991b1b" }}>
+        <span>אירועים פעילים</span>
+        <span style={{ ...overviewCount, color: "#b91c1c" }}>{clean.length}</span>
+      </div>
+      <ul style={{ listStyle: "disc inside", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+        {clean.map((s, i) => (
+          <li
+            key={i}
+            style={{
+              fontSize: 13,
+              color: "#7f1d1d",
+              lineHeight: 1.45,
+            }}
+          >
+            {s}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function OwnerGatesCard({ gates }: { gates: string[] }) {
