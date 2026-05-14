@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { BottomNav } from "../BottomNav";
@@ -31,8 +31,24 @@ describe("BottomNav", () => {
       "אנשי קשר",
       "לוח בקרה",
       "סינון",
-      "הגדרות",
+      "עוד",
     ]);
+  });
+
+  it("the More tab fires onMoreClick and does not navigate", () => {
+    const onMoreClick = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/today"]}>
+        <BottomNav onMoreClick={onMoreClick} />
+        <LocationProbe />
+        <Routes>
+          <Route path="*" element={null} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /עוד/ }));
+    expect(onMoreClick).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("probe").textContent).toBe("/today");
   });
 
   it("marks the Today tab active on /today", () => {
