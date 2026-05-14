@@ -723,6 +723,70 @@ export function formatOwnedPaths(
   return rest > 0 ? `${first} · +${rest}` : first;
 }
 
+// Approximate glob overlap: returns true when two glob patterns can both match
+// some concrete path. We strip trailing /** or /* wildcards and any segment
+// containing * to derive a "literal prefix"; two globs overlap iff one prefix
+// extends the other (or they are equal). Conservative — may warn on a glob
+// pair that doesn't truly collide, but does NOT miss real overlaps for the
+// dir-prefix patterns the path-ownership protocol actually uses in practice
+// (e.g. "src/pages/**" vs "src/pages/OpsPage.tsx").
+export function globsOverlap(a: string, b: string): boolean {
+  const literalPrefix = (g: string): string => {
+    const clean = g.split(" (")[0].trim();
+    if (clean.length === 0) return "";
+    const parts = clean.split("/");
+    const out: string[] = [];
+    for (const p of parts) {
+      if (p.includes("*")) break;
+      out.push(p);
+    }
+    return out.join("/");
+  };
+  const pa = literalPrefix(a);
+  const pb = literalPrefix(b);
+  if (pa.length === 0 || pb.length === 0) return false;
+  // Segment-aware prefix check so "foo" does not match "foobar".
+  const isPrefix = (s: string, prefix: string): boolean =>
+    s === prefix || s.startsWith(prefix + "/");
+  return isPrefix(pa, pb) || isPrefix(pb, pa);
+}
+
+export type SessionCollision = {
+  a: string;
+  b: string;
+  overlaps: { aGlob: string; bGlob: string }[];
+};
+
+// Pairs of active sessions whose declared owned_paths_globs may collide.
+// Pure; symmetric (each pair appears once with the lexicographically smaller
+// id as `a`). Sessions with no owned_paths_globs contribute no collisions.
+export function detectActiveCollisions(
+  active: readonly ActiveSession[] | null | undefined,
+): SessionCollision[] {
+  if (!active || active.length < 2) return [];
+  const collisions: SessionCollision[] = [];
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const sa = active[i];
+      const sb = active[j];
+      const ga = sa.owned_paths_globs ?? [];
+      const gb = sb.owned_paths_globs ?? [];
+      if (ga.length === 0 || gb.length === 0) continue;
+      const overlaps: { aGlob: string; bGlob: string }[] = [];
+      for (const x of ga) {
+        for (const y of gb) {
+          if (globsOverlap(x, y)) overlaps.push({ aGlob: x, bGlob: y });
+        }
+      }
+      if (overlaps.length > 0) {
+        const [low, high] = sa.id < sb.id ? [sa, sb] : [sb, sa];
+        collisions.push({ a: low.id, b: high.id, overlaps });
+      }
+    }
+  }
+  return collisions;
+}
+
 // Human-readable Hebrew heartbeat age for the ActiveSessionsCard freshness line.
 // null/undefined/non-positive → "". <60s → "טרי". minutes → "לפני N דק׳". hours → "לפני N שע׳".
 export function heartbeatAgeLabelHe(seconds: number | null | undefined): string {
@@ -740,9 +804,29 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
   const registryStale = doc._meta?.registry_stale === true;
   if (active.length === 0 && recent.length === 0 && !doc._meta?.error) return null;
 
-  const headColor = active.length > 0 && !registryStale ? "#166534" : "#737373";
-  const bg = active.length > 0 && !registryStale ? "#f0fdf4" : "#fafafa";
-  const border = active.length > 0 && !registryStale ? "#bbf7d0" : "#e5e5e5";
+  const collisions = detectActiveCollisions(active);
+  const collidingIds = new Set<string>();
+  for (const c of collisions) {
+    collidingIds.add(c.a);
+    collidingIds.add(c.b);
+  }
+  const hasCollision = collisions.length > 0;
+
+  const headColor = hasCollision
+    ? "#b45309"
+    : active.length > 0 && !registryStale
+      ? "#166534"
+      : "#737373";
+  const bg = hasCollision
+    ? "#fffbeb"
+    : active.length > 0 && !registryStale
+      ? "#f0fdf4"
+      : "#fafafa";
+  const border = hasCollision
+    ? "#fde68a"
+    : active.length > 0 && !registryStale
+      ? "#bbf7d0"
+      : "#e5e5e5";
 
   return (
     <section
@@ -773,17 +857,37 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
         </div>
       )}
 
+      {hasCollision && (
+        <div
+          role="alert"
+          style={{
+            ...subLine,
+            color: "#92400e",
+            background: "#fef3c7",
+            border: "1px solid #fcd34d",
+            borderRadius: 4,
+            padding: "6px 8px",
+            marginBottom: 8,
+            fontWeight: 500,
+          }}
+        >
+          ⚠️ התנגשות נתיבים: {collisions.length} זוג{collisions.length === 1 ? "" : "ות"}
+        </div>
+      )}
+
       {active.length > 0 && (
         <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px 0", display: "grid", gap: 8 }}>
           {active.map((s) => {
             const stale = s.lifecycle === "stale";
+            const colliding = collidingIds.has(s.id);
+            const accent = colliding ? "#f59e0b" : stale ? "#f59e0b" : "#22c55e";
             return (
               <li
                 key={s.id}
                 style={{
                   fontSize: 13,
                   color: "#404040",
-                  borderInlineStart: `3px solid ${stale ? "#f59e0b" : "#22c55e"}`,
+                  borderInlineStart: `3px solid ${accent}`,
                   paddingInlineStart: 8,
                 }}
               >
@@ -799,6 +903,20 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
                   >
                     {stale ? "stale" : "active"}
                   </span>
+                  {colliding && (
+                    <span
+                      style={{
+                        ...pill,
+                        background: "#f59e0b",
+                        marginInlineEnd: 6,
+                        fontSize: 10,
+                        padding: "1px 6px",
+                      }}
+                      title="פרוסה זו חולקת נתיבים עם פרוסה פעילה אחרת"
+                    >
+                      ⚠ collision
+                    </span>
+                  )}
                   {s.project ?? s.id}
                   {s.lane ? ` · מסלול ${s.lane}` : ""}
                 </div>
