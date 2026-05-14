@@ -188,6 +188,111 @@ type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
 
+type Workflow = {
+  workflow_key: string;
+  name?: string;
+  source_system?: string;
+  enabled?: boolean | string;
+  owner?: string;
+  criticality?: string;
+  environment?: string;
+  health?: string;
+  trigger_type?: string;
+  trigger_detail?: string;
+  last_run_at?: string;
+  last_success_at?: string;
+  last_failure_at?: string;
+  last_checked_at?: string;
+  notes?: string;
+};
+
+type WorkflowsDoc = {
+  _meta?: {
+    schema_version?: number;
+    generated_at?: string;
+    source?: string;
+    generator?: string;
+    row_count?: number;
+  };
+  workflows?: Workflow[];
+};
+
+// Workflow health values we treat as "actively wrong" (failing now or recently broken).
+// Per concepts/mn-os-runtime-state.md: failing/broken_confirmed = STOP; broken_suspected = WARN.
+const FAILING_HEALTH = new Set(["failing", "broken_confirmed", "broken_suspected"]);
+// "Stale" = enabled but the registry's snapshot says we don't actually know its state.
+// Surfaced separately because the operator action is "go re-verify", not "go fix".
+const STALE_HEALTH = new Set(["stale", "unknown"]);
+
+function isEnabled(w: Workflow): boolean {
+  // CSV → JSON converter emits booleans for true/false; defensive against string passthrough.
+  if (w.enabled === true) return true;
+  if (w.enabled === false) return false;
+  return (w.enabled ?? "").toString().toLowerCase() === "true";
+}
+
+export function workflowsAttention(doc: WorkflowsDoc | null): {
+  failing: Workflow[];
+  stale: Workflow[];
+  productionCriticalFailing: number;
+  disabled: number;
+  deprecated: number;
+  healthy: number;
+  total: number;
+} {
+  const rows = doc?.workflows ?? [];
+  const failing: Workflow[] = [];
+  const stale: Workflow[] = [];
+  let prodCritFail = 0;
+  let disabled = 0;
+  let deprecated = 0;
+  let healthy = 0;
+  for (const w of rows) {
+    const h = (w.health ?? "").toLowerCase();
+    if (h === "deprecated") {
+      deprecated += 1;
+      continue;
+    }
+    if (h === "disabled" || !isEnabled(w)) {
+      disabled += 1;
+      continue;
+    }
+    if (FAILING_HEALTH.has(h)) {
+      failing.push(w);
+      if ((w.criticality ?? "").toLowerCase() === "production_critical") prodCritFail += 1;
+      continue;
+    }
+    if (STALE_HEALTH.has(h)) {
+      stale.push(w);
+      continue;
+    }
+    if (h === "healthy") healthy += 1;
+  }
+  // Sort failing rows by criticality (prod_critical first) then by key
+  const critRank: Record<string, number> = {
+    production_critical: 0,
+    important: 1,
+    normal: 2,
+    low: 3,
+    unknown: 4,
+  };
+  failing.sort((a, b) => {
+    const r = (critRank[(a.criticality ?? "").toLowerCase()] ?? 5) - (critRank[(b.criticality ?? "").toLowerCase()] ?? 5);
+    if (r !== 0) return r;
+    return a.workflow_key.localeCompare(b.workflow_key);
+  });
+  stale.sort((a, b) => a.workflow_key.localeCompare(b.workflow_key));
+  return {
+    failing,
+    stale,
+    productionCriticalFailing: prodCritFail,
+    disabled,
+    deprecated,
+    healthy,
+    total: rows.length,
+  };
+}
+
 // Verifier status enum from build-handoffs-index --include-verifier.
 // drift/error are owner-actionable; ok/ancestor/not_applicable/missing_state are not.
 export type VerifierStatus =
@@ -442,13 +547,14 @@ export function OpsPage() {
   const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionsDoc | null>(null);
   const [dependencies, setDependencies] = useState<DependenciesDoc | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowsDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -462,6 +568,7 @@ export function OpsPage() {
         fetchJson<MetaDoc>("/ops-data/_meta.json"),
         fetchJson<ActiveSessionsDoc>("/ops-data/active_sessions.json"),
         fetchJson<DependenciesDoc>("/ops-data/dependencies.json"),
+        fetchJson<WorkflowsDoc>("/ops-data/workflows.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -482,6 +589,7 @@ export function OpsPage() {
       setMeta(md ?? null);
       setActiveSessions(as ?? null);
       setDependencies(dp ?? null);
+      setWorkflows(wf ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -534,6 +642,7 @@ export function OpsPage() {
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
+      <WorkflowsCard doc={workflows} />
       <LanesOverview lanes={lanes} />
       <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
@@ -1081,6 +1190,115 @@ function DependenciesCard({ doc }: { doc: DependenciesDoc | null }) {
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+function WorkflowsCard({ doc }: { doc: WorkflowsDoc | null }) {
+  if (!doc) return null;
+  const att = workflowsAttention(doc);
+  if (att.failing.length === 0 && att.stale.length === 0) return null;
+
+  const hasProdCritFail = att.productionCriticalFailing > 0;
+  const headColor = hasProdCritFail ? "#991b1b" : att.failing.length > 0 ? "#b91c1c" : "#a16207";
+  const bg = hasProdCritFail ? "#fef2f2" : att.failing.length > 0 ? "#fef2f2" : "#fefce8";
+  const border = hasProdCritFail ? "#fecaca" : att.failing.length > 0 ? "#fecaca" : "#fde68a";
+
+  const renderRow = (w: Workflow, kind: "failing" | "stale") => {
+    const h = (w.health ?? "").toLowerCase();
+    const crit = (w.criticality ?? "").toLowerCase();
+    const isProdCrit = crit === "production_critical";
+    const sidebar =
+      kind === "failing" ? (isProdCrit ? "#dc2626" : "#f97316") : "#eab308";
+    const pillBg = kind === "failing" ? "#dc2626" : "#a16207";
+    return (
+      <li
+        key={w.workflow_key}
+        style={{
+          fontSize: 13,
+          color: "#404040",
+          borderInlineStart: `3px solid ${sidebar}`,
+          paddingInlineStart: 8,
+        }}
+      >
+        <div style={{ fontWeight: 500 }}>
+          <span
+            style={{
+              ...pill,
+              background: pillBg,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {h || "—"}
+          </span>
+          {isProdCrit && (
+            <span
+              style={{
+                ...pill,
+                background: "#7c2d12",
+                marginInlineEnd: 6,
+                fontSize: 10,
+                padding: "1px 6px",
+              }}
+            >
+              prod-critical
+            </span>
+          )}
+          <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>{w.workflow_key}</span>
+        </div>
+        <div style={subLine}>
+          {w.name ?? ""}
+          {w.source_system ? ` · ${w.source_system}` : ""}
+          {w.owner ? ` · ${w.owner}` : ""}
+        </div>
+        {w.last_failure_at && kind === "failing" && (
+          <div style={subLine}>כשל אחרון: {relativeTimeHe(w.last_failure_at)}</div>
+        )}
+        {w.last_run_at && (
+          <div style={subLine}>הרצה אחרונה: {relativeTimeHe(w.last_run_at)}</div>
+        )}
+      </li>
+    );
+  };
+
+  return (
+    <section
+      aria-label="תזרימים שדורשים תשומת לב"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          תזרימים · {att.failing.length === 0 ? "אין כשלים" : `${att.failing.length} בכשל`}
+          {att.stale.length > 0 ? ` · ${att.stale.length} ללא ידוע` : ""}
+        </span>
+        <span style={{ ...overviewCount, color: headColor }}>
+          {hasProdCritFail
+            ? `${att.productionCriticalFailing} קריטי לפרודקשן`
+            : `${att.healthy} תקינים · ${att.disabled} מושבתים · ${att.deprecated} מיושנים`}
+        </span>
+      </div>
+
+      {att.failing.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px 0", display: "grid", gap: 8 }}>
+          {att.failing.map((w) => renderRow(w, "failing"))}
+        </ul>
+      )}
+
+      {att.stale.length > 0 && (
+        <>
+          <div style={sectionLabel}>מצב לא ידוע</div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 4 }}>
+            {att.stale.slice(0, 5).map((w) => renderRow(w, "stale"))}
+          </ul>
+          {att.stale.length > 5 && (
+            <div style={{ ...subLine, marginTop: 4 }}>
+              ועוד {att.stale.length - 5}…
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }
