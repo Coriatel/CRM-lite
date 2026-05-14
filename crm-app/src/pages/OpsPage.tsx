@@ -628,7 +628,7 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
   );
 }
 
-function shortenSlice(s: string | null | undefined): string {
+export function shortenSlice(s: string | null | undefined): string {
   if (!s) return "—";
   // Strip parenthetical commentary that bloats the slice label.
   const trimmed = s.replace(/\s*\([^)]*\)\s*/g, "").trim();
