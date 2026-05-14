@@ -108,6 +108,7 @@ type ActiveSession = {
   pr?: string | null;
   next?: string | null;
   lifecycle?: "active" | "stale" | "completed" | null;
+  owned_paths_globs?: string[] | null;
 };
 
 type ActiveSessionsDoc = {
@@ -635,6 +636,39 @@ export function shortenSlice(s: string | null | undefined): string {
   return trimmed.length > 60 ? trimmed.substring(0, 57) + "…" : trimmed;
 }
 
+// Mobile-readable summary of a session's declared owned-path globs. Returns "" when
+// nothing is claimed (legacy entries get empty string and the row hides the line).
+// Strips parenthetical commentary that preflight_collision_check.py tolerates.
+// Joins inline when short; otherwise shows the first glob + "+N" overflow count.
+export function formatOwnedPaths(
+  globs: readonly string[] | null | undefined,
+  maxChars = 48,
+): string {
+  if (!globs || globs.length === 0) return "";
+  const cleaned = globs
+    .map((g) => g.split(" (")[0].trim())
+    .filter((g) => g.length > 0);
+  if (cleaned.length === 0) return "";
+  const joined = cleaned.join(" · ");
+  if (joined.length <= maxChars) return joined;
+  const first = cleaned[0];
+  const rest = cleaned.length - 1;
+  if (first.length > maxChars) {
+    return first.slice(0, maxChars - 1) + "…";
+  }
+  return rest > 0 ? `${first} · +${rest}` : first;
+}
+
+// Human-readable Hebrew heartbeat age for the ActiveSessionsCard freshness line.
+// null/undefined/non-positive → "". <60s → "טרי". minutes → "לפני N דק׳". hours → "לפני N שע׳".
+export function heartbeatAgeLabelHe(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return "טרי";
+  if (seconds < 3600) return `לפני ${Math.floor(seconds / 60)} דק׳`;
+  if (seconds < 86400) return `לפני ${Math.floor(seconds / 3600)} שע׳`;
+  return `לפני ${Math.floor(seconds / 86400)} ימים`;
+}
+
 function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
   if (!doc) return null;
   const active = doc.active ?? [];
@@ -658,6 +692,16 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
           {recent.length} אחרונים
         </span>
       </div>
+
+      {(() => {
+        const age = heartbeatAgeLabelHe(doc._meta?.source_age_seconds ?? null);
+        if (!age) return null;
+        return (
+          <div style={{ ...subLine, color: registryStale ? "#b45309" : "#737373", marginBottom: 6 }}>
+            פעימה: {age}
+          </div>
+        );
+      })()}
 
       {doc._meta?.error && (
         <div style={{ ...subLine, color: "#991b1b", marginBottom: 6 }}>
@@ -701,6 +745,25 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
                 {s.current_slice && (
                   <div style={subLine}>פרוסה נוכחית: {shortenSlice(s.current_slice)}</div>
                 )}
+                {(() => {
+                  const owned = formatOwnedPaths(s.owned_paths_globs);
+                  if (!owned) return null;
+                  return (
+                    <div
+                      style={{
+                        ...subLine,
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        fontSize: 11,
+                        color: "#525252",
+                        direction: "ltr",
+                        textAlign: "start",
+                      }}
+                      title={(s.owned_paths_globs ?? []).join(" · ")}
+                    >
+                      🔒 {owned}
+                    </div>
+                  );
+                })()}
               </li>
             );
           })}
