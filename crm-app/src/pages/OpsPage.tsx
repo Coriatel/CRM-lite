@@ -98,35 +98,63 @@ type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
 
+// Verifier status enum from build-handoffs-index --include-verifier.
+// drift/error are owner-actionable; ok/ancestor/not_applicable/missing_state are not.
+export type VerifierStatus =
+  | "ok"
+  | "ancestor"
+  | "drift"
+  | "missing_state"
+  | "not_applicable"
+  | "error";
+
 type HandoffEntry = {
-  user: string;
-  path: string;
+  // Canonical fields across schema versions:
+  handoff_path?: string;
+  path?: string;
+  user?: string;
+  written_at?: string;
   mtime?: string;
-  scope: string;
-  project?: string | null;
-  lane?: string | null;
   repo_path?: string | null;
   branch?: string | null;
   head?: string | null;
-  dirty?: string | null;
-  terminal_state?: string | null;
-  verified: boolean;
+  scope?: string | null;
+  verifier_status?: VerifierStatus | null;
+  verifier_message?: string | null;
+  verifier_ahead_n?: number | null;
+  verified?: boolean;
 };
 
 type HandoffsIndexDoc = {
   _meta?: { ts?: string; count?: number };
+  generated_at?: string;
+  index_version?: number | string;
+  entries?: HandoffEntry[];
   handoffs?: HandoffEntry[];
 };
 
-// Surface only handoffs that represent active orientation pointers (user-canonical
-// CURRENT.md and project-scoped CURRENT.md) AND are not verifier-green. These are
-// the ones that need owner attention: malformed yaml-state, drift, or missing.
+// Surface handoffs whose verifier reported drift/error — the only states that
+// actually need owner attention (stale head, malformed yaml, verifier crash).
+// Falls back to legacy verified=false when verifier_status absent.
 export function actionableHandoffs(doc: HandoffsIndexDoc | null): HandoffEntry[] {
-  const all = doc?.handoffs ?? [];
+  const all = doc?.entries ?? doc?.handoffs ?? [];
   return all
-    .filter((h) => h.scope === "user-canonical" || h.scope === "project-scoped")
-    .filter((h) => !h.verified)
-    .sort((a, b) => (b.mtime ?? "").localeCompare(a.mtime ?? ""));
+    .filter((h) => {
+      if (h.verifier_status) {
+        return h.verifier_status === "drift" || h.verifier_status === "error";
+      }
+      return h.verified === false;
+    })
+    .sort((a, b) => {
+      const ta = b.written_at ?? b.mtime ?? "";
+      const tb = a.written_at ?? a.mtime ?? "";
+      return ta.localeCompare(tb);
+    });
+}
+
+export function handoffDisplayPath(h: HandoffEntry): string {
+  const p = h.handoff_path ?? h.path ?? "";
+  return p.replace(/^\/home\/([^/]+)\/work\/handoffs\//, "$1/").replace(/^\/home\/([^/]+)\//, "$1/");
 }
 
 type StaleEntry = { name: string; hours: number };
@@ -650,10 +678,6 @@ function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
   );
 }
 
-function shortPath(p: string): string {
-  return p.replace(/^\/home\/([^/]+)\/work\/handoffs\//, "$1/").replace(/^\/home\/([^/]+)\//, "$1/");
-}
-
 function HandoffsCard({ doc }: { doc: HandoffsIndexDoc | null }) {
   const rows = actionableHandoffs(doc);
   if (rows.length === 0) return null;
@@ -673,7 +697,7 @@ function HandoffsCard({ doc }: { doc: HandoffsIndexDoc | null }) {
       <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
         {rows.map((h) => (
           <li
-            key={h.path}
+            key={h.handoff_path ?? h.path ?? ""}
             style={{
               fontSize: 12,
               color: "#7f1d1d",
@@ -682,11 +706,7 @@ function HandoffsCard({ doc }: { doc: HandoffsIndexDoc | null }) {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              <span>
-                <code style={{ fontSize: 11 }}>{h.user}</code>
-                {" · "}
-                <code style={{ fontSize: 11 }}>{shortPath(h.path)}</code>
-              </span>
+              <code style={{ fontSize: 11 }}>{handoffDisplayPath(h)}</code>
               <span
                 style={{
                   ...pill,
@@ -694,11 +714,14 @@ function HandoffsCard({ doc }: { doc: HandoffsIndexDoc | null }) {
                   color: "#991b1b",
                 }}
               >
-                {h.scope}
+                {h.verifier_status ?? "unverified"}
               </span>
             </div>
-            {h.mtime && (
-              <div style={subLine}>עודכן: {relativeTimeHe(h.mtime)}</div>
+            {(h.written_at || h.mtime) && (
+              <div style={subLine}>עודכן: {relativeTimeHe((h.written_at ?? h.mtime) as string)}</div>
+            )}
+            {h.verifier_message && (
+              <div style={{ ...subLine, fontFamily: "monospace" }}>{h.verifier_message}</div>
             )}
           </li>
         ))}
