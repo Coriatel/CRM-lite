@@ -1,44 +1,5 @@
-:root {
-  /* Colors from מרכז נשמה logo */
-  --color-primary: #1a5f7a;
-  --color-primary-dark: #134a5f;
-  --color-primary-light: #2d7a96;
-  --color-accent: #e07b39;
-  --color-accent-dark: #c46a2f;
-  --color-accent-light: #f09a5c;
-
-  /* Status colors */
-  --color-success: #22c55e;
-  --color-warning: #eab308;
-  --color-danger: #ef4444;
-  --color-info: #3b82f6;
-
-  /* Neutral colors */
-  --color-bg: #f8fafc;
-  --color-bg-secondary: #f1f5f9;
-  --color-surface: #ffffff;
-  --color-text: #1e293b;
-  --color-text-secondary: #64748b;
-  --color-border: #e2e8f0;
-
-  /* Spacing */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
-
-  /* Border radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-full: 9999px;
-
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-}
+/* Design tokens — see ./design/tokens.css */
+@import './design/tokens.css';
 
 * {
   margin: 0;
