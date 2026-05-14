@@ -173,13 +173,32 @@ function lastActivity(
   return null;
 }
 
-function ageDays(since?: string): number | null {
+function ageDays(since?: string, now: Date = new Date()): number | null {
   if (!since) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(since);
   if (!m) return null;
   const t = Date.UTC(+m[1], +m[2] - 1, +m[3]);
   if (Number.isNaN(t)) return null;
-  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+  return Math.max(0, Math.floor((now.getTime() - t) / 86400000));
+}
+
+// Drift tiers for _meta.last_verified — how stale a truth file is.
+// ≤3d fresh, 4–7d soft, 8–14d amber, >14d red, missing → none.
+export type DriftLevel = "fresh" | "soft" | "amber" | "red" | "none";
+export function driftLevel(days: number | null): DriftLevel {
+  if (days == null) return "none";
+  if (days <= 3) return "fresh";
+  if (days <= 7) return "soft";
+  if (days <= 14) return "amber";
+  return "red";
+}
+
+// Age tiers for blocker/gate rows. ≤7d default, 8–30d warn, >30d critical.
+export type AgeLevel = "ok" | "warn" | "critical";
+export function ageLevel(days: number | null): AgeLevel {
+  if (days == null || days <= 7) return "ok";
+  if (days <= 30) return "warn";
+  return "critical";
 }
 
 const statusColor: Record<string, string> = {
@@ -293,7 +312,10 @@ export function OpsPage() {
           return (
             <li key={p.key} style={card}>
               <div style={cardHead}>
-                <span style={{ fontWeight: 600, fontSize: 16 }}>{p.key}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600, fontSize: 16 }}>{p.key}</span>
+                  <DriftBadge lastVerified={lastVerified} />
+                </span>
                 <span
                   style={{
                     ...pill,
@@ -613,9 +635,22 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
       <ol style={overviewList}>
         {top.map((b) => {
           const d = ageDays(b.since);
+          const lvl = ageLevel(d);
+          const tint = agePalette[lvl];
           return (
-            <li key={b.id} style={overviewItem}>
-              <div style={{ fontWeight: 500 }}>{b.summary}</div>
+            <li
+              key={b.id}
+              style={{
+                ...overviewItem,
+                borderInlineStart: tint
+                  ? `3px solid ${tint.border}`
+                  : "3px solid transparent",
+                paddingInlineStart: 8,
+                background: tint?.bg ?? "transparent",
+                borderRadius: 6,
+              }}
+            >
+              <div style={{ fontWeight: 500, color: tint?.fg ?? "#171717" }}>{b.summary}</div>
               <div style={subLine}>
                 {b.lane ? `מסלול ${b.lane}` : ""}
                 {b.since ? ` · מאז ${b.since}` : ""}
@@ -629,6 +664,50 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
         <div style={subLine}>+ {blockers.length - top.length} נוספים</div>
       )}
     </section>
+  );
+}
+
+// Age-color palette for blocker/gate rows. warn (8-30d) and critical (>30d).
+const agePalette: Record<AgeLevel, { bg: string; fg: string; border: string } | null> = {
+  ok:       null,
+  warn:     { bg: "#fffbeb", fg: "#78350f", border: "#f59e0b" },
+  critical: { bg: "#fef2f2", fg: "#7f1d1d", border: "#dc2626" },
+};
+
+const driftPalette: Record<DriftLevel, { bg: string; fg: string; border: string }> = {
+  fresh:    { bg: "#f0fdf4", fg: "#166534", border: "#bbf7d0" },
+  soft:     { bg: "#fefce8", fg: "#854d0e", border: "#fde68a" },
+  amber:    { bg: "#fffbeb", fg: "#92400e", border: "#fcd34d" },
+  red:      { bg: "#fef2f2", fg: "#991b1b", border: "#fecaca" },
+  none:     { bg: "#f5f5f5", fg: "#525252", border: "#d4d4d4" },
+};
+
+function DriftBadge({ lastVerified }: { lastVerified: string | null }) {
+  const days = ageDays(lastVerified ?? undefined);
+  const level = driftLevel(days);
+  const c = driftPalette[level];
+  const label =
+    level === "none"
+      ? "ללא תיעוד טריות"
+      : days === 0
+      ? "אומת היום"
+      : `אומת לפני ${days}ד'`;
+  return (
+    <span
+      title={lastVerified ? `אומת לאחרונה: ${lastVerified}` : "אין _meta.last_verified"}
+      aria-label={label}
+      style={{
+        fontSize: 11,
+        padding: "1px 7px",
+        borderRadius: 999,
+        background: c.bg,
+        color: c.fg,
+        border: `1px solid ${c.border}`,
+        fontWeight: 500,
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
