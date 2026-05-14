@@ -251,9 +251,9 @@ export function OpsPage() {
   });
 
   return (
-    <div dir="rtl" style={pad}>
+    <main id="main-content" dir="rtl" style={pad} aria-labelledby="ops-page-title">
       <header style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 20, margin: 0 }}>MN-OS · Ops</h1>
+        <h1 id="ops-page-title" style={{ fontSize: 20, margin: 0 }}>MN-OS · Ops</h1>
         <div style={{ fontSize: 12, color: "#737373", marginTop: 4 }}>
           קריאה בלבד · מקור: <code>/srv/ops-vault/state</code>
           {lastVerified ? ` · אומת לאחרונה: ${lastVerified}` : ""}
@@ -261,7 +261,7 @@ export function OpsPage() {
       </header>
 
       {loadError && (
-        <div style={errorBox}>{loadError}</div>
+        <div role="alert" style={errorBox}>{loadError}</div>
       )}
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
@@ -276,7 +276,7 @@ export function OpsPage() {
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
       )}
 
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <ul aria-label="פרויקטים" style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {rows.map((p) => {
           const projBlockers = blockersForProject(blockers, p.key);
           const last = lastActivity(sessions, p.key);
@@ -333,7 +333,7 @@ export function OpsPage() {
         })}
       </ul>
       <SessionsStrip sessions={sessions} />
-    </div>
+    </main>
   );
 }
 
@@ -343,6 +343,7 @@ function StalenessBanner({ stale }: { stale: StaleEntry[] }) {
   const critical = worst >= 48;
   return (
     <section
+      aria-label="נתונים מתיישנים"
       style={{
         ...overviewCard,
         background: critical ? "#fef2f2" : "#fffbeb",
@@ -383,7 +384,7 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
   if (doc === null) return null;
   const merges = doc.merges ?? [];
   return (
-    <section style={overviewCard}>
+    <section aria-label="שופץ לאחרונה" style={overviewCard}>
       <div style={overviewHead}>
         <span>שופץ לאחרונה</span>
         <span style={overviewCount}>{merges.length}</span>
@@ -421,7 +422,7 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
 function LanesOverview({ lanes }: { lanes: LaneRow[] }) {
   if (lanes.length === 0) return null;
   return (
-    <section style={overviewCard}>
+    <section aria-label="מסלולי עבודה מקבילים" style={overviewCard}>
       <div style={overviewHead}>
         <span>מסלולי עבודה מקבילים</span>
         <span style={overviewCount}>{lanes.length}</span>
@@ -455,6 +456,7 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
   if (clean.length === 0) return null;
   return (
     <section
+      aria-label="החלטות שממתינות לבעלים"
       style={{
         ...overviewCard,
         background: "#fffbeb",
@@ -487,7 +489,7 @@ function SessionsStrip({ sessions }: { sessions: SessionRow[] }) {
   const recent = sessions.slice(0, 10);
   if (recent.length === 0) return null;
   return (
-    <section style={{ ...card, marginTop: 14 }}>
+    <section aria-label="פעילות אחרונה" style={{ ...card, marginTop: 14 }}>
       <div style={sectionLabel}>פעילות אחרונה (10 מפגשים)</div>
       <ol style={{ listStyle: "decimal inside", padding: 0, margin: 0 }}>
         {recent.map((s) => (
@@ -516,6 +518,7 @@ function HealthOverview({ health }: { health: HealthDoc | null }) {
   const failed = health.failed ?? endpoints.filter((e) => !e.ok).map((e) => e.name);
   return (
     <section
+      aria-label={`שירותים — ${overallOk ? "תקין" : "תקלה"}`}
       style={{
         ...overviewCard,
         background: overallOk ? "#f0fdf4" : "#fef2f2",
@@ -589,7 +592,7 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
   const oldest = sorted.find((b) => ageDays(b.since) != null);
   const oldestDays = oldest ? ageDays(oldest.since) : null;
   return (
-    <section style={overviewCard}>
+    <section aria-label="חסמים פעילים" style={overviewCard}>
       <div style={overviewHead}>
         <span>חסמים פעילים</span>
         <span style={overviewCount}>

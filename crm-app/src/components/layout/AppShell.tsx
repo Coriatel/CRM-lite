@@ -21,6 +21,9 @@ export function AppShell({
 
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-to-main">
+        דלג לתוכן הראשי
+      </a>
       <Suspense fallback={null}>
         <Outlet context={{ setAdvancedFilters: onAdvancedFilters }} />
       </Suspense>

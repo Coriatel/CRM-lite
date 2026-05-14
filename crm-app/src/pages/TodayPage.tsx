@@ -106,8 +106,15 @@ export function TodayPage() {
   }, []);
 
   return (
-    <main className="main-content">
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
+    <main
+      id="main-content"
+      className="main-content"
+      aria-labelledby="today-page-title"
+    >
+      <h1
+        id="today-page-title"
+        style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}
+      >
         מרכז נשמה — היום
       </h1>
       <p
