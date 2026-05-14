@@ -157,6 +157,52 @@ export function handoffDisplayPath(h: HandoffEntry): string {
   return p.replace(/^\/home\/([^/]+)\/work\/handoffs\//, "$1/").replace(/^\/home\/([^/]+)\//, "$1/");
 }
 
+type RuntimeIssue = {
+  id: string;
+  file?: string | null;
+  title?: string | null;
+  date?: string | null;
+  severity?: string | null;
+  disposition?: string | null;
+  reporter?: string | null;
+};
+
+type RuntimeIssuesDoc = {
+  _meta?: { schema_version?: number; last_verified?: string; advisory?: boolean };
+  issues?: RuntimeIssue[];
+};
+
+export type SeverityLevel = "high" | "medium" | "low" | "unknown";
+
+// severity is free-form ("medium — does not block execution"); parse the prefix word.
+export function parseSeverity(s?: string | null): SeverityLevel {
+  if (!s) return "unknown";
+  const head = s.trim().toLowerCase().split(/[\s\-——(:]/, 1)[0];
+  if (head === "high" || head === "critical") return "high";
+  if (head === "medium" || head === "med") return "medium";
+  if (head === "low") return "low";
+  return "unknown";
+}
+
+// Issues with disposition that explicitly closes them are hidden; everything
+// else is surfaced (advisory cards stay loud until owner closes them).
+export function openRuntimeIssues(doc: RuntimeIssuesDoc | null): RuntimeIssue[] {
+  const all = doc?.issues ?? [];
+  const order: Record<SeverityLevel, number> = { high: 0, medium: 1, low: 2, unknown: 3 };
+  return all
+    .filter((i) => {
+      const d = (i.disposition ?? "").toLowerCase();
+      return !d.startsWith("resolved") && !d.startsWith("closed") && !d.startsWith("wontfix");
+    })
+    .slice()
+    .sort((a, b) => {
+      const sa = order[parseSeverity(a.severity)];
+      const sb = order[parseSeverity(b.severity)];
+      if (sa !== sb) return sa - sb;
+      return (b.date ?? "").localeCompare(a.date ?? "");
+    });
+}
+
 type StaleEntry = { name: string; hours: number };
 
 function stalenessEntries(
@@ -301,6 +347,7 @@ export function OpsPage() {
   const [freshness, setFreshness] = useState<FreshnessDoc | null>(null);
   const [processes, setProcesses] = useState<ProcessesDoc | null>(null);
   const [handoffs, setHandoffs] = useState<HandoffsIndexDoc | null>(null);
+  const [runtimeIssues, setRuntimeIssues] = useState<RuntimeIssuesDoc | null>(null);
   const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -308,7 +355,7 @@ export function OpsPage() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, md] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -318,6 +365,7 @@ export function OpsPage() {
         fetchJson<FreshnessDoc>("/ops-data/_freshness.json"),
         fetchJson<ProcessesDoc>("/ops-data/processes.json"),
         fetchJson<HandoffsIndexDoc>("/ops-data/handoffs_index.json"),
+        fetchJson<RuntimeIssuesDoc>("/ops-data/runtime-issues.json"),
         fetchJson<MetaDoc>("/ops-data/_meta.json"),
       ]);
       if (cancelled) return;
@@ -334,6 +382,7 @@ export function OpsPage() {
       setFreshness(fr ?? null);
       setProcesses(pr ?? null);
       setHandoffs(ho ?? null);
+      setRuntimeIssues(ri ?? null);
       setMeta(md ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
@@ -391,6 +440,7 @@ export function OpsPage() {
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
       <HandoffsCard doc={handoffs} />
+      <RuntimeIssuesCard doc={runtimeIssues} />
 
       {rows.length === 0 && !loadError && (
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
@@ -725,6 +775,76 @@ function HandoffsCard({ doc }: { doc: HandoffsIndexDoc | null }) {
             )}
           </li>
         ))}
+      </ul>
+    </section>
+  );
+}
+
+const severityPillBg: Record<SeverityLevel, string> = {
+  high: "#fecaca",
+  medium: "#fde68a",
+  low: "#e5e5e5",
+  unknown: "#e5e5e5",
+};
+const severityPillFg: Record<SeverityLevel, string> = {
+  high: "#991b1b",
+  medium: "#92400e",
+  low: "#404040",
+  unknown: "#525252",
+};
+
+function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
+  const rows = openRuntimeIssues(doc);
+  if (rows.length === 0) return null;
+  return (
+    <section
+      aria-label="תקלות runtime פתוחות"
+      style={{
+        ...overviewCard,
+        background: "#fffbeb",
+        borderColor: "#fde68a",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#92400e" }}>
+        <span>תקלות runtime פתוחות · ייעוץ</span>
+        <span style={{ ...overviewCount, color: "#b45309" }}>{rows.length}</span>
+      </div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+        {rows.map((i) => {
+          const lvl = parseSeverity(i.severity);
+          return (
+            <li
+              key={i.id}
+              style={{
+                fontSize: 12,
+                color: "#78350f",
+                borderTop: "1px solid #fef3c7",
+                paddingTop: 6,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 500 }}>{i.title ?? i.id}</span>
+                <span
+                  style={{
+                    ...pill,
+                    background: severityPillBg[lvl],
+                    color: severityPillFg[lvl],
+                  }}
+                >
+                  {lvl}
+                </span>
+              </div>
+              <div style={subLine}>
+                <code style={{ fontSize: 11 }}>{i.id}</code>
+                {i.date ? ` · ${i.date}` : ""}
+                {i.reporter ? ` · ${i.reporter}` : ""}
+              </div>
+              {i.disposition && (
+                <div style={subLine}>תוכנית: {i.disposition}</div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
