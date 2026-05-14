@@ -98,6 +98,37 @@ type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
 
+type HandoffEntry = {
+  user: string;
+  path: string;
+  mtime?: string;
+  scope: string;
+  project?: string | null;
+  lane?: string | null;
+  repo_path?: string | null;
+  branch?: string | null;
+  head?: string | null;
+  dirty?: string | null;
+  terminal_state?: string | null;
+  verified: boolean;
+};
+
+type HandoffsIndexDoc = {
+  _meta?: { ts?: string; count?: number };
+  handoffs?: HandoffEntry[];
+};
+
+// Surface only handoffs that represent active orientation pointers (user-canonical
+// CURRENT.md and project-scoped CURRENT.md) AND are not verifier-green. These are
+// the ones that need owner attention: malformed yaml-state, drift, or missing.
+export function actionableHandoffs(doc: HandoffsIndexDoc | null): HandoffEntry[] {
+  const all = doc?.handoffs ?? [];
+  return all
+    .filter((h) => h.scope === "user-canonical" || h.scope === "project-scoped")
+    .filter((h) => !h.verified)
+    .sort((a, b) => (b.mtime ?? "").localeCompare(a.mtime ?? ""));
+}
+
 type StaleEntry = { name: string; hours: number };
 
 function stalenessEntries(
@@ -241,6 +272,7 @@ export function OpsPage() {
   const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
   const [freshness, setFreshness] = useState<FreshnessDoc | null>(null);
   const [processes, setProcesses] = useState<ProcessesDoc | null>(null);
+  const [handoffs, setHandoffs] = useState<HandoffsIndexDoc | null>(null);
   const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -248,7 +280,7 @@ export function OpsPage() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, md] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, md] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -257,6 +289,7 @@ export function OpsPage() {
         fetchJson<RecentMergesDoc>("/ops-data/recent_merges.json"),
         fetchJson<FreshnessDoc>("/ops-data/_freshness.json"),
         fetchJson<ProcessesDoc>("/ops-data/processes.json"),
+        fetchJson<HandoffsIndexDoc>("/ops-data/handoffs_index.json"),
         fetchJson<MetaDoc>("/ops-data/_meta.json"),
       ]);
       if (cancelled) return;
@@ -272,6 +305,7 @@ export function OpsPage() {
       setRecentMerges(rm ?? null);
       setFreshness(fr ?? null);
       setProcesses(pr ?? null);
+      setHandoffs(ho ?? null);
       setMeta(md ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
@@ -328,6 +362,7 @@ export function OpsPage() {
       <BlockersOverview blockers={blockers} />
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
+      <HandoffsCard doc={handoffs} />
 
       {rows.length === 0 && !loadError && (
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
@@ -607,6 +642,63 @@ function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
             )}
             {p.listening_on && (
               <div style={subLine}>מקשיב: {p.listening_on}</div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function shortPath(p: string): string {
+  return p.replace(/^\/home\/([^/]+)\/work\/handoffs\//, "$1/").replace(/^\/home\/([^/]+)\//, "$1/");
+}
+
+function HandoffsCard({ doc }: { doc: HandoffsIndexDoc | null }) {
+  const rows = actionableHandoffs(doc);
+  if (rows.length === 0) return null;
+  return (
+    <section
+      aria-label="handoffs לבדיקה"
+      style={{
+        ...overviewCard,
+        background: "#fef2f2",
+        borderColor: "#fecaca",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#991b1b" }}>
+        <span>handoffs לבדיקה · אימות נכשל</span>
+        <span style={{ ...overviewCount, color: "#b91c1c" }}>{rows.length}</span>
+      </div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+        {rows.map((h) => (
+          <li
+            key={h.path}
+            style={{
+              fontSize: 12,
+              color: "#7f1d1d",
+              borderTop: "1px solid #fee2e2",
+              paddingTop: 6,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span>
+                <code style={{ fontSize: 11 }}>{h.user}</code>
+                {" · "}
+                <code style={{ fontSize: 11 }}>{shortPath(h.path)}</code>
+              </span>
+              <span
+                style={{
+                  ...pill,
+                  background: "#fecaca",
+                  color: "#991b1b",
+                }}
+              >
+                {h.scope}
+              </span>
+            </div>
+            {h.mtime && (
+              <div style={subLine}>עודכן: {relativeTimeHe(h.mtime)}</div>
             )}
           </li>
         ))}
