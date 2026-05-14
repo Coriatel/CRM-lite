@@ -896,6 +896,32 @@ export function detectActiveCollisions(
   return collisions;
 }
 
+// Flatten collision overlap pairs into a deduped, length-capped list for the
+// banner. Dedup key is the sorted (aGlob, bGlob) tuple, so the same pair
+// surfacing from multiple session collisions is rendered once. Parenthetical
+// commentary is stripped to match formatOwnedPaths conventions.
+export function topCollisionPairs(
+  collisions: readonly SessionCollision[],
+  max = 2,
+): { aGlob: string; bGlob: string }[] {
+  const seen = new Set<string>();
+  const out: { aGlob: string; bGlob: string }[] = [];
+  const clean = (g: string) => g.split(" (")[0].trim();
+  for (const c of collisions) {
+    for (const o of c.overlaps) {
+      const a = clean(o.aGlob);
+      const b = clean(o.bGlob);
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      const key = `${lo} ${hi}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ aGlob: lo, bGlob: hi });
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+}
+
 // Human-readable Hebrew heartbeat age for the ActiveSessionsCard freshness line.
 // null/undefined/non-positive → "". <60s → "טרי". minutes → "לפני N דק׳". hours → "לפני N שע׳".
 export function heartbeatAgeLabelHe(seconds: number | null | undefined): string {
@@ -966,23 +992,48 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
         </div>
       )}
 
-      {hasCollision && (
-        <div
-          role="alert"
-          style={{
-            ...subLine,
-            color: "#92400e",
-            background: "#fef3c7",
-            border: "1px solid #fcd34d",
-            borderRadius: 4,
-            padding: "6px 8px",
-            marginBottom: 8,
-            fontWeight: 500,
-          }}
-        >
-          ⚠️ התנגשות נתיבים: {collisions.length} זוג{collisions.length === 1 ? "" : "ות"}
-        </div>
-      )}
+      {hasCollision && (() => {
+        const pairs = topCollisionPairs(collisions, 2);
+        return (
+          <div
+            role="alert"
+            style={{
+              ...subLine,
+              color: "#92400e",
+              background: "#fef3c7",
+              border: "1px solid #fcd34d",
+              borderRadius: 4,
+              padding: "6px 8px",
+              marginBottom: 8,
+              fontWeight: 500,
+            }}
+          >
+            <div>
+              ⚠️ התנגשות נתיבים: {collisions.length} זוג{collisions.length === 1 ? "" : "ות"}
+            </div>
+            {pairs.length > 0 && (
+              <ul
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  margin: "4px 0 0 0",
+                  fontFamily: "ui-monospace, monospace",
+                  fontSize: 11,
+                  fontWeight: 400,
+                  display: "grid",
+                  gap: 2,
+                }}
+              >
+                {pairs.map((p) => (
+                  <li key={`${p.aGlob}↔${p.bGlob}`}>
+                    {p.aGlob} ↔ {p.bGlob}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })()}
 
       {active.length > 0 && (
         <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px 0", display: "grid", gap: 8 }}>

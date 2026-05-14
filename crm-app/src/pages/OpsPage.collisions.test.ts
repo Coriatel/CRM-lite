@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { detectActiveCollisions, globsOverlap } from "./OpsPage";
+import {
+  detectActiveCollisions,
+  globsOverlap,
+  topCollisionPairs,
+} from "./OpsPage";
 
 describe("globsOverlap", () => {
   it("dir-prefix vs concrete file under that dir → overlap", () => {
@@ -89,5 +93,56 @@ describe("detectActiveCollisions", () => {
     expect(result).toHaveLength(2);
     const pairs = result.map((c) => [c.a, c.b].join("∩")).sort();
     expect(pairs).toEqual(["a∩b", "a∩c"]);
+  });
+});
+
+describe("topCollisionPairs", () => {
+  it("returns [] when there are no collisions", () => {
+    expect(topCollisionPairs([])).toEqual([]);
+  });
+  it("returns sorted (lexicographic) glob pair", () => {
+    const pairs = topCollisionPairs([
+      { a: "x", b: "y", overlaps: [{ aGlob: "src/pages/OpsPage.tsx", bGlob: "src/pages/**" }] },
+    ]);
+    expect(pairs).toEqual([
+      { aGlob: "src/pages/**", bGlob: "src/pages/OpsPage.tsx" },
+    ]);
+  });
+  it("dedupes the same pair coming from multiple session collisions", () => {
+    const pairs = topCollisionPairs([
+      { a: "x", b: "y", overlaps: [{ aGlob: "src/pages/**", bGlob: "src/pages/Foo.tsx" }] },
+      { a: "x", b: "z", overlaps: [{ aGlob: "src/pages/Foo.tsx", bGlob: "src/pages/**" }] },
+    ]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toEqual({ aGlob: "src/pages/**", bGlob: "src/pages/Foo.tsx" });
+  });
+  it("caps output at max (default 2)", () => {
+    const pairs = topCollisionPairs([
+      {
+        a: "x",
+        b: "y",
+        overlaps: [
+          { aGlob: "a/**", bGlob: "a/file.ts" },
+          { aGlob: "b/**", bGlob: "b/file.ts" },
+          { aGlob: "c/**", bGlob: "c/file.ts" },
+        ],
+      },
+    ]);
+    expect(pairs).toHaveLength(2);
+    expect(pairs.map((p) => p.aGlob)).toEqual(["a/**", "b/**"]);
+  });
+  it("strips parenthetical commentary", () => {
+    const pairs = topCollisionPairs([
+      {
+        a: "x",
+        b: "y",
+        overlaps: [
+          { aGlob: "src/pages/** (writes only)", bGlob: "src/pages/OpsPage.tsx (UI)" },
+        ],
+      },
+    ]);
+    expect(pairs).toEqual([
+      { aGlob: "src/pages/**", bGlob: "src/pages/OpsPage.tsx" },
+    ]);
   });
 });
