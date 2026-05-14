@@ -838,21 +838,40 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
         <>
           <div style={sectionLabel}>סשנים אחרונים</div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 4 }}>
-            {recent.slice(0, 5).map((s) => (
-              <li key={s.id} style={{ fontSize: 12, color: "#525252" }}>
-                <span
-                  style={{
-                    color: s.terminal_state === "SHIPPED" ? "#15803d" : "#737373",
-                    fontWeight: 500,
-                  }}
-                >
-                  {s.terminal_state ?? "—"}
-                </span>{" "}
-                {s.project ?? s.id}
-                {s.lane ? ` · מסלול ${s.lane}` : ""}
-                {s.finished_at ? ` · ${relativeTimeHe(s.finished_at)}` : ""}
-              </li>
-            ))}
+            {recent.slice(0, 5).map((s) => {
+              const owned = formatOwnedPaths(s.owned_paths_globs, 56);
+              return (
+                <li key={s.id} style={{ fontSize: 12, color: "#525252" }}>
+                  <span
+                    style={{
+                      color: s.terminal_state === "SHIPPED" ? "#15803d" : "#737373",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {s.terminal_state ?? "—"}
+                  </span>{" "}
+                  {s.project ?? s.id}
+                  {s.lane ? ` · מסלול ${s.lane}` : ""}
+                  {s.finished_at ? ` · ${relativeTimeHe(s.finished_at)}` : ""}
+                  {owned && (
+                    <div
+                      style={{
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        fontSize: 10,
+                        color: "#737373",
+                        direction: "ltr",
+                        textAlign: "start",
+                        paddingInlineStart: 12,
+                        marginTop: 1,
+                      }}
+                      title={(s.owned_paths_globs ?? []).join(" · ")}
+                    >
+                      🔒 {owned}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}
