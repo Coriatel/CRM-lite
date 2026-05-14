@@ -70,6 +70,30 @@ type FreshnessDoc = {
   files?: Record<string, { mtime: string; age_seconds: number }>;
 };
 
+type ProcessRow = {
+  pid: number;
+  user?: string;
+  command?: string;
+  elapsed?: string;
+  listening_on?: string;
+  cwd?: string;
+  verdict?: string;
+  evidence?: string;
+  report_state?: string;
+  current_state?: string;
+};
+
+type ProcessesDoc = {
+  _meta?: { last_verified?: string; advisory?: boolean; note?: string };
+  long_running_processes?: ProcessRow[];
+};
+
+// Filter out processes already resolved — only surface what still needs owner attention.
+export function actionableProcesses(doc: ProcessesDoc | null): ProcessRow[] {
+  const all = doc?.long_running_processes ?? [];
+  return all.filter((p) => p.verdict && p.verdict !== "RESOLVED_NO_ACTION");
+}
+
 type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
@@ -216,6 +240,7 @@ export function OpsPage() {
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
   const [freshness, setFreshness] = useState<FreshnessDoc | null>(null);
+  const [processes, setProcesses] = useState<ProcessesDoc | null>(null);
   const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -223,7 +248,7 @@ export function OpsPage() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, md] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, md] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -231,6 +256,7 @@ export function OpsPage() {
         fetchJson<LanesDoc>("/ops-data/lanes.json"),
         fetchJson<RecentMergesDoc>("/ops-data/recent_merges.json"),
         fetchJson<FreshnessDoc>("/ops-data/_freshness.json"),
+        fetchJson<ProcessesDoc>("/ops-data/processes.json"),
         fetchJson<MetaDoc>("/ops-data/_meta.json"),
       ]);
       if (cancelled) return;
@@ -245,6 +271,7 @@ export function OpsPage() {
       setLanes(parseLanes(ld));
       setRecentMerges(rm ?? null);
       setFreshness(fr ?? null);
+      setProcesses(pr ?? null);
       setMeta(md ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
@@ -300,6 +327,7 @@ export function OpsPage() {
       <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
       <OwnerGatesCard gates={ownerGates} />
+      <ProcessesCard doc={processes} />
 
       {rows.length === 0 && !loadError && (
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
@@ -510,6 +538,76 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
             }}
           >
             {g}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const verdictPillBg: Record<string, string> = {
+  KILL_LIKELY_SAFE: "#fee2e2",
+  NEEDS_ATTACH: "#fef3c7",
+};
+const verdictPillFg: Record<string, string> = {
+  KILL_LIKELY_SAFE: "#991b1b",
+  NEEDS_ATTACH: "#92400e",
+};
+
+function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
+  const rows = actionableProcesses(doc);
+  if (rows.length === 0) return null;
+  return (
+    <section
+      aria-label="תהליכים ארוכי-טווח"
+      style={{
+        ...overviewCard,
+        background: "#fafafa",
+        borderColor: "#e5e5e5",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#404040" }}>
+        <span>תהליכים ארוכי-טווח · ייעוץ</span>
+        <span style={{ ...overviewCount, color: "#525252" }}>{rows.length}</span>
+      </div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+        {rows.map((p) => (
+          <li
+            key={p.pid}
+            style={{
+              fontSize: 12,
+              color: "#404040",
+              borderTop: "1px solid #f5f5f5",
+              paddingTop: 6,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span>
+                <code style={{ fontSize: 11 }}>{p.user ?? "?"}</code>
+                {" · pid "}
+                <code style={{ fontSize: 11 }}>{p.pid}</code>
+                {p.elapsed ? ` · ${p.elapsed}` : ""}
+              </span>
+              {p.verdict && (
+                <span
+                  style={{
+                    ...pill,
+                    background: verdictPillBg[p.verdict] ?? "#e5e5e5",
+                    color: verdictPillFg[p.verdict] ?? "#404040",
+                  }}
+                >
+                  {p.verdict}
+                </span>
+              )}
+            </div>
+            {p.command && (
+              <div style={{ ...subLine, fontFamily: "monospace", marginTop: 2 }}>
+                {p.command.length > 70 ? p.command.slice(0, 67) + "…" : p.command}
+              </div>
+            )}
+            {p.listening_on && (
+              <div style={subLine}>מקשיב: {p.listening_on}</div>
+            )}
           </li>
         ))}
       </ul>
