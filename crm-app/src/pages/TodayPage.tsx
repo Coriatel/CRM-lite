@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
+import { EmptyState } from "../components/EmptyState";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -105,8 +106,15 @@ export function TodayPage() {
   }, []);
 
   return (
-    <main className="main-content">
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
+    <main
+      id="main-content"
+      className="main-content"
+      aria-labelledby="today-page-title"
+    >
+      <h1
+        id="today-page-title"
+        style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}
+      >
         מרכז נשמה — היום
       </h1>
       <p
@@ -445,25 +453,7 @@ function ShellCard({
 }) {
   return (
     <CardFrame icon={icon} title={title}>
-      <p
-        style={{
-          color: "var(--color-text-secondary)",
-          fontSize: 13,
-          lineHeight: 1.5,
-        }}
-      >
-        אין נתונים עדיין. צריך:{" "}
-        <code
-          style={{
-            background: "var(--color-bg-secondary)",
-            padding: "1px 6px",
-            borderRadius: 4,
-            fontSize: 12,
-          }}
-        >
-          {missing}
-        </code>
-      </p>
+      <EmptyState variant="blocked-on-schema" requires={missing} compact />
     </CardFrame>
   );
 }

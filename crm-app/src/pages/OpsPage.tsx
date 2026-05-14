@@ -70,6 +70,10 @@ type FreshnessDoc = {
   files?: Record<string, { mtime: string; age_seconds: number }>;
 };
 
+type MetaDoc = {
+  _meta?: { schema_version?: number; regenerated_at?: string };
+};
+
 type StaleEntry = { name: string; hours: number };
 
 function stalenessEntries(
@@ -193,13 +197,14 @@ export function OpsPage() {
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
   const [freshness, setFreshness] = useState<FreshnessDoc | null>(null);
+  const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, md] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -207,6 +212,7 @@ export function OpsPage() {
         fetchJson<LanesDoc>("/ops-data/lanes.json"),
         fetchJson<RecentMergesDoc>("/ops-data/recent_merges.json"),
         fetchJson<FreshnessDoc>("/ops-data/_freshness.json"),
+        fetchJson<MetaDoc>("/ops-data/_meta.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -220,6 +226,7 @@ export function OpsPage() {
       setLanes(parseLanes(ld));
       setRecentMerges(rm ?? null);
       setFreshness(fr ?? null);
+      setMeta(md ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -251,9 +258,12 @@ export function OpsPage() {
   });
 
   return (
-    <div dir="rtl" style={pad}>
+    <main id="main-content" dir="rtl" style={pad} aria-labelledby="ops-page-title">
       <header style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 20, margin: 0 }}>MN-OS · Ops</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h1 id="ops-page-title" style={{ fontSize: 20, margin: 0 }}>MN-OS · Ops</h1>
+          <LastRefreshBadge regeneratedAt={meta?._meta?.regenerated_at} />
+        </div>
         <div style={{ fontSize: 12, color: "#737373", marginTop: 4 }}>
           קריאה בלבד · מקור: <code>/srv/ops-vault/state</code>
           {lastVerified ? ` · אומת לאחרונה: ${lastVerified}` : ""}
@@ -261,7 +271,7 @@ export function OpsPage() {
       </header>
 
       {loadError && (
-        <div style={errorBox}>{loadError}</div>
+        <div role="alert" style={errorBox}>{loadError}</div>
       )}
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
@@ -276,7 +286,7 @@ export function OpsPage() {
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
       )}
 
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <ul aria-label="פרויקטים" style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {rows.map((p) => {
           const projBlockers = blockersForProject(blockers, p.key);
           const last = lastActivity(sessions, p.key);
@@ -333,7 +343,7 @@ export function OpsPage() {
         })}
       </ul>
       <SessionsStrip sessions={sessions} />
-    </div>
+    </main>
   );
 }
 
@@ -343,6 +353,7 @@ function StalenessBanner({ stale }: { stale: StaleEntry[] }) {
   const critical = worst >= 48;
   return (
     <section
+      aria-label="נתונים מתיישנים"
       style={{
         ...overviewCard,
         background: critical ? "#fef2f2" : "#fffbeb",
@@ -383,7 +394,7 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
   if (doc === null) return null;
   const merges = doc.merges ?? [];
   return (
-    <section style={overviewCard}>
+    <section aria-label="שופץ לאחרונה" style={overviewCard}>
       <div style={overviewHead}>
         <span>שופץ לאחרונה</span>
         <span style={overviewCount}>{merges.length}</span>
@@ -421,7 +432,7 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
 function LanesOverview({ lanes }: { lanes: LaneRow[] }) {
   if (lanes.length === 0) return null;
   return (
-    <section style={overviewCard}>
+    <section aria-label="מסלולי עבודה מקבילים" style={overviewCard}>
       <div style={overviewHead}>
         <span>מסלולי עבודה מקבילים</span>
         <span style={overviewCount}>{lanes.length}</span>
@@ -455,6 +466,7 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
   if (clean.length === 0) return null;
   return (
     <section
+      aria-label="החלטות שממתינות לבעלים"
       style={{
         ...overviewCard,
         background: "#fffbeb",
@@ -487,7 +499,7 @@ function SessionsStrip({ sessions }: { sessions: SessionRow[] }) {
   const recent = sessions.slice(0, 10);
   if (recent.length === 0) return null;
   return (
-    <section style={{ ...card, marginTop: 14 }}>
+    <section aria-label="פעילות אחרונה" style={{ ...card, marginTop: 14 }}>
       <div style={sectionLabel}>פעילות אחרונה (10 מפגשים)</div>
       <ol style={{ listStyle: "decimal inside", padding: 0, margin: 0 }}>
         {recent.map((s) => (
@@ -516,6 +528,7 @@ function HealthOverview({ health }: { health: HealthDoc | null }) {
   const failed = health.failed ?? endpoints.filter((e) => !e.ok).map((e) => e.name);
   return (
     <section
+      aria-label={`שירותים — ${overallOk ? "תקין" : "תקלה"}`}
       style={{
         ...overviewCard,
         background: overallOk ? "#f0fdf4" : "#fef2f2",
@@ -589,7 +602,7 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
   const oldest = sorted.find((b) => ageDays(b.since) != null);
   const oldestDays = oldest ? ageDays(oldest.since) : null;
   return (
-    <section style={overviewCard}>
+    <section aria-label="חסמים פעילים" style={overviewCard}>
       <div style={overviewHead}>
         <span>חסמים פעילים</span>
         <span style={overviewCount}>
@@ -616,6 +629,32 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
         <div style={subLine}>+ {blockers.length - top.length} נוספים</div>
       )}
     </section>
+  );
+}
+
+function LastRefreshBadge({ regeneratedAt }: { regeneratedAt?: string }) {
+  if (!regeneratedAt) return null;
+  const ageMin = Math.floor(
+    (Date.now() - new Date(regeneratedAt).getTime()) / 60000,
+  );
+  if (Number.isNaN(ageMin) || ageMin < 0) return null;
+  const stale = ageMin >= 60;
+  return (
+    <span
+      title={`רוענן: ${regeneratedAt}`}
+      aria-label={`רוענן ${relativeTimeHe(regeneratedAt)}`}
+      style={{
+        fontSize: 11,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: stale ? "#fef2f2" : "#f0fdf4",
+        color: stale ? "#991b1b" : "#166534",
+        border: `1px solid ${stale ? "#fecaca" : "#bbf7d0"}`,
+        fontWeight: 500,
+      }}
+    >
+      רוענן {relativeTimeHe(regeneratedAt)}
+    </span>
   );
 }
 

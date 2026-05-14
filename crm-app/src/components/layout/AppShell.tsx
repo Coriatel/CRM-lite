@@ -2,6 +2,7 @@ import { Suspense, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { BottomNav } from "./BottomNav";
 import { Drawer } from "./Drawer";
+import { MoreSheet } from "./MoreSheet";
 import { SortOption, AdvancedFilters } from "../../types";
 
 interface AppShellProps {
@@ -18,14 +19,19 @@ export function AppShell({
   onAdvancedFilters,
 }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-to-main">
+        דלג לתוכן הראשי
+      </a>
       <Suspense fallback={null}>
         <Outlet context={{ setAdvancedFilters: onAdvancedFilters }} />
       </Suspense>
       <BottomNav
         onFilterClick={() => setDrawerOpen(true)}
+        onMoreClick={() => setMoreOpen(true)}
         hasActiveFilters={
           !!(
             advancedFilters.followUpBefore ||
@@ -47,6 +53,7 @@ export function AppShell({
         advancedFilters={advancedFilters}
         onAdvancedFilters={onAdvancedFilters}
       />
+      <MoreSheet isOpen={moreOpen} onClose={() => setMoreOpen(false)} />
     </div>
   );
 }
