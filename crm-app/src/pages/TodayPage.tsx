@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
+import { EmptyState } from "../components/EmptyState";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -445,25 +446,7 @@ function ShellCard({
 }) {
   return (
     <CardFrame icon={icon} title={title}>
-      <p
-        style={{
-          color: "var(--color-text-secondary)",
-          fontSize: 13,
-          lineHeight: 1.5,
-        }}
-      >
-        אין נתונים עדיין. צריך:{" "}
-        <code
-          style={{
-            background: "var(--color-bg-secondary)",
-            padding: "1px 6px",
-            borderRadius: 4,
-            fontSize: 12,
-          }}
-        >
-          {missing}
-        </code>
-      </p>
+      <EmptyState variant="blocked-on-schema" requires={missing} compact />
     </CardFrame>
   );
 }
