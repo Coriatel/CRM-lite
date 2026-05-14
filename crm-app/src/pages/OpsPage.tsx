@@ -70,6 +70,10 @@ type FreshnessDoc = {
   files?: Record<string, { mtime: string; age_seconds: number }>;
 };
 
+type MetaDoc = {
+  _meta?: { schema_version?: number; regenerated_at?: string };
+};
+
 type StaleEntry = { name: string; hours: number };
 
 function stalenessEntries(
@@ -193,13 +197,14 @@ export function OpsPage() {
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [recentMerges, setRecentMerges] = useState<RecentMergesDoc | null>(null);
   const [freshness, setFreshness] = useState<FreshnessDoc | null>(null);
+  const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, md] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -207,6 +212,7 @@ export function OpsPage() {
         fetchJson<LanesDoc>("/ops-data/lanes.json"),
         fetchJson<RecentMergesDoc>("/ops-data/recent_merges.json"),
         fetchJson<FreshnessDoc>("/ops-data/_freshness.json"),
+        fetchJson<MetaDoc>("/ops-data/_meta.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -220,6 +226,7 @@ export function OpsPage() {
       setLanes(parseLanes(ld));
       setRecentMerges(rm ?? null);
       setFreshness(fr ?? null);
+      setMeta(md ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -253,7 +260,10 @@ export function OpsPage() {
   return (
     <main id="main-content" dir="rtl" style={pad} aria-labelledby="ops-page-title">
       <header style={{ marginBottom: 12 }}>
-        <h1 id="ops-page-title" style={{ fontSize: 20, margin: 0 }}>MN-OS · Ops</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h1 id="ops-page-title" style={{ fontSize: 20, margin: 0 }}>MN-OS · Ops</h1>
+          <LastRefreshBadge regeneratedAt={meta?._meta?.regenerated_at} />
+        </div>
         <div style={{ fontSize: 12, color: "#737373", marginTop: 4 }}>
           קריאה בלבד · מקור: <code>/srv/ops-vault/state</code>
           {lastVerified ? ` · אומת לאחרונה: ${lastVerified}` : ""}
@@ -619,6 +629,32 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
         <div style={subLine}>+ {blockers.length - top.length} נוספים</div>
       )}
     </section>
+  );
+}
+
+function LastRefreshBadge({ regeneratedAt }: { regeneratedAt?: string }) {
+  if (!regeneratedAt) return null;
+  const ageMin = Math.floor(
+    (Date.now() - new Date(regeneratedAt).getTime()) / 60000,
+  );
+  if (Number.isNaN(ageMin) || ageMin < 0) return null;
+  const stale = ageMin >= 60;
+  return (
+    <span
+      title={`רוענן: ${regeneratedAt}`}
+      aria-label={`רוענן ${relativeTimeHe(regeneratedAt)}`}
+      style={{
+        fontSize: 11,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: stale ? "#fef2f2" : "#f0fdf4",
+        color: stale ? "#991b1b" : "#166534",
+        border: `1px solid ${stale ? "#fecaca" : "#bbf7d0"}`,
+        fontWeight: 500,
+      }}
+    >
+      רוענן {relativeTimeHe(regeneratedAt)}
+    </span>
   );
 }
 
