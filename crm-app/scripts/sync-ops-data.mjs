@@ -21,6 +21,7 @@ const files = [
   "processes.json",
   "runtime-issues.json",
   "active_sessions.json",
+  "dependencies.json",
 ];
 
 mkdirSync(out, { recursive: true });

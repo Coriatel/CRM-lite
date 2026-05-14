@@ -123,6 +123,66 @@ type ActiveSessionsDoc = {
   recent_completed?: ActiveSession[];
 };
 
+type DependencyChecks = {
+  pass?: number;
+  fail?: number;
+  pending?: number;
+  total?: number;
+};
+
+type Dependency = {
+  dependency_id: string;
+  type?: string;
+  repo?: string;
+  pr_number?: number;
+  title?: string;
+  state?: string;
+  merge_state?: string | null;
+  checks_summary?: DependencyChecks;
+  head_ref?: string | null;
+  base_ref?: string | null;
+  touched_files?: string[];
+  resolved?: boolean;
+  last_checked_at?: string;
+};
+
+type DependenciesDoc = {
+  _meta?: {
+    schema_version?: number;
+    generated_at?: string;
+    generator?: string;
+    repos?: string[];
+    tracked_prs?: string[];
+    errors?: string[];
+  };
+  dependencies?: Dependency[];
+};
+
+export function dependenciesSummary(doc: DependenciesDoc | null): {
+  open: number;
+  resolved: number;
+  total: number;
+  errors: number;
+  failingChecks: number;
+} {
+  const deps = doc?.dependencies ?? [];
+  let open = 0;
+  let resolved = 0;
+  let failingChecks = 0;
+  for (const d of deps) {
+    if (d.resolved) resolved += 1;
+    else open += 1;
+    if ((d.checks_summary?.fail ?? 0) > 0 && !d.resolved) failingChecks += 1;
+  }
+  return {
+    open,
+    resolved,
+    total: deps.length,
+    errors: doc?._meta?.errors?.length ?? 0,
+    failingChecks,
+  };
+}
+
 type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
@@ -380,13 +440,14 @@ export function OpsPage() {
   const [runtimeIssues, setRuntimeIssues] = useState<RuntimeIssuesDoc | null>(null);
   const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionsDoc | null>(null);
+  const [dependencies, setDependencies] = useState<DependenciesDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -399,6 +460,7 @@ export function OpsPage() {
         fetchJson<RuntimeIssuesDoc>("/ops-data/runtime-issues.json"),
         fetchJson<MetaDoc>("/ops-data/_meta.json"),
         fetchJson<ActiveSessionsDoc>("/ops-data/active_sessions.json"),
+        fetchJson<DependenciesDoc>("/ops-data/dependencies.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -418,6 +480,7 @@ export function OpsPage() {
       setRuntimeIssues(ri ?? null);
       setMeta(md ?? null);
       setActiveSessions(as ?? null);
+      setDependencies(dp ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -469,6 +532,7 @@ export function OpsPage() {
 
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
+      <DependenciesCard doc={dependencies} />
       <LanesOverview lanes={lanes} />
       <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
@@ -729,6 +793,94 @@ function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
           </ul>
         </>
       )}
+    </section>
+  );
+}
+
+function DependenciesCard({ doc }: { doc: DependenciesDoc | null }) {
+  if (!doc) return null;
+  const summary = dependenciesSummary(doc);
+  const errs = doc._meta?.errors ?? [];
+  if (summary.total === 0 && errs.length === 0) return null;
+
+  const headColor = summary.failingChecks > 0 ? "#991b1b" : summary.open > 0 ? "#1d4ed8" : "#737373";
+  const bg = summary.failingChecks > 0 ? "#fef2f2" : summary.open > 0 ? "#eff6ff" : "#fafafa";
+  const border = summary.failingChecks > 0 ? "#fecaca" : summary.open > 0 ? "#bfdbfe" : "#e5e5e5";
+  const deps = (doc.dependencies ?? []).slice().sort((a, b) => {
+    // unresolved first, then by repo + pr_number desc
+    if ((a.resolved ?? false) !== (b.resolved ?? false)) return (a.resolved ? 1 : -1);
+    const r = (a.repo ?? "").localeCompare(b.repo ?? "");
+    if (r !== 0) return r;
+    return (b.pr_number ?? 0) - (a.pr_number ?? 0);
+  });
+
+  return (
+    <section
+      aria-label="תלויות PR"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          תלויות PR · {summary.open === 0 ? "אין פתוחות" : `${summary.open} פתוח${summary.open === 1 ? "ה" : "ות"}`}
+        </span>
+        <span style={{ ...overviewCount, color: headColor }}>
+          {summary.resolved} נפתרו{summary.failingChecks > 0 ? ` · ${summary.failingChecks} עם כשל בדיקה` : ""}
+        </span>
+      </div>
+
+      {errs.length > 0 && (
+        <div style={{ ...subLine, color: "#991b1b", marginBottom: 6 }}>
+          שגיאות איסוף ({errs.length}): {errs[0]}
+        </div>
+      )}
+
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+        {deps.map((d) => {
+          const resolved = d.resolved === true;
+          const failing = (d.checks_summary?.fail ?? 0) > 0 && !resolved;
+          const stateText = (d.state ?? "—").toLowerCase();
+          const pillBg = resolved ? "#737373" : failing ? "#dc2626" : "#2563eb";
+          const sidebar = resolved ? "#a3a3a3" : failing ? "#dc2626" : "#2563eb";
+          const c = d.checks_summary;
+          const checks =
+            c && (c.total ?? 0) > 0
+              ? `בדיקות: ${c.pass ?? 0} עברו · ${c.fail ?? 0} כשלו${(c.pending ?? 0) > 0 ? ` · ${c.pending} ממתינות` : ""}`
+              : null;
+          return (
+            <li
+              key={d.dependency_id}
+              style={{
+                fontSize: 13,
+                color: "#404040",
+                borderInlineStart: `3px solid ${sidebar}`,
+                paddingInlineStart: 8,
+              }}
+            >
+              <div style={{ fontWeight: 500 }}>
+                <span
+                  style={{
+                    ...pill,
+                    background: pillBg,
+                    marginInlineEnd: 6,
+                    fontSize: 10,
+                    padding: "1px 6px",
+                  }}
+                >
+                  {stateText}
+                </span>
+                <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>
+                  {d.repo ?? ""}#{d.pr_number ?? "?"}
+                </span>
+                {d.title ? ` · ${d.title}` : ""}
+              </div>
+              {checks && <div style={subLine}>{checks}</div>}
+              {d.last_checked_at && (
+                <div style={subLine}>נבדק {relativeTimeHe(d.last_checked_at)}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
