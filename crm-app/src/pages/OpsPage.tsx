@@ -94,6 +94,35 @@ export function actionableProcesses(doc: ProcessesDoc | null): ProcessRow[] {
   return all.filter((p) => p.verdict && p.verdict !== "RESOLVED_NO_ACTION");
 }
 
+type ActiveSession = {
+  id: string;
+  lane?: string | null;
+  project?: string | null;
+  agent?: string | null;
+  model?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  terminal_state?: string | null;
+  current_slice?: string | null;
+  slices_completed?: number | null;
+  pr?: string | null;
+  next?: string | null;
+  lifecycle?: "active" | "stale" | "completed" | null;
+};
+
+type ActiveSessionsDoc = {
+  _meta?: {
+    ts?: string;
+    source_mtime?: string;
+    source_age_seconds?: number;
+    heartbeat_ttl_seconds?: number;
+    registry_stale?: boolean;
+    error?: string;
+  };
+  active?: ActiveSession[];
+  recent_completed?: ActiveSession[];
+};
+
 type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
@@ -350,13 +379,14 @@ export function OpsPage() {
   const [handoffs, setHandoffs] = useState<HandoffsIndexDoc | null>(null);
   const [runtimeIssues, setRuntimeIssues] = useState<RuntimeIssuesDoc | null>(null);
   const [meta, setMeta] = useState<MetaDoc | null>(null);
+  const [activeSessions, setActiveSessions] = useState<ActiveSessionsDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -368,6 +398,7 @@ export function OpsPage() {
         fetchJson<HandoffsIndexDoc>("/ops-data/handoffs_index.json"),
         fetchJson<RuntimeIssuesDoc>("/ops-data/runtime-issues.json"),
         fetchJson<MetaDoc>("/ops-data/_meta.json"),
+        fetchJson<ActiveSessionsDoc>("/ops-data/active_sessions.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -386,6 +417,7 @@ export function OpsPage() {
       setHandoffs(ho ?? null);
       setRuntimeIssues(ri ?? null);
       setMeta(md ?? null);
+      setActiveSessions(as ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -436,6 +468,7 @@ export function OpsPage() {
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
       <HealthOverview health={health} />
+      <ActiveSessionsCard doc={activeSessions} />
       <LanesOverview lanes={lanes} />
       <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
@@ -590,6 +623,111 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function shortenSlice(s: string | null | undefined): string {
+  if (!s) return "—";
+  // Strip parenthetical commentary that bloats the slice label.
+  const trimmed = s.replace(/\s*\([^)]*\)\s*/g, "").trim();
+  return trimmed.length > 60 ? trimmed.substring(0, 57) + "…" : trimmed;
+}
+
+function ActiveSessionsCard({ doc }: { doc: ActiveSessionsDoc | null }) {
+  if (!doc) return null;
+  const active = doc.active ?? [];
+  const recent = doc.recent_completed ?? [];
+  const registryStale = doc._meta?.registry_stale === true;
+  if (active.length === 0 && recent.length === 0 && !doc._meta?.error) return null;
+
+  const headColor = active.length > 0 && !registryStale ? "#166534" : "#737373";
+  const bg = active.length > 0 && !registryStale ? "#f0fdf4" : "#fafafa";
+  const border = active.length > 0 && !registryStale ? "#bbf7d0" : "#e5e5e5";
+
+  return (
+    <section
+      aria-label="סשנים פעילים"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>סשני סוכן · {active.length === 0 ? "אין פעילים" : `${active.length} פעיל${active.length === 1 ? "" : "ים"}`}</span>
+        <span style={{ ...overviewCount, color: headColor }}>
+          {registryStale ? "פנקס לא מעודכן · " : ""}
+          {recent.length} אחרונים
+        </span>
+      </div>
+
+      {doc._meta?.error && (
+        <div style={{ ...subLine, color: "#991b1b", marginBottom: 6 }}>
+          שגיאת מקור: {doc._meta.error}
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px 0", display: "grid", gap: 8 }}>
+          {active.map((s) => {
+            const stale = s.lifecycle === "stale";
+            return (
+              <li
+                key={s.id}
+                style={{
+                  fontSize: 13,
+                  color: "#404040",
+                  borderInlineStart: `3px solid ${stale ? "#f59e0b" : "#22c55e"}`,
+                  paddingInlineStart: 8,
+                }}
+              >
+                <div style={{ fontWeight: 500 }}>
+                  <span
+                    style={{
+                      ...pill,
+                      background: stale ? "#f59e0b" : "#22c55e",
+                      marginInlineEnd: 6,
+                      fontSize: 10,
+                      padding: "1px 6px",
+                    }}
+                  >
+                    {stale ? "stale" : "active"}
+                  </span>
+                  {s.project ?? s.id}
+                  {s.lane ? ` · מסלול ${s.lane}` : ""}
+                </div>
+                <div style={subLine}>
+                  {s.agent ?? "—"}{s.model ? ` · ${s.model}` : ""}
+                  {s.started_at ? ` · התחיל ${relativeTimeHe(s.started_at)}` : ""}
+                </div>
+                {s.current_slice && (
+                  <div style={subLine}>פרוסה נוכחית: {shortenSlice(s.current_slice)}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {recent.length > 0 && (
+        <>
+          <div style={sectionLabel}>סשנים אחרונים</div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 4 }}>
+            {recent.slice(0, 5).map((s) => (
+              <li key={s.id} style={{ fontSize: 12, color: "#525252" }}>
+                <span
+                  style={{
+                    color: s.terminal_state === "SHIPPED" ? "#15803d" : "#737373",
+                    fontWeight: 500,
+                  }}
+                >
+                  {s.terminal_state ?? "—"}
+                </span>{" "}
+                {s.project ?? s.id}
+                {s.lane ? ` · מסלול ${s.lane}` : ""}
+                {s.finished_at ? ` · ${relativeTimeHe(s.finished_at)}` : ""}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
