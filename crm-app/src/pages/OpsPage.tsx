@@ -318,6 +318,12 @@ type HandoffEntry = {
   verifier_message?: string | null;
   verifier_ahead_n?: number | null;
   verified?: boolean;
+  // terminal_state is emitted by build-handoffs-index when the source file
+  // declares `type:` inside a ```yaml stop_reason``` block, OR by the
+  // agent_registry projection. Values seen in the wild:
+  // SHIPPED, BLOCKED, HANDOFF, HANDOFF_READY, ABANDONED_SAFELY, CHECKPOINT,
+  // CLEAN_SLICE_BOUNDARY, CLEAN_INVARIANT_BOUNDARY, USER_CLEAR_BEFORE_RESUME.
+  terminal_state?: string | null;
 };
 
 type HandoffsIndexDoc = {
@@ -352,6 +358,15 @@ export function handoffDisplayPath(h: HandoffEntry): string {
   return p.replace(/^\/home\/([^/]+)\/work\/handoffs\//, "$1/").replace(/^\/home\/([^/]+)\//, "$1/");
 }
 
+export type TerminalBucket =
+  | "shipped"
+  | "handoff_pending"
+  | "blocked"
+  | "checkpoint"
+  | "abandoned"
+  | "other"
+  | "unknown";
+
 export type RuntimeContinuitySummary = {
   total: number;
   ok: number; // ok + ancestor — verifier is happy
@@ -361,7 +376,29 @@ export type RuntimeContinuitySummary = {
   unknown: number; // verifier_status absent (legacy or unverified entry)
   latestWrittenAt: string | null;
   health: "ok" | "warn" | "fail" | "empty";
+  terminalBuckets: Record<TerminalBucket, number>;
+  terminalDeclared: number; // count with any non-null terminal_state
 };
+
+// Map a raw terminal_state string from handoffs_index into a coarse UI bucket.
+// Conservative: unknown values fall into "other" (not "unknown") so they remain
+// visible — "unknown" is reserved for entries with no terminal_state at all.
+export function bucketTerminalState(s: string | null | undefined): TerminalBucket {
+  if (s == null || s === "") return "unknown";
+  const u = s.toUpperCase().replace(/[\s-]+/g, "_");
+  if (u === "SHIPPED") return "shipped";
+  if (u === "HANDOFF" || u === "HANDOFF_READY") return "handoff_pending";
+  if (u === "BLOCKED") return "blocked";
+  if (u === "ABANDONED_SAFELY" || u === "ABANDONED") return "abandoned";
+  if (
+    u === "CHECKPOINT" ||
+    u === "CLEAN_SLICE_BOUNDARY" ||
+    u === "CLEAN_INVARIANT_BOUNDARY"
+  ) {
+    return "checkpoint";
+  }
+  return "other";
+}
 
 // Roll up handoff verifier states into a single mobile-friendly health view.
 // "warn" if any drift; "fail" if any error (error dominates warn).
@@ -388,7 +425,33 @@ export function runtimeContinuitySummary(
   const total = all.length;
   const health: RuntimeContinuitySummary["health"] =
     total === 0 ? "empty" : error > 0 ? "fail" : drift > 0 ? "warn" : "ok";
-  return { total, ok, drift, error, missing, unknown, latestWrittenAt: latest, health };
+  const terminalBuckets: Record<TerminalBucket, number> = {
+    shipped: 0,
+    handoff_pending: 0,
+    blocked: 0,
+    checkpoint: 0,
+    abandoned: 0,
+    other: 0,
+    unknown: 0,
+  };
+  let terminalDeclared = 0;
+  for (const h of all) {
+    const b = bucketTerminalState(h.terminal_state);
+    terminalBuckets[b]++;
+    if (b !== "unknown") terminalDeclared++;
+  }
+  return {
+    total,
+    ok,
+    drift,
+    error,
+    missing,
+    unknown,
+    latestWrittenAt: latest,
+    health,
+    terminalBuckets,
+    terminalDeclared,
+  };
 }
 
 type RuntimeIssue = {
@@ -1588,6 +1651,17 @@ function RuntimeContinuityCard({ doc }: { doc: HandoffsIndexDoc | null }) {
         {s.missing > 0 && <> · ◌ {s.missing} ללא state</>}
         {s.unknown > 0 && <> · ? {s.unknown} לא מאומתים</>}
       </div>
+      {s.terminalDeclared > 0 && (
+        <div style={{ ...subLine, color: "#404040" }}>
+          סטטוסים:
+          {s.terminalBuckets.shipped > 0 && <> ✅ {s.terminalBuckets.shipped} הופצו</>}
+          {s.terminalBuckets.handoff_pending > 0 && <> · ⏭ {s.terminalBuckets.handoff_pending} ממתינים</>}
+          {s.terminalBuckets.blocked > 0 && <> · ⛔ {s.terminalBuckets.blocked} חסומים</>}
+          {s.terminalBuckets.checkpoint > 0 && <> · ⏸ {s.terminalBuckets.checkpoint} checkpoint</>}
+          {s.terminalBuckets.abandoned > 0 && <> · ◌ {s.terminalBuckets.abandoned} ננטשו</>}
+          {s.terminalBuckets.other > 0 && <> · • {s.terminalBuckets.other} אחר</>}
+        </div>
+      )}
       {s.latestWrittenAt && (
         <div style={{ ...subLine, color: "#737373" }}>
           handoff אחרון: {relativeTimeHe(s.latestWrittenAt)}
