@@ -352,6 +352,45 @@ export function handoffDisplayPath(h: HandoffEntry): string {
   return p.replace(/^\/home\/([^/]+)\/work\/handoffs\//, "$1/").replace(/^\/home\/([^/]+)\//, "$1/");
 }
 
+export type RuntimeContinuitySummary = {
+  total: number;
+  ok: number; // ok + ancestor — verifier is happy
+  drift: number;
+  error: number;
+  missing: number; // missing_state or not_applicable
+  unknown: number; // verifier_status absent (legacy or unverified entry)
+  latestWrittenAt: string | null;
+  health: "ok" | "warn" | "fail" | "empty";
+};
+
+// Roll up handoff verifier states into a single mobile-friendly health view.
+// "warn" if any drift; "fail" if any error (error dominates warn).
+export function runtimeContinuitySummary(
+  doc: HandoffsIndexDoc | null,
+): RuntimeContinuitySummary {
+  const all = doc?.entries ?? doc?.handoffs ?? [];
+  let ok = 0;
+  let drift = 0;
+  let error = 0;
+  let missing = 0;
+  let unknown = 0;
+  let latest: string | null = null;
+  for (const h of all) {
+    const s = h.verifier_status;
+    if (s === "ok" || s === "ancestor") ok++;
+    else if (s === "drift") drift++;
+    else if (s === "error") error++;
+    else if (s === "missing_state" || s === "not_applicable") missing++;
+    else unknown++;
+    const t = h.written_at ?? h.mtime ?? null;
+    if (t && (latest === null || t > latest)) latest = t;
+  }
+  const total = all.length;
+  const health: RuntimeContinuitySummary["health"] =
+    total === 0 ? "empty" : error > 0 ? "fail" : drift > 0 ? "warn" : "ok";
+  return { total, ok, drift, error, missing, unknown, latestWrittenAt: latest, health };
+}
+
 type RuntimeIssue = {
   id: string;
   file?: string | null;
@@ -649,6 +688,7 @@ export function OpsPage() {
       <ActiveIncidentsCard incidents={activeIncidents} />
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
+      <RuntimeContinuityCard doc={handoffs} />
       <HandoffsCard doc={handoffs} />
       <RuntimeIssuesCard doc={runtimeIssues} />
 
@@ -1520,6 +1560,39 @@ function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function RuntimeContinuityCard({ doc }: { doc: HandoffsIndexDoc | null }) {
+  const s = runtimeContinuitySummary(doc);
+  if (s.health === "empty") return null;
+  const head = s.health === "fail" ? "#991b1b" : s.health === "warn" ? "#b45309" : "#166534";
+  const bg = s.health === "fail" ? "#fef2f2" : s.health === "warn" ? "#fffbeb" : "#f0fdf4";
+  const border = s.health === "fail" ? "#fecaca" : s.health === "warn" ? "#fde68a" : "#bbf7d0";
+  return (
+    <section
+      aria-label="רציפות runtime"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: head }}>
+        <span>רציפות runtime · {s.total} handoff{s.total === 1 ? "" : "s"}</span>
+        <span style={{ ...overviewCount, color: head }}>
+          {s.health === "fail" ? "שגיאה" : s.health === "warn" ? "סחיפה" : "תקין"}
+        </span>
+      </div>
+      <div style={{ ...subLine, color: "#404040", marginTop: 4 }}>
+        ✓ {s.ok} תקינים
+        {s.drift > 0 && <> · ⚠ {s.drift} drift</>}
+        {s.error > 0 && <> · ✗ {s.error} שגיאות</>}
+        {s.missing > 0 && <> · ◌ {s.missing} ללא state</>}
+        {s.unknown > 0 && <> · ? {s.unknown} לא מאומתים</>}
+      </div>
+      {s.latestWrittenAt && (
+        <div style={{ ...subLine, color: "#737373" }}>
+          handoff אחרון: {relativeTimeHe(s.latestWrittenAt)}
+        </div>
+      )}
     </section>
   );
 }
