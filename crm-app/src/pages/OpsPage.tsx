@@ -378,6 +378,7 @@ export type RuntimeContinuitySummary = {
   health: "ok" | "warn" | "fail" | "empty";
   terminalBuckets: Record<TerminalBucket, number>;
   terminalDeclared: number; // count with any non-null terminal_state
+  latestPerBucket: Partial<Record<TerminalBucket, string>>; // ISO timestamp per bucket
 };
 
 // Map a raw terminal_state string from handoffs_index into a coarse UI bucket.
@@ -435,10 +436,16 @@ export function runtimeContinuitySummary(
     unknown: 0,
   };
   let terminalDeclared = 0;
+  const latestPerBucket: Partial<Record<TerminalBucket, string>> = {};
   for (const h of all) {
     const b = bucketTerminalState(h.terminal_state);
     terminalBuckets[b]++;
     if (b !== "unknown") terminalDeclared++;
+    const t = h.written_at ?? h.mtime ?? null;
+    if (t) {
+      const cur = latestPerBucket[b];
+      if (cur == null || t > cur) latestPerBucket[b] = t;
+    }
   }
   return {
     total,
@@ -451,6 +458,7 @@ export function runtimeContinuitySummary(
     health,
     terminalBuckets,
     terminalDeclared,
+    latestPerBucket,
   };
 }
 
@@ -1660,6 +1668,16 @@ function RuntimeContinuityCard({ doc }: { doc: HandoffsIndexDoc | null }) {
           {s.terminalBuckets.checkpoint > 0 && <> · ⏸ {s.terminalBuckets.checkpoint} checkpoint</>}
           {s.terminalBuckets.abandoned > 0 && <> · ◌ {s.terminalBuckets.abandoned} ננטשו</>}
           {s.terminalBuckets.other > 0 && <> · • {s.terminalBuckets.other} אחר</>}
+        </div>
+      )}
+      {s.latestPerBucket.shipped && (
+        <div style={{ ...subLine, color: "#166534" }}>
+          ✅ הפצה אחרונה: {relativeTimeHe(s.latestPerBucket.shipped)}
+        </div>
+      )}
+      {s.latestPerBucket.blocked && (
+        <div style={{ ...subLine, color: "#991b1b" }}>
+          ⛔ חסימה אחרונה: {relativeTimeHe(s.latestPerBucket.blocked)}
         </div>
       )}
       {s.latestWrittenAt && (
