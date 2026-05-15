@@ -123,11 +123,36 @@ describe("bucketTerminalState", () => {
 });
 
 describe("runtimeContinuitySummary: terminal_state buckets", () => {
-  it("empty doc → all buckets 0, terminalDeclared=0", () => {
+  it("empty doc → all buckets 0, terminalDeclared=0, latestPerBucket empty", () => {
     const s = runtimeContinuitySummary(null);
     expect(s.terminalDeclared).toBe(0);
     expect(s.terminalBuckets.shipped).toBe(0);
+    expect(s.latestPerBucket).toEqual({});
   });
+
+  it("latestPerBucket tracks max written_at per bucket", () => {
+    const s = runtimeContinuitySummary({
+      entries: [
+        entry({ terminal_state: "SHIPPED", written_at: "2026-05-14T09:00:00Z" }),
+        entry({ terminal_state: "SHIPPED", written_at: "2026-05-15T05:00:00Z" }),
+        entry({ terminal_state: "BLOCKED", written_at: "2026-05-13T10:00:00Z" }),
+        entry({ terminal_state: "BLOCKED", mtime: "2026-05-14T11:00:00Z" }),
+        entry({ terminal_state: null, written_at: "2026-05-15T06:00:00Z" }),
+      ],
+    });
+    expect(s.latestPerBucket.shipped).toBe("2026-05-15T05:00:00Z");
+    expect(s.latestPerBucket.blocked).toBe("2026-05-14T11:00:00Z");
+    expect(s.latestPerBucket.unknown).toBe("2026-05-15T06:00:00Z");
+  });
+
+  it("latestPerBucket only set when entries have a timestamp", () => {
+    const s = runtimeContinuitySummary({
+      entries: [entry({ terminal_state: "SHIPPED" })],
+    });
+    expect(s.terminalBuckets.shipped).toBe(1);
+    expect(s.latestPerBucket.shipped).toBeUndefined();
+  });
+
   it("mixed terminal_state values bucket correctly and count declared", () => {
     const s = runtimeContinuitySummary({
       entries: [
