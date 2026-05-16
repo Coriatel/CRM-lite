@@ -160,6 +160,19 @@ export function TodayPage() {
         items={attention?.needsRav ?? null}
         error={attentionError}
         source={attentionSource}
+        footer={
+          <Link
+            to="/rabbi"
+            style={{
+              fontSize: 13,
+              color: "var(--color-primary)",
+              fontWeight: 500,
+              textDecoration: "none",
+            }}
+          >
+            פתח תור הרב מלא ←
+          </Link>
+        }
       />
       <AttentionCard
         icon={<AlertOctagon size={20} />}
@@ -296,12 +309,14 @@ function AttentionCard({
   items,
   error,
   source,
+  footer,
 }: {
   icon: React.ReactNode;
   title: string;
   items: AttentionItem[] | null;
   error: string | null;
   source: string | null;
+  footer?: React.ReactNode;
 }) {
   const action =
     source && source !== "directus" ? (
@@ -374,6 +389,9 @@ function AttentionCard({
           ))}
         </ul>
       )}
+      {footer ? (
+        <div style={{ marginTop: "var(--spacing-sm)" }}>{footer}</div>
+      ) : null}
     </CardFrame>
   );
 }
