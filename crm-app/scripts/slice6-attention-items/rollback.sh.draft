@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Slice #6 rollback DRAFT — drops attention_items.
+# DRAFT ONLY. Not executable from this file; copy to rollback.sh after
+# owner approval and the real apply.py has been run.
+# DESTRUCTIVE. Run pg_dump first (see README.md §Rollback plan).
+set -euo pipefail
+
+: "${DB_CONTAINER:=hycrm-directus-db}"
+: "${DB_USER:=hycrm}"
+: "${DB_NAME:=hycrm}"
+: "${DIRECTUS_URL:=}"
+: "${DIRECTUS_ADMIN_TOKEN:=}"
+
+echo "WARNING: This will drop attention_items and its Directus metadata."
+echo "         Pre-flight: sudo docker exec ${DB_CONTAINER} pg_dump -U ${DB_USER} -d ${DB_NAME} \\"
+echo "                        -t attention_items > /tmp/slice6-pre.dump"
+read -rp "Continue? (yes/NO): " ans
+[[ "$ans" == "yes" ]] || { echo "aborted"; exit 1; }
+
+sudo docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" <<'SQL'
+DROP TABLE IF EXISTS attention_items CASCADE;
+
+DELETE FROM directus_relations
+  WHERE one_collection  = 'attention_items'
+     OR many_collection = 'attention_items';
+
+DELETE FROM directus_fields      WHERE collection = 'attention_items';
+DELETE FROM directus_collections WHERE collection = 'attention_items';
+SQL
+
+if [[ -n "$DIRECTUS_URL" && -n "$DIRECTUS_ADMIN_TOKEN" ]]; then
+  curl -fsS -X POST "$DIRECTUS_URL/utils/cache/clear" \
+       -H "Authorization: Bearer $DIRECTUS_ADMIN_TOKEN" || true
+fi
+
+echo "attention_items dropped."
