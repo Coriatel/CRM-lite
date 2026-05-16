@@ -38,6 +38,11 @@ const CallsTodayPage = lazy(() =>
 const OpsPage = lazy(() =>
   import("./pages/OpsPage").then((m) => ({ default: m.OpsPage })),
 );
+const RabbiQueuePage = lazy(() =>
+  import("./pages/RabbiQueuePage").then((m) => ({
+    default: m.RabbiQueuePage,
+  })),
+);
 
 import { AppShell } from "./components/layout/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -52,6 +57,7 @@ const ROUTE_WHITELIST = [
   "/today",
   "/calls-today",
   "/ops",
+  "/rabbi",
 ];
 
 function RouteTracker() {
@@ -134,6 +140,7 @@ function AppContent() {
           <Route path="today" element={<TodayPage />} />
           <Route path="calls-today" element={<CallsTodayPage />} />
           <Route path="ops" element={<OpsPage />} />
+          <Route path="rabbi" element={<RabbiQueuePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="people"
