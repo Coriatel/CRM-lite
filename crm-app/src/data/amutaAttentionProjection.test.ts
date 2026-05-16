@@ -43,6 +43,31 @@ describe("projectFromContacts", () => {
     expect(items[0].urgency).toBe("high");
   });
 
+  it("attaches quick-context with overdue days and recommended step", () => {
+    const items = projectFromContacts({
+      followUpCandidates: [
+        contact({
+          id: "p",
+          full_name: "Sara",
+          phone_e164: "+972500000123",
+          last_call_date: "2026-05-01",
+          follow_up_date: "2026-05-10",
+          interest_level: 3,
+        }),
+      ],
+      neverCalled: [],
+      today,
+    });
+    const ctx = items[0].context!;
+    expect(ctx.person_name).toBe("Sara");
+    expect(ctx.phone).toBe("+972500000123");
+    expect(ctx.last_call_date).toBe("2026-05-01");
+    expect(ctx.follow_up_date).toBe("2026-05-10");
+    expect(ctx.interest_level).toBe(3);
+    expect(ctx.why_now).toMatch(/איחור של 6 ימים/);
+    expect(ctx.recommended_step).toMatch(/\+972500000123/);
+  });
+
   it("routes never-called to Rav and bumps urgency for hot interest", () => {
     const items = projectFromContacts({
       followUpCandidates: [],

@@ -6,9 +6,14 @@ import {
   PhoneOff,
   RotateCcw,
   ArrowLeftRight,
+  PhoneCall,
+  CalendarClock,
+  Flame,
+  Sparkles,
 } from "lucide-react";
 import { useAmutaAttention } from "../data/useAmutaAttention";
 import type {
+  AttentionContext,
   AttentionItem,
   AttentionUrgency,
 } from "../data/amutaAttention";
@@ -200,6 +205,7 @@ function RabbiQueueCard({ item }: { item: AttentionItem }) {
       >
         {item.next_action}
       </p>
+      {item.context ? <QuickContext context={item.context} /> : null}
       <div
         role="group"
         aria-label="פעולות (יופעלו אחרי אישור)"
@@ -218,6 +224,83 @@ function RabbiQueueCard({ item }: { item: AttentionItem }) {
         />
       </div>
     </li>
+  );
+}
+
+function QuickContext({ context }: { context: AttentionContext }) {
+  const badges: { icon: React.ReactNode; text: string; key: string }[] = [];
+  if (context.last_call_date)
+    badges.push({
+      key: "last",
+      icon: <PhoneCall size={12} />,
+      text: `שיחה אחרונה: ${context.last_call_date}`,
+    });
+  if (context.follow_up_date)
+    badges.push({
+      key: "due",
+      icon: <CalendarClock size={12} />,
+      text: `יעד מעקב: ${context.follow_up_date}`,
+    });
+  if (typeof context.interest_level === "number")
+    badges.push({
+      key: "interest",
+      icon: <Flame size={12} />,
+      text: `עניין: ${context.interest_level}/5`,
+    });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        marginBottom: "var(--spacing-sm)",
+      }}
+    >
+      {badges.length > 0 ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {badges.map((b) => (
+            <span
+              key={b.key}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                color: "var(--color-text-secondary)",
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                borderRadius: 999,
+                padding: "2px 8px",
+              }}
+            >
+              {b.icon}
+              {b.text}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {context.why_now ? (
+        <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+          <strong style={{ color: "var(--color-text)" }}>למה עכשיו: </strong>
+          {context.why_now}
+        </div>
+      ) : null}
+      {context.recommended_step ? (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 12,
+            color: "var(--color-primary)",
+          }}
+        >
+          <Sparkles size={12} />
+          <span>{context.recommended_step}</span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
