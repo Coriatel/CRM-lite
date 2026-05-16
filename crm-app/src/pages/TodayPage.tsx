@@ -12,18 +12,16 @@ import {
   UserCog,
   BookHeart,
   AlertOctagon,
+  RefreshCw,
 } from "lucide-react";
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
 import { EmptyState } from "../components/EmptyState";
-import {
-  bucketAttention,
-  loadAmutaAttention,
-  type AttentionBuckets,
-  type AttentionItem,
-  type AttentionUrgency,
+import type {
+  AttentionItem,
+  AttentionUrgency,
 } from "../data/amutaAttention";
-import { loadAmutaAttentionProjection } from "../data/amutaAttentionProjection";
+import { useAmutaAttention } from "../data/useAmutaAttention";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -61,37 +59,13 @@ export function TodayPage() {
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
   const [donorsError, setDonorsError] = useState<string | null>(null);
-  const [attention, setAttention] = useState<AttentionBuckets | null>(null);
-  const [attentionSource, setAttentionSource] = useState<string | null>(null);
-  const [attentionError, setAttentionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const projection = await loadAmutaAttentionProjection();
-        if (cancelled) return;
-        if (projection.items.length > 0) {
-          setAttention(bucketAttention(projection.items));
-          setAttentionSource(projection.source);
-          return;
-        }
-      } catch {
-        // fall through to mock
-      }
-      try {
-        const payload = await loadAmutaAttention();
-        if (cancelled) return;
-        setAttention(bucketAttention(payload.items));
-        setAttentionSource(payload.source);
-      } catch {
-        if (!cancelled) setAttentionError("שגיאה בטעינת מוקדי תשומת לב");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const {
+    buckets: attention,
+    source: attentionSource,
+    error: attentionError,
+    loading: attentionLoading,
+    refresh: refreshAttention,
+  } = useAmutaAttention();
   const {
     buckets: callBuckets,
     error: callsError,
@@ -169,6 +143,10 @@ export function TodayPage() {
         תצוגה ראשונית. רוב הקלפים ממתינים לחיבור נתונים.
       </p>
 
+      <AttentionSectionHeader
+        loading={attentionLoading}
+        onRefresh={refreshAttention}
+      />
       <AttentionCard
         icon={<UserCog size={20} />}
         title="צריך את אלרון"
@@ -254,6 +232,63 @@ const URGENCY_COLOR: Record<AttentionUrgency, string> = {
   normal: "var(--color-text-secondary)",
   low: "var(--color-text-secondary)",
 };
+
+function AttentionSectionHeader({
+  loading,
+  onRefresh,
+}: {
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: "var(--spacing-sm)",
+      }}
+    >
+      <h2
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: "var(--color-text-secondary)",
+          margin: 0,
+        }}
+      >
+        מוקדי תשומת לב
+      </h2>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={loading}
+        aria-label="ריענון מוקדי תשומת לב"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: "none",
+          border: "1px solid var(--color-border)",
+          borderRadius: 999,
+          padding: "4px 10px",
+          fontSize: 12,
+          color: "var(--color-text-secondary)",
+          cursor: loading ? "wait" : "pointer",
+          opacity: loading ? 0.6 : 1,
+        }}
+      >
+        <RefreshCw
+          size={14}
+          style={{
+            animation: loading ? "spin 1s linear infinite" : undefined,
+          }}
+        />
+        ריענון
+      </button>
+    </div>
+  );
+}
 
 function AttentionCard({
   icon,
