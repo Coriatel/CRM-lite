@@ -9,10 +9,21 @@ import {
   PlaySquare,
   HandHeart,
   PhoneCall,
+  UserCog,
+  BookHeart,
+  AlertOctagon,
 } from "lucide-react";
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
 import { EmptyState } from "../components/EmptyState";
+import {
+  bucketAttention,
+  loadAmutaAttention,
+  type AttentionBuckets,
+  type AttentionItem,
+  type AttentionUrgency,
+} from "../data/amutaAttention";
+import { loadAmutaAttentionProjection } from "../data/amutaAttentionProjection";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -50,6 +61,37 @@ export function TodayPage() {
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
   const [donorsError, setDonorsError] = useState<string | null>(null);
+  const [attention, setAttention] = useState<AttentionBuckets | null>(null);
+  const [attentionSource, setAttentionSource] = useState<string | null>(null);
+  const [attentionError, setAttentionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const projection = await loadAmutaAttentionProjection();
+        if (cancelled) return;
+        if (projection.items.length > 0) {
+          setAttention(bucketAttention(projection.items));
+          setAttentionSource(projection.source);
+          return;
+        }
+      } catch {
+        // fall through to mock
+      }
+      try {
+        const payload = await loadAmutaAttention();
+        if (cancelled) return;
+        setAttention(bucketAttention(payload.items));
+        setAttentionSource(payload.source);
+      } catch {
+        if (!cancelled) setAttentionError("שגיאה בטעינת מוקדי תשומת לב");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const {
     buckets: callBuckets,
     error: callsError,
@@ -127,6 +169,28 @@ export function TodayPage() {
         תצוגה ראשונית. רוב הקלפים ממתינים לחיבור נתונים.
       </p>
 
+      <AttentionCard
+        icon={<UserCog size={20} />}
+        title="צריך את אלרון"
+        items={attention?.needsElron ?? null}
+        error={attentionError}
+        source={attentionSource}
+      />
+      <AttentionCard
+        icon={<BookHeart size={20} />}
+        title="צריך את הרב"
+        items={attention?.needsRav ?? null}
+        error={attentionError}
+        source={attentionSource}
+      />
+      <AttentionCard
+        icon={<AlertOctagon size={20} />}
+        title="תקוע"
+        items={attention?.stuck ?? null}
+        error={attentionError}
+        source={attentionSource}
+      />
+
       <PeopleCareCard
         people={people}
         error={peopleError}
@@ -174,6 +238,108 @@ export function TodayPage() {
         missing="lesson_processing_runs + Windmill bridge"
       />
     </main>
+  );
+}
+
+const URGENCY_LABEL: Record<AttentionUrgency, string> = {
+  critical: "דחוף מאוד",
+  high: "דחוף",
+  normal: "רגיל",
+  low: "נמוך",
+};
+
+const URGENCY_COLOR: Record<AttentionUrgency, string> = {
+  critical: "var(--color-danger)",
+  high: "var(--color-danger)",
+  normal: "var(--color-text-secondary)",
+  low: "var(--color-text-secondary)",
+};
+
+function AttentionCard({
+  icon,
+  title,
+  items,
+  error,
+  source,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  items: AttentionItem[] | null;
+  error: string | null;
+  source: string | null;
+}) {
+  const action =
+    source && source !== "directus" ? (
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--color-text-secondary)",
+          border: "1px solid var(--color-border)",
+          borderRadius: 999,
+          padding: "2px 8px",
+        }}
+        title="מקור נתונים זמני — מוקאפ"
+      >
+        {source === "mock" ? "מוקאפ" : source}
+      </span>
+    ) : undefined;
+
+  return (
+    <CardFrame icon={icon} title={title} action={action}>
+      {error ? (
+        <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
+      ) : items === null ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          טוען…
+        </p>
+      ) : items.length === 0 ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          אין פריטים פתוחים
+        </p>
+      ) : (
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--spacing-sm)",
+          }}
+        >
+          {items.map((it) => (
+            <li
+              key={it.id}
+              style={{
+                borderInlineStart: `3px solid ${URGENCY_COLOR[it.urgency]}`,
+                paddingInlineStart: 10,
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                {it.href ? (
+                  <Link
+                    to={it.href}
+                    style={{ color: "inherit", textDecoration: "none" }}
+                  >
+                    {it.title}
+                  </Link>
+                ) : (
+                  it.title
+                )}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {URGENCY_LABEL[it.urgency]} · {it.next_action}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </CardFrame>
   );
 }
 
