@@ -3,7 +3,11 @@ import {
   getFollowUpCandidates,
   getContacts,
 } from "../services/directus";
-import type { AttentionItem, AttentionPayload } from "./amutaAttention";
+import type {
+  AttentionContext,
+  AttentionItem,
+  AttentionPayload,
+} from "./amutaAttention";
 
 const STALE_DAYS = 7;
 const PROJECTION_LIMIT = 8;
@@ -30,9 +34,26 @@ export function projectFromContacts(input: ProjectInput): AttentionItem[] {
 
   for (const c of followUpCandidates.slice(0, PROJECTION_LIMIT)) {
     const due = c.follow_up_date;
-    const stale =
-      !!due && daysBetween(due, today) > STALE_DAYS;
+    const overdueDays =
+      due ? Math.max(0, daysBetween(due, today)) : undefined;
+    const stale = overdueDays !== undefined && overdueDays > STALE_DAYS;
     const noteSuffix = c.follow_up_note ? ` — ${c.follow_up_note}` : "";
+    const context: AttentionContext = {
+      person_name: contactTitle(c),
+      phone: c.phone_e164,
+      last_call_date: c.last_call_date,
+      follow_up_date: due,
+      interest_level: c.interest_level,
+      why_now:
+        overdueDays === undefined
+          ? "מעקב פתוח ללא תאריך יעד"
+          : overdueDays === 0
+            ? "תאריך מעקב להיום"
+            : `איחור של ${overdueDays} ימים מתאריך מעקב`,
+      recommended_step: c.phone_e164
+        ? `להתקשר ל־${c.phone_e164}`
+        : "לפתוח כרטיס איש קשר",
+    };
     items.push({
       id: `followup:${c.id}`,
       title: `מעקב: ${contactTitle(c)}`,
@@ -44,11 +65,26 @@ export function projectFromContacts(input: ProjectInput): AttentionItem[] {
         ? `יעד מעקב ${due}${noteSuffix}`
         : `לעקוב${noteSuffix}`,
       href: "/people",
+      context,
     });
   }
 
   for (const c of neverCalled.slice(0, PROJECTION_LIMIT)) {
-    const hot = (c.interest_level ?? 0) >= 4;
+    const interest = c.interest_level ?? 0;
+    const hot = interest >= 4;
+    const context: AttentionContext = {
+      person_name: contactTitle(c),
+      phone: c.phone_e164,
+      last_call_date: c.last_call_date,
+      follow_up_date: c.follow_up_date,
+      interest_level: c.interest_level,
+      why_now: hot
+        ? `מעולם לא הותקשר; רמת עניין ${interest}`
+        : "מעולם לא הותקשר",
+      recommended_step: c.phone_e164
+        ? `להתקשר ל־${c.phone_e164}`
+        : "להשיג מספר טלפון",
+    };
     items.push({
       id: `firstcontact:${c.id}`,
       title: `יצירת קשר ראשונית: ${contactTitle(c)}`,
@@ -60,6 +96,7 @@ export function projectFromContacts(input: ProjectInput): AttentionItem[] {
         ? `להתקשר ל־${c.phone_e164}`
         : "ליצור קשר ראשון",
       href: "/people",
+      context,
     });
   }
 

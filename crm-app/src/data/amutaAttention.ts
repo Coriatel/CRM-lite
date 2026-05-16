@@ -15,6 +15,16 @@ export type AttentionDomain =
   | "automation"
   | "runtime";
 
+export interface AttentionContext {
+  person_name?: string;
+  phone?: string;
+  last_call_date?: string;
+  follow_up_date?: string;
+  interest_level?: number;
+  why_now?: string;
+  recommended_step?: string;
+}
+
 export interface AttentionItem {
   id: string;
   title: string;
@@ -24,6 +34,7 @@ export interface AttentionItem {
   domain: AttentionDomain;
   next_action: string;
   href?: string;
+  context?: AttentionContext;
 }
 
 export interface AttentionPayload {
