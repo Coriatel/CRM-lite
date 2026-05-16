@@ -6,31 +6,9 @@ import {
   PhoneOff,
   RotateCcw,
   ArrowLeftRight,
-  PhoneCall,
-  CalendarClock,
-  Flame,
-  Sparkles,
 } from "lucide-react";
 import { useAmutaAttention } from "../data/useAmutaAttention";
-import type {
-  AttentionContext,
-  AttentionItem,
-  AttentionUrgency,
-} from "../data/amutaAttention";
-
-const URGENCY_LABEL: Record<AttentionUrgency, string> = {
-  critical: "דחוף מאוד",
-  high: "דחוף",
-  normal: "רגיל",
-  low: "נמוך",
-};
-
-const URGENCY_COLOR: Record<AttentionUrgency, string> = {
-  critical: "var(--color-danger)",
-  high: "var(--color-danger)",
-  normal: "var(--color-text-secondary)",
-  low: "var(--color-text-secondary)",
-};
+import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
 
 const DISABLED_HINT = "יופעל אחרי אישור attention_items";
 
@@ -135,7 +113,27 @@ export function RabbiQueuePage() {
           }}
         >
           {items.map((it) => (
-            <RabbiQueueCard key={it.id} item={it} />
+            <AttentionQueueCard
+              key={it.id}
+              item={it}
+              actions={
+                <>
+                  <DisabledAction icon={<Phone size={14} />} label="דיברתי" />
+                  <DisabledAction
+                    icon={<PhoneOff size={14} />}
+                    label="לא השגתי"
+                  />
+                  <DisabledAction
+                    icon={<RotateCcw size={14} />}
+                    label="צריך המשך"
+                  />
+                  <DisabledAction
+                    icon={<ArrowLeftRight size={14} />}
+                    label="העבר לאלרון"
+                  />
+                </>
+              }
+            />
           ))}
         </ul>
       )}
@@ -155,152 +153,6 @@ export function RabbiQueuePage() {
         </Link>
       </p>
     </main>
-  );
-}
-
-function RabbiQueueCard({ item }: { item: AttentionItem }) {
-  return (
-    <li
-      className="card"
-      style={{
-        borderInlineStart: `4px solid ${URGENCY_COLOR[item.urgency]}`,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          gap: 8,
-          marginBottom: 4,
-        }}
-      >
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, flex: 1 }}>
-          {item.href ? (
-            <Link
-              to={item.href}
-              style={{ color: "inherit", textDecoration: "none" }}
-            >
-              {item.title}
-            </Link>
-          ) : (
-            item.title
-          )}
-        </h2>
-        <span
-          style={{
-            fontSize: 11,
-            color: URGENCY_COLOR[item.urgency],
-            fontWeight: 600,
-          }}
-        >
-          {URGENCY_LABEL[item.urgency]}
-        </span>
-      </div>
-      <p
-        style={{
-          fontSize: 13,
-          color: "var(--color-text-secondary)",
-          margin: "0 0 var(--spacing-sm) 0",
-        }}
-      >
-        {item.next_action}
-      </p>
-      {item.context ? <QuickContext context={item.context} /> : null}
-      <div
-        role="group"
-        aria-label="פעולות (יופעלו אחרי אישור)"
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-        }}
-      >
-        <DisabledAction icon={<Phone size={14} />} label="דיברתי" />
-        <DisabledAction icon={<PhoneOff size={14} />} label="לא השגתי" />
-        <DisabledAction icon={<RotateCcw size={14} />} label="צריך המשך" />
-        <DisabledAction
-          icon={<ArrowLeftRight size={14} />}
-          label="העבר לאלרון"
-        />
-      </div>
-    </li>
-  );
-}
-
-function QuickContext({ context }: { context: AttentionContext }) {
-  const badges: { icon: React.ReactNode; text: string; key: string }[] = [];
-  if (context.last_call_date)
-    badges.push({
-      key: "last",
-      icon: <PhoneCall size={12} />,
-      text: `שיחה אחרונה: ${context.last_call_date}`,
-    });
-  if (context.follow_up_date)
-    badges.push({
-      key: "due",
-      icon: <CalendarClock size={12} />,
-      text: `יעד מעקב: ${context.follow_up_date}`,
-    });
-  if (typeof context.interest_level === "number")
-    badges.push({
-      key: "interest",
-      icon: <Flame size={12} />,
-      text: `עניין: ${context.interest_level}/5`,
-    });
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-        marginBottom: "var(--spacing-sm)",
-      }}
-    >
-      {badges.length > 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {badges.map((b) => (
-            <span
-              key={b.key}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                fontSize: 11,
-                color: "var(--color-text-secondary)",
-                background: "var(--color-bg)",
-                border: "1px solid var(--color-border)",
-                borderRadius: 999,
-                padding: "2px 8px",
-              }}
-            >
-              {b.icon}
-              {b.text}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {context.why_now ? (
-        <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          <strong style={{ color: "var(--color-text)" }}>למה עכשיו: </strong>
-          {context.why_now}
-        </div>
-      ) : null}
-      {context.recommended_step ? (
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 12,
-            color: "var(--color-primary)",
-          }}
-        >
-          <Sparkles size={12} />
-          <span>{context.recommended_step}</span>
-        </div>
-      ) : null}
-    </div>
   );
 }
 

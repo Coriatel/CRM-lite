@@ -17,11 +17,9 @@ import {
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
 import { EmptyState } from "../components/EmptyState";
-import type {
-  AttentionItem,
-  AttentionUrgency,
-} from "../data/amutaAttention";
+import type { AttentionItem } from "../data/amutaAttention";
 import { useAmutaAttention } from "../data/useAmutaAttention";
+import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
 
 interface PeopleCounts {
   followUpDue: number;
@@ -232,20 +230,6 @@ export function TodayPage() {
   );
 }
 
-const URGENCY_LABEL: Record<AttentionUrgency, string> = {
-  critical: "דחוף מאוד",
-  high: "דחוף",
-  normal: "רגיל",
-  low: "נמוך",
-};
-
-const URGENCY_COLOR: Record<AttentionUrgency, string> = {
-  critical: "var(--color-danger)",
-  high: "var(--color-danger)",
-  normal: "var(--color-text-secondary)",
-  low: "var(--color-text-secondary)",
-};
-
 function AttentionSectionHeader({
   loading,
   onRefresh,
@@ -358,34 +342,7 @@ function AttentionCard({
           }}
         >
           {items.map((it) => (
-            <li
-              key={it.id}
-              style={{
-                borderInlineStart: `3px solid ${URGENCY_COLOR[it.urgency]}`,
-                paddingInlineStart: 10,
-              }}
-            >
-              <div style={{ fontSize: 14, fontWeight: 600 }}>
-                {it.href ? (
-                  <Link
-                    to={it.href}
-                    style={{ color: "inherit", textDecoration: "none" }}
-                  >
-                    {it.title}
-                  </Link>
-                ) : (
-                  it.title
-                )}
-              </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                {URGENCY_LABEL[it.urgency]} · {it.next_action}
-              </div>
-            </li>
+            <AttentionQueueCard key={it.id} item={it} dense />
           ))}
         </ul>
       )}
