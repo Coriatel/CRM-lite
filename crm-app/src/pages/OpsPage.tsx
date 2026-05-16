@@ -94,6 +94,42 @@ export function actionableProcesses(doc: ProcessesDoc | null): ProcessRow[] {
   return all.filter((p) => p.verdict && p.verdict !== "RESOLVED_NO_ACTION");
 }
 
+export type PushIsolationSnapshot = {
+  ts?: string;
+  head?: string;
+  window_commits?: number;
+  trailed?: number;
+  untrailed?: number;
+  coverage_pct?: number;
+  untrailed_by_author?: Record<string, number>;
+  distinct_session_ids?: number;
+};
+
+// Anything older than this is "stale" — snapshot writer runs every few minutes.
+export const PUSH_ISOLATION_STALE_HOURS = 2;
+
+export function pushIsolationAgeHours(
+  snap: PushIsolationSnapshot | null,
+  now: Date = new Date(),
+): number | null {
+  if (!snap?.ts) return null;
+  const t = Date.parse(snap.ts);
+  if (Number.isNaN(t)) return null;
+  return (now.getTime() - t) / 3_600_000;
+}
+
+export function isPushIsolationStale(
+  snap: PushIsolationSnapshot | null,
+  now: Date = new Date(),
+): boolean {
+  const age = pushIsolationAgeHours(snap, now);
+  return age === null || age > PUSH_ISOLATION_STALE_HOURS;
+}
+
+export function hasPushIsolationSnapshot(snap: PushIsolationSnapshot | null): boolean {
+  return !!snap && typeof snap.ts === "string" && snap.ts.length > 0;
+}
+
 type ActiveSession = {
   id: string;
   lane?: string | null;
@@ -658,13 +694,14 @@ export function OpsPage() {
   const [activeSessions, setActiveSessions] = useState<ActiveSessionsDoc | null>(null);
   const [dependencies, setDependencies] = useState<DependenciesDoc | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowsDoc | null>(null);
+  const [pushIsolation, setPushIsolation] = useState<PushIsolationSnapshot | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -679,6 +716,7 @@ export function OpsPage() {
         fetchJson<ActiveSessionsDoc>("/ops-data/active_sessions.json"),
         fetchJson<DependenciesDoc>("/ops-data/dependencies.json"),
         fetchJson<WorkflowsDoc>("/ops-data/workflows.json"),
+        fetchJson<PushIsolationSnapshot>("/ops-data/push-isolation-latest.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -700,6 +738,7 @@ export function OpsPage() {
       setActiveSessions(as ?? null);
       setDependencies(dp ?? null);
       setWorkflows(wf ?? null);
+      setPushIsolation(hasPushIsolationSnapshot(pi) ? pi : null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -759,6 +798,7 @@ export function OpsPage() {
       <ActiveIncidentsCard incidents={activeIncidents} />
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
+      <PushIsolationCard snap={pushIsolation} />
       <RuntimeContinuityCard doc={handoffs} />
       <HandoffsCard doc={handoffs} />
       <RuntimeIssuesCard doc={runtimeIssues} />
@@ -1526,6 +1566,71 @@ function ActiveIncidentsCard({ incidents }: { incidents: string[] }) {
             {s}
           </li>
         ))}
+      </ul>
+    </section>
+  );
+}
+
+function PushIsolationCard({ snap }: { snap: PushIsolationSnapshot | null }) {
+  if (!snap) return null;
+  const age = pushIsolationAgeHours(snap);
+  const stale = isPushIsolationStale(snap);
+  const cov = typeof snap.coverage_pct === "number" ? snap.coverage_pct : null;
+  const lowCoverage = cov !== null && cov < 50;
+  const warn = stale || lowCoverage;
+  const ageLabel =
+    age === null
+      ? "?"
+      : age < 1
+        ? `${Math.round(age * 60)} דק'`
+        : `${age.toFixed(1)} שע'`;
+  const authors = Object.entries(snap.untrailed_by_author ?? {})
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1]);
+  return (
+    <section
+      aria-label="בידוד פוש"
+      style={{
+        ...overviewCard,
+        background: warn ? "#fffbeb" : "#f8fafc",
+        borderColor: warn ? "#fde68a" : "#e2e8f0",
+      }}
+    >
+      <div style={{ ...overviewHead, color: warn ? "#92400e" : "#334155" }}>
+        <span>בידוד פוש · snapshot</span>
+        <span style={{ ...overviewCount, color: warn ? "#b45309" : "#475569" }}>
+          {cov === null ? "?" : `${cov.toFixed(0)}%`}
+        </span>
+      </div>
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          display: "grid",
+          gap: 4,
+          fontSize: 13,
+          color: warn ? "#78350f" : "#334155",
+          lineHeight: 1.5,
+        }}
+      >
+        <li>
+          גיל: <strong>{ageLabel}</strong>
+          {stale ? " · מיושן (>2 שע')" : ""}
+        </li>
+        <li>
+          head: <code>{snap.head ?? "?"}</code> · חלון: {snap.window_commits ?? "?"} · trailed:{" "}
+          {snap.trailed ?? 0}/{(snap.trailed ?? 0) + (snap.untrailed ?? 0)}
+        </li>
+        {typeof snap.distinct_session_ids === "number" && (
+          <li>sessions מובחנים: {snap.distinct_session_ids}</li>
+        )}
+        {authors.length > 0 && (
+          <li>
+            untrailed:{" "}
+            {authors.map(([a, n]) => `${a}=${n}`).join(" · ")}
+          </li>
+        )}
       </ul>
     </section>
   );
