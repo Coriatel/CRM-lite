@@ -151,6 +151,19 @@ export function TodayPage() {
         items={attention?.needsElron ?? null}
         error={attentionError}
         source={attentionSource}
+        footer={
+          <Link
+            to="/elron"
+            style={{
+              fontSize: 13,
+              color: "var(--color-primary)",
+              fontWeight: 500,
+              textDecoration: "none",
+            }}
+          >
+            פתח תור אלרון מלא ←
+          </Link>
+        }
       />
       <AttentionCard
         icon={<BookHeart size={20} />}

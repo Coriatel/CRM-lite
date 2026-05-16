@@ -43,6 +43,11 @@ const RabbiQueuePage = lazy(() =>
     default: m.RabbiQueuePage,
   })),
 );
+const ElronQueuePage = lazy(() =>
+  import("./pages/ElronQueuePage").then((m) => ({
+    default: m.ElronQueuePage,
+  })),
+);
 
 import { AppShell } from "./components/layout/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -58,6 +63,7 @@ const ROUTE_WHITELIST = [
   "/calls-today",
   "/ops",
   "/rabbi",
+  "/elron",
 ];
 
 function RouteTracker() {
@@ -141,6 +147,7 @@ function AppContent() {
           <Route path="calls-today" element={<CallsTodayPage />} />
           <Route path="ops" element={<OpsPage />} />
           <Route path="rabbi" element={<RabbiQueuePage />} />
+          <Route path="elron" element={<ElronQueuePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="people"
