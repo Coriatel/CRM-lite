@@ -1057,6 +1057,56 @@ export async function getRecentStageTransitions(
   return json.data;
 }
 
+// ---------- attention_items (Phase 6c read-through) ----------
+
+export interface DirectusAttentionItem {
+  id: string;
+  title: string;
+  owner: "elron" | "rav" | "system";
+  urgency: "low" | "normal" | "high" | "critical";
+  status: "open" | "blocked" | "waiting" | "stale" | "done";
+  domain:
+    | "people"
+    | "lessons"
+    | "tasks"
+    | "content"
+    | "finance"
+    | "automation"
+    | "runtime";
+  next_action: string;
+  href: string | null;
+  source: "manual" | "projection" | "import";
+  source_ref: string | null;
+  pinned: boolean | null;
+  snoozed_until: string | null;
+  dismissed_at: string | null;
+  note: string | null;
+}
+
+/**
+ * Live attention_items rows that are visible right now.
+ * Filters dismissed (dismissed_at IS NOT NULL) and future-snoozed rows server-side.
+ */
+export async function getAttentionItems(
+  limit = 100,
+): Promise<DirectusAttentionItem[]> {
+  const nowIso = new Date().toISOString();
+  const fields =
+    "id,title,owner,urgency,status,domain,next_action,href,source," +
+    "source_ref,pinned,snoozed_until,dismissed_at,note";
+  const qs = buildQuery({
+    fields,
+    "filter[dismissed_at][_null]": "true",
+    "filter[_or][0][snoozed_until][_null]": "true",
+    "filter[_or][1][snoozed_until][_lte]": nowIso,
+    sort: "urgency,-pinned",
+    limit: String(limit),
+  });
+  const res = await directusFetch(`/items/attention_items${qs}`);
+  const json: DirectusResponse<DirectusAttentionItem[]> = await res.json();
+  return json.data;
+}
+
 /** Contacts with a follow_up_date on or before today that have not been actioned. */
 export async function getFollowUpCandidates(
   limit = 50,

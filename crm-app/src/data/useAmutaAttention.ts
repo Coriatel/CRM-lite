@@ -4,6 +4,7 @@ import {
   loadAmutaAttention,
   type AttentionBuckets,
 } from "./amutaAttention";
+import { loadAmutaAttentionItems } from "./amutaAttentionItems";
 import { loadAmutaAttentionProjection } from "./amutaAttentionProjection";
 
 export interface UseAmutaAttention {
@@ -28,6 +29,18 @@ export function useAmutaAttention(): UseAmutaAttention {
     setLoading(true);
     setError(null);
     (async () => {
+      try {
+        const stored = await loadAmutaAttentionItems();
+        if (cancelled) return;
+        if (stored.items.length > 0) {
+          setBuckets(bucketAttention(stored.items));
+          setSource(stored.source);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // fall through to projection
+      }
       try {
         const projection = await loadAmutaAttentionProjection();
         if (cancelled) return;
