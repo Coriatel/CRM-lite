@@ -872,6 +872,23 @@ export function managementCockpitDisplayState(
   return allExplicitlyNotConfigured ? "defined_no_queue" : "live";
 }
 
+// Renders the cockpit's last write timestamp as a Hebrew phrase, e.g.
+// "מעודכן: לפני 2 שע'". Returns null when generated_at is missing or
+// unparseable so the caller can skip rendering. The producer
+// (build-management-cockpit.py per envelope §4.1) sets _meta.generated_at on
+// every emit; _meta.updated_at tracks queue activity (not yet meaningful with
+// no real queue wired). generated_at is the only freshness signal an operator
+// can act on today.
+export function formatManagementCockpitFreshness(
+  doc: ManagementCockpitDoc | null,
+  now: Date = new Date(),
+): string | null {
+  const ts = doc?._meta?.generated_at;
+  if (!ts) return null;
+  if (Number.isNaN(new Date(ts).getTime())) return null;
+  return `מעודכן: ${relativeTimeHe(ts, now)}`;
+}
+
 export function managementCockpitSummary(
   doc: ManagementCockpitDoc | null,
 ): ManagementCockpitSummary {
@@ -2742,6 +2759,7 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
   const groups = doc?.groups ?? [];
   const automationOn = doc?._meta?.automation_active === true;
   const executorOn = doc?._meta?.executor_active === true;
+  const freshness = state === "no_source" ? null : formatManagementCockpitFreshness(doc);
   const headerCount =
     state === "no_source"
       ? "אין נתונים עדיין"
@@ -2798,6 +2816,14 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
               value={executorOn ? "פעיל" : "לא פעיל"}
             />
           </div>
+          {freshness && (
+            <div
+              data-testid="management-cockpit-freshness"
+              style={{ ...subLine, marginTop: 6, color: "#15803d" }}
+            >
+              {freshness}
+            </div>
+          )}
           {groups.length > 0 && (
             <ul
               data-testid="management-cockpit-defined-groups"
@@ -2850,6 +2876,14 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
             <ManagementCockpitMetric label="ל-owner" value={summary.needs_owner} />
             <ManagementCockpitMetric label="לרב" value={summary.needs_rabbi} />
           </div>
+          {freshness && (
+            <div
+              data-testid="management-cockpit-freshness"
+              style={{ ...subLine, marginTop: 6, color: "#15803d" }}
+            >
+              {freshness}
+            </div>
+          )}
           {groups.length > 0 && (
             <ul
               style={{
