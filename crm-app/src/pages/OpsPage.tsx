@@ -765,6 +765,81 @@ export type ExecutionStatusCounts = {
   skipped: number;
 };
 
+// Shape contract:
+//   ops-vault projects/merkaz-neshama-os/lane-a/management-cockpit-v0.md §4
+// Operator-facing projection on top of the operational queue. v0 is structural,
+// not content-bearing: no PII, no donor names, no amounts.
+export type ManagementCockpitGroup = {
+  id: string;
+  display_name: string;
+  status?: "active" | "paused" | "archived";
+  summary?: ManagementCockpitSummary;
+  last_activity_at?: string | null;
+};
+
+export type ManagementCockpitInboxItem = {
+  id: string;
+  group_id: string;
+  lifecycle:
+    | "new"
+    | "assigned"
+    | "in_progress"
+    | "waiting_on_owner"
+    | "waiting_on_rabbi"
+    | "blocked"
+    | "done";
+  urgency_band?: "today" | "this_week" | "later";
+  gate_role?: "owner" | "rabbi" | null;
+  summary_text?: string;
+  ingest_ts?: string;
+};
+
+export type ManagementCockpitSummary = {
+  groups: number;
+  open_items: number;
+  blocked: number;
+  needs_owner: number;
+  needs_rabbi: number;
+};
+
+export type ManagementCockpitDoc = {
+  _meta?: {
+    schema_version?: string;
+    source?: string;
+    source_missing?: boolean;
+    generated_default?: boolean;
+    automation_active?: boolean;
+    updated_at?: string | null;
+  };
+  groups?: ManagementCockpitGroup[];
+  inbox?: ManagementCockpitInboxItem[];
+  owner_gates?: ManagementCockpitInboxItem[];
+  summary?: ManagementCockpitSummary;
+};
+
+// Honesty rule per contract §4.2: if no writer has produced the file, the card
+// must render the "no data yet" state. Returns true when the doc is missing,
+// flagged generated_default, or has source_missing.
+export function isManagementCockpitDefault(doc: ManagementCockpitDoc | null): boolean {
+  if (!doc) return true;
+  if (doc._meta?.source_missing === true) return true;
+  if (doc._meta?.generated_default === true) return true;
+  return false;
+}
+
+export function managementCockpitSummary(
+  doc: ManagementCockpitDoc | null,
+): ManagementCockpitSummary {
+  const s = doc?.summary;
+  return {
+    groups: s?.groups ?? 0,
+    open_items: s?.open_items ?? 0,
+    blocked: s?.blocked ?? 0,
+    needs_owner: s?.needs_owner ?? 0,
+    needs_rabbi: s?.needs_rabbi ?? 0,
+  };
+}
+
 // "blocked" in the UI maps to schema outcome "aborted" — schema vocab is the
 // agent's perspective (the attempt was aborted), UI vocab is the item's
 // perspective (it is blocked from progress). Keep this mapping in one place.
@@ -983,13 +1058,15 @@ export function OpsPage() {
   const [queueRoutes, setQueueRoutes] = useState<QueueRoutesDoc | null>(null);
   const [queuePlan, setQueuePlan] = useState<QueueReceiptDoc>(null);
   const [queueReceipts, setQueueReceipts] = useState<QueueReceiptDoc>(null);
+  const [managementCockpit, setManagementCockpit] =
+    useState<ManagementCockpitDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -1010,6 +1087,7 @@ export function OpsPage() {
         fetchJson<QueueRoutesDoc>("/ops-data/queue_routes.json"),
         fetchJson<QueueReceiptDoc>("/ops-data/queue_plan.json"),
         fetchJson<QueueReceiptDoc>("/ops-data/queue_receipts.json"),
+        fetchJson<ManagementCockpitDoc>("/ops-data/management_cockpit.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -1037,6 +1115,7 @@ export function OpsPage() {
       setQueueRoutes(qr ?? null);
       setQueuePlan(qp ?? null);
       setQueueReceipts(qrc ?? null);
+      setManagementCockpit(mc ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -1092,6 +1171,7 @@ export function OpsPage() {
         plan={queuePlan}
         receipts={queueReceipts}
       />
+      <ManagementCockpitCard doc={managementCockpit} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
@@ -2599,6 +2679,103 @@ export function OperationalQueueCard({
         </>
       )}
     </section>
+  );
+}
+
+// Management cockpit v0 — operator-facing projection.
+// Contract: ops-vault projects/merkaz-neshama-os/lane-a/management-cockpit-v0.md
+// Always renders (never returns null on empty): the surface must be visible so
+// the operator knows the cockpit exists and is honest about its source state.
+export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | null }) {
+  const isDefault = isManagementCockpitDefault(doc);
+  const summary = managementCockpitSummary(doc);
+  const groups = doc?.groups ?? [];
+  return (
+    <section
+      aria-label="ניהול עמותה"
+      data-testid="management-cockpit-card"
+      style={{
+        ...overviewCard,
+        background: "#f0fdf4",
+        borderColor: "#bbf7d0",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#166534" }}>
+        <span>ניהול עמותה · MN-OS</span>
+        <span style={{ ...overviewCount, color: "#15803d" }}>
+          {isDefault ? "אין נתונים עדיין" : `${summary.open_items} פתוחים`}
+        </span>
+      </div>
+      {isDefault ? (
+        <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.5 }}>
+          מקור עדיין לא קיים — לא רץ כותב לקובץ
+          {" "}<code style={{ fontSize: 11 }}>management_cockpit.json</code>.
+          התצוגה תופיע אוטומטית כשהמקור יתחיל לכתוב.
+          <div style={{ ...subLine, marginTop: 4, color: "#15803d" }}>
+            <span data-testid="management-cockpit-source-missing">מצב: ברירת מחדל · אוטומציה: לא פעילה</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+              gap: 6,
+              fontSize: 12,
+              color: "#166534",
+            }}
+          >
+            <ManagementCockpitMetric label="קבוצות" value={summary.groups} />
+            <ManagementCockpitMetric label="פתוחים" value={summary.open_items} />
+            <ManagementCockpitMetric label="חסומים" value={summary.blocked} />
+            <ManagementCockpitMetric label="ל-owner" value={summary.needs_owner} />
+            <ManagementCockpitMetric label="לרב" value={summary.needs_rabbi} />
+          </div>
+          {groups.length > 0 && (
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: "8px 0 0",
+                display: "grid",
+                gap: 4,
+                fontSize: 12,
+                color: "#14532d",
+              }}
+            >
+              {groups.slice(0, 10).map((g) => (
+                <li key={g.id} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span>{g.display_name || g.id}</span>
+                  <span style={{ color: "#15803d" }}>
+                    {g.summary?.open_items ?? 0} פתוחים · {g.summary?.blocked ?? 0} חסומים
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function ManagementCockpitMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 2,
+        padding: "4px 2px",
+        borderRadius: 6,
+        background: "#dcfce7",
+      }}
+    >
+      <span style={{ fontWeight: 600, fontSize: 16, color: "#14532d" }}>{value}</span>
+      <span style={{ fontSize: 10, color: "#166534" }}>{label}</span>
+    </div>
   );
 }
 

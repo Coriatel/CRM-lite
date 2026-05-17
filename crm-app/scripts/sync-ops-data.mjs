@@ -31,15 +31,48 @@ const files = [
   "queue_routes.json",
   "queue_plan.json",
   "queue_receipts.json",
+  "management_cockpit.json",
 ];
 
-// Truthful empty envelope for files OpsPage consumes via parseReceipts. Bare `{}`
-// would parse identically empty but loses the fact that the executor has never
-// run; `_meta.executor_inactive` keeps the signal so a future UI slice can
-// surface inactivity without implying automation that does not exist yet.
-export const ENVELOPE_DEFAULT_FILES = new Set(["queue_plan.json", "queue_receipts.json"]);
+// Truthful empty envelope for files OpsPage consumes via parseReceipts or the
+// management cockpit projection. Bare `{}` would parse identically empty but
+// loses the fact that no writer has ever run; `_meta.executor_inactive` /
+// `_meta.source_missing` keep the signal so a UI slice can surface inactivity
+// without implying automation that does not exist yet.
+export const ENVELOPE_DEFAULT_FILES = new Set([
+  "queue_plan.json",
+  "queue_receipts.json",
+  "management_cockpit.json",
+]);
 
 export function envelopeDefault(name, nowIso = new Date().toISOString()) {
+  if (name === "management_cockpit.json") {
+    // Shape per projects/merkaz-neshama-os/lane-a/management-cockpit-v0.md §4.
+    // Honesty rule §4.2.3: generated_default=true ⇒ all counts must be 0.
+    return {
+      _meta: {
+        schema_version: "v0",
+        source: "ops-vault projections/management-cockpit",
+        source_missing: true,
+        generated_default: true,
+        automation_active: false,
+        updated_at: null,
+        generated_at: nowIso,
+        file: name,
+        writer: "scripts/sync-ops-data.mjs",
+      },
+      groups: [],
+      inbox: [],
+      owner_gates: [],
+      summary: {
+        groups: 0,
+        open_items: 0,
+        blocked: 0,
+        needs_owner: 0,
+        needs_rabbi: 0,
+      },
+    };
+  }
   return {
     _meta: {
       source: "missing",
