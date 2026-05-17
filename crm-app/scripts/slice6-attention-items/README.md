@@ -1,11 +1,14 @@
-# Slice #6 schema — `attention_items` (PROPOSAL — NOT APPLIED)
+# Slice #6 schema — `attention_items` (Phase 6a — APPROVED, NOT YET APPLIED IN PROD)
 
-Owner-gated proposal for promoting the `/today` Daily Attention surface from
+Owner-gated migration for promoting the `/today` Daily Attention surface from
 **read-only projection** to a **persisted, owner-editable** list.
 
-**Status:** PROPOSAL ONLY. No Directus schema or production data has been changed.
-The `apply.py` in this directory is hard-wired to `--dry-run`; it prints
-intended actions and never calls Directus or Postgres.
+**Status:** Phase 6a tooling shipped (`apply.py` / `validate.py` / `rollback.sh`).
+The schema has **not yet been applied in production** — `apply.py` defaults to
+dry-run and refuses to mutate without `BASELINE` env var. Run as owner per
+§"Run order — owner only" below.
+
+Phases 6b (seed) and 6d (UI writes) remain gated until Phase 6a validates green.
 
 Follows the convention of `slice4-schema/` and `slice5-cohorts/`.
 
@@ -146,12 +149,39 @@ is dropped, because `useAmutaAttention` keeps the projection path as fallback.
 
 ```bash
 cd crm-app/scripts/slice6-attention-items
-python3 apply.py            # prints intended actions; no network calls
-python3 apply.py --apply    # blocked — prints "PROPOSAL ONLY" and exits 2
+python3 apply.py            # prints intended actions; no network, no SQL
 ```
 
-Output documents the exact Directus REST calls and SQL statements that the
-real `apply.py` (written after approval) would execute.
+Output documents the exact Directus REST calls and SQL statements that
+`apply.py --apply` will execute when run by the owner.
+
+## Run order — owner only
+
+Phase 6a is owner-run in production. CI does NOT apply.
+
+```bash
+# 0. Confirm prod env vars are set
+echo "$DIRECTUS_URL $DIRECTUS_ADMIN_TOKEN" | wc -w   # expect 2
+
+# 1. Baseline (mandatory — apply.py and rollback.sh both refuse without it)
+sudo docker exec hycrm-directus-db pg_dump -U hycrm -d hycrm \
+    -t attention_items > /tmp/slice6-pre.dump
+ls -l /tmp/slice6-pre.dump   # expect non-zero size even if table absent
+
+# 2. Apply (interactive 'yes' confirmation; --yes skips it for non-tty)
+BASELINE=/tmp/slice6-pre.dump python3 apply.py --apply
+
+# 3. Validate (read-only; exit 0 = green)
+python3 validate.py
+
+# 4. (Only if validate fails or owner aborts)
+BASELINE=/tmp/slice6-pre.dump bash rollback.sh
+```
+
+`apply.py --apply` without `BASELINE` exits 2.
+`apply.py --apply` without `DIRECTUS_URL` / `DIRECTUS_ADMIN_TOKEN` exits 2.
+`rollback.sh` without `BASELINE` exits 2.
+`apply.py` is idempotent — re-running skips anything that already exists.
 
 ---
 
