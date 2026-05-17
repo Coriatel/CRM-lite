@@ -626,6 +626,93 @@ export function openRuntimeIssues(doc: RuntimeIssuesDoc | null): RuntimeIssue[] 
     });
 }
 
+// Operational queue — unified routable view across runtime producers.
+// Schema: /srv/ops-vault/state/queue_item.schema.json
+// Contract: /srv/ops-vault/concepts/operational-queue.md
+export type OperationalQueueSeverity = "info" | "low" | "medium" | "high" | "critical";
+export type OperationalQueueType =
+  | "runtime_issue"
+  | "blocker"
+  | "degraded_workflow"
+  | "failed_endpoint"
+  | "failed_unit"
+  | "false_stop"
+  | "owner_gate"
+  | "stale_projection"
+  | "verifier_failure"
+  | "handoff_ready"
+  | "blocked_session";
+
+export type OperationalQueueItem = {
+  id: string;
+  type: OperationalQueueType;
+  severity: OperationalQueueSeverity;
+  lane?: string | null;
+  source: { producer: string; ref: string; url?: string | null };
+  created_at: string;
+  freshness: "fresh" | "stale" | "unknown";
+  retryable: boolean;
+  owner_gate: boolean;
+  owner_gate_kind?: string | null;
+  continuation_candidate: boolean;
+  blocker_type?: string | null;
+  suggested_action: string;
+  assigned_agent?: string | null;
+  session_reference?: string | null;
+  repo_path?: string | null;
+  reversibility: "reversible" | "risky" | "irreversible" | "unknown";
+  operational_priority: number;
+  summary: string;
+};
+
+export type OperationalQueueDoc = {
+  _meta?: {
+    schema_version?: number;
+    materialized_at?: string;
+    producers?: string[];
+    item_count?: number;
+  };
+  queue?: OperationalQueueItem[];
+};
+
+export type OperationalQueueGroups = {
+  actionable: OperationalQueueItem[];
+  awaitingOwner: OperationalQueueItem[];
+  total: number;
+};
+
+// Split the queue into actionable (no owner gate) vs awaiting-owner. Within
+// each bucket, sort by operational_priority desc (the materializer already
+// emits this order, but defending the consumer makes the surface robust to
+// future projection changes). Stale items drop to the bottom of their bucket.
+export function operationalQueueGroups(
+  doc: OperationalQueueDoc | null,
+): OperationalQueueGroups {
+  const all = doc?.queue ?? [];
+  const sortFn = (a: OperationalQueueItem, b: OperationalQueueItem) => {
+    const aStale = a.freshness === "stale" ? 1 : 0;
+    const bStale = b.freshness === "stale" ? 1 : 0;
+    if (aStale !== bStale) return aStale - bStale;
+    if (b.operational_priority !== a.operational_priority) {
+      return b.operational_priority - a.operational_priority;
+    }
+    return a.id.localeCompare(b.id);
+  };
+  const actionable = all.filter((i) => !i.owner_gate).slice().sort(sortFn);
+  const awaitingOwner = all.filter((i) => i.owner_gate).slice().sort(sortFn);
+  return { actionable, awaitingOwner, total: all.length };
+}
+
+// Collapse the schema's 5-level severity onto the OpsPage 4-level SeverityLevel
+// for visual reuse (critical → high; info → low). Keep the schema enum on the
+// data side; only fold at render time.
+export function severityFromQueue(s: OperationalQueueSeverity): SeverityLevel {
+  if (s === "critical" || s === "high") return "high";
+  if (s === "medium") return "medium";
+  if (s === "low" || s === "info") return "low";
+  return "unknown";
+}
+
 type StaleEntry = { name: string; hours: number };
 
 function stalenessEntries(
@@ -779,13 +866,15 @@ export function OpsPage() {
   const [pushIsolation, setPushIsolation] = useState<PushIsolationSnapshot | null>(null);
   const [runtimeContinuity, setRuntimeContinuity] =
     useState<RuntimeContinuityDoc | null>(null);
+  const [operationalQueue, setOperationalQueue] =
+    useState<OperationalQueueDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -802,6 +891,7 @@ export function OpsPage() {
         fetchJson<WorkflowsDoc>("/ops-data/workflows.json"),
         fetchJson<PushIsolationSnapshot>("/ops-data/push-isolation-latest.json"),
         fetchJson<RuntimeContinuityDoc>("/ops-data/runtime-continuity.json"),
+        fetchJson<OperationalQueueDoc>("/ops-data/operational_queue.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -825,6 +915,7 @@ export function OpsPage() {
       setWorkflows(wf ?? null);
       setPushIsolation(hasPushIsolationSnapshot(pi) ? pi : null);
       setRuntimeContinuity(rc ?? null);
+      setOperationalQueue(oq ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -874,6 +965,7 @@ export function OpsPage() {
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
+      <OperationalQueueCard doc={operationalQueue} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
@@ -2058,6 +2150,137 @@ function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+const queueTypeLabel: Record<OperationalQueueType, string> = {
+  runtime_issue: "תקלת runtime",
+  blocker: "חוסם",
+  degraded_workflow: "תהליך מושבת",
+  failed_endpoint: "endpoint נפל",
+  failed_unit: "systemd unit",
+  false_stop: "false stop",
+  owner_gate: "owner gate",
+  stale_projection: "פרויקציה ישנה",
+  verifier_failure: "verifier כשל",
+  handoff_ready: "handoff מוכן",
+  blocked_session: "session חסומה",
+};
+
+function OperationalQueueRow({ item }: { item: OperationalQueueItem }) {
+  const lvl = severityFromQueue(item.severity);
+  return (
+    <li
+      style={{
+        fontSize: 12,
+        color: "#1f2937",
+        borderTop: "1px solid #e5e7eb",
+        paddingTop: 6,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 500 }}>{item.summary}</span>
+        <span style={{ display: "inline-flex", gap: 6 }}>
+          {item.owner_gate && (
+            <span
+              style={{
+                ...pill,
+                background: "#fef3c7",
+                color: "#92400e",
+                fontWeight: 600,
+              }}
+              title={item.owner_gate_kind ?? "owner gate"}
+            >
+              GATE
+            </span>
+          )}
+          {item.retryable && (
+            <span
+              style={{ ...pill, background: "#dbeafe", color: "#1e40af" }}
+              title="retryable"
+            >
+              ↻
+            </span>
+          )}
+          <span
+            style={{
+              ...pill,
+              background: severityPillBg[lvl],
+              color: severityPillFg[lvl],
+            }}
+            title={item.severity}
+          >
+            P{item.operational_priority}
+          </span>
+        </span>
+      </div>
+      <div style={subLine}>
+        <code style={{ fontSize: 11 }}>{queueTypeLabel[item.type]}</code>
+        {" · "}
+        <code style={{ fontSize: 11 }}>{item.source.producer}</code>
+        {item.lane ? ` · lane: ${item.lane}` : ""}
+        {item.freshness === "stale" ? " · stale" : ""}
+      </div>
+      {item.suggested_action && (
+        <div style={subLine}>{item.suggested_action}</div>
+      )}
+    </li>
+  );
+}
+
+function OperationalQueueCard({ doc }: { doc: OperationalQueueDoc | null }) {
+  const { actionable, awaitingOwner, total } = operationalQueueGroups(doc);
+  if (total === 0) return null;
+  return (
+    <section
+      aria-label="תור תפעולי"
+      style={{
+        ...overviewCard,
+        background: "#f5f3ff",
+        borderColor: "#ddd6fe",
+      }}
+    >
+      <div style={{ ...overviewHead, color: "#5b21b6" }}>
+        <span>תור תפעולי · MN-OS</span>
+        <span style={{ ...overviewCount, color: "#6d28d9" }}>{total}</span>
+      </div>
+      <div style={{ fontSize: 11, color: "#6d28d9", marginBottom: 6 }}>
+        {actionable.length} זמינים לעיבוד · {awaitingOwner.length} ממתינים ל-owner
+      </div>
+      {actionable.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#5b21b6", marginTop: 4 }}>
+            זמינים לעיבוד
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+            {actionable.slice(0, 20).map((i) => (
+              <OperationalQueueRow key={i.id} item={i} />
+            ))}
+          </ul>
+        </>
+      )}
+      {awaitingOwner.length > 0 && (
+        <>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#92400e",
+              marginTop: 10,
+              borderTop: "1px dashed #fde68a",
+              paddingTop: 6,
+            }}
+          >
+            ממתינים ל-owner
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+            {awaitingOwner.slice(0, 20).map((i) => (
+              <OperationalQueueRow key={i.id} item={i} />
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

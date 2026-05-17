@@ -27,6 +27,7 @@ const files = [
   "_freshness.json",
   "_meta.json",
   "runtime-continuity.json",
+  "operational_queue.json",
 ];
 
 mkdirSync(out, { recursive: true });
