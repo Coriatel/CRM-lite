@@ -24,6 +24,8 @@ const files = [
   "dependencies.json",
   "workflows.json",
   "handoffs_index.json",
+  "_freshness.json",
+  "_meta.json",
 ];
 
 mkdirSync(out, { recursive: true });
