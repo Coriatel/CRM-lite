@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import {
   ManagementCockpitCard,
+  formatManagementCockpitFreshness,
   isManagementCockpitDefault,
   isManagementCockpitGroupQueueConnected,
   managementCockpitDisplayState,
@@ -9,6 +10,8 @@ import {
   managementCockpitSummary,
   type ManagementCockpitDoc,
 } from "./OpsPage";
+
+const FROZEN_NOW = new Date("2026-05-17T18:00:00Z");
 
 const safeEmpty: ManagementCockpitDoc = {
   _meta: {
@@ -329,6 +332,120 @@ describe("ManagementCockpitCard — defined_no_queue (production shape)", () => 
     // The metric labels live only inside the live-state grid.
     expect(within(card).queryByText(/^קבוצות$/)).toBeNull();
     expect(within(card).queryByText(/^פתוחים$/)).toBeNull();
+  });
+});
+
+describe("formatManagementCockpitFreshness", () => {
+  it("returns null for a null doc", () => {
+    expect(formatManagementCockpitFreshness(null, FROZEN_NOW)).toBeNull();
+  });
+
+  it("returns null when _meta is absent", () => {
+    expect(formatManagementCockpitFreshness({}, FROZEN_NOW)).toBeNull();
+  });
+
+  it("returns null when _meta.generated_at is missing", () => {
+    expect(
+      formatManagementCockpitFreshness({ _meta: { schema_version: "v0" } }, FROZEN_NOW),
+    ).toBeNull();
+  });
+
+  it("returns null when _meta.generated_at is null", () => {
+    expect(
+      formatManagementCockpitFreshness({ _meta: { generated_at: null } }, FROZEN_NOW),
+    ).toBeNull();
+  });
+
+  it("returns null for an unparseable timestamp", () => {
+    expect(
+      formatManagementCockpitFreshness(
+        { _meta: { generated_at: "not-a-date" } },
+        FROZEN_NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("formats hours-old as 'מעודכן: לפני N שע''", () => {
+    expect(
+      formatManagementCockpitFreshness(
+        { _meta: { generated_at: "2026-05-17T16:00:00Z" } },
+        FROZEN_NOW,
+      ),
+    ).toBe("מעודכן: לפני 2 שע'");
+  });
+
+  it("formats minutes-old as 'מעודכן: לפני N דק''", () => {
+    expect(
+      formatManagementCockpitFreshness(
+        { _meta: { generated_at: "2026-05-17T17:55:00Z" } },
+        FROZEN_NOW,
+      ),
+    ).toBe("מעודכן: לפני 5 דק'");
+  });
+
+  it("formats just-now as 'מעודכן: עכשיו'", () => {
+    expect(
+      formatManagementCockpitFreshness(
+        { _meta: { generated_at: "2026-05-17T17:59:55Z" } },
+        FROZEN_NOW,
+      ),
+    ).toBe("מעודכן: עכשיו");
+  });
+});
+
+describe("ManagementCockpitCard — freshness signal rendering", () => {
+  it("renders the freshness line in defined_no_queue state when generated_at is present", () => {
+    render(<ManagementCockpitCard doc={definedNoQueue} />);
+    const line = screen.getByTestId("management-cockpit-freshness");
+    expect(line.textContent ?? "").toMatch(/^מעודכן: /);
+  });
+
+  it("omits the freshness line in defined_no_queue when generated_at is absent", () => {
+    const withoutTs: ManagementCockpitDoc = {
+      ...definedNoQueue,
+      _meta: { ...definedNoQueue._meta, generated_at: null },
+    };
+    render(<ManagementCockpitCard doc={withoutTs} />);
+    expect(screen.queryByTestId("management-cockpit-freshness")).toBeNull();
+  });
+
+  it("renders the freshness line in live state when generated_at is present", () => {
+    const live: ManagementCockpitDoc = {
+      _meta: {
+        schema_version: "v0",
+        source: "writer",
+        source_missing: false,
+        generated_default: false,
+        automation_active: true,
+        generated_at: "2026-05-17T17:55:00Z",
+      },
+      groups: [
+        {
+          id: "g",
+          display_name: "קבוצה",
+          status: "active",
+          queue_membership: { mode: "wired" },
+          summary: { groups: 0, open_items: 2, blocked: 0, needs_owner: 0, needs_rabbi: 0 },
+        },
+      ],
+      summary: { groups: 1, open_items: 2, blocked: 0, needs_owner: 0, needs_rabbi: 0 },
+    };
+    render(<ManagementCockpitCard doc={live} />);
+    const line = screen.getByTestId("management-cockpit-freshness");
+    expect(line.textContent ?? "").toMatch(/^מעודכן: /);
+  });
+
+  it("does NOT render the freshness line in no_source state even if a timestamp leaked in", () => {
+    const noSourceWithTs: ManagementCockpitDoc = {
+      _meta: {
+        source_missing: true,
+        generated_default: true,
+        generated_at: "2026-05-17T17:55:00Z",
+      },
+      groups: [],
+    };
+    render(<ManagementCockpitCard doc={noSourceWithTs} />);
+    expect(screen.queryByTestId("management-cockpit-freshness")).toBeNull();
   });
 });
 
