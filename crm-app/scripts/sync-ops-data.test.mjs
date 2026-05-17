@@ -62,10 +62,48 @@ describe("envelopeDefault wire contract", () => {
 });
 
 describe("ENVELOPE_DEFAULT_FILES", () => {
-  it("covers exactly the two new envelope files", () => {
+  it("covers the queue + management cockpit envelope files", () => {
     expect(ENVELOPE_DEFAULT_FILES.has("queue_plan.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_receipts.json")).toBe(true);
+    expect(ENVELOPE_DEFAULT_FILES.has("management_cockpit.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_routes.json")).toBe(false);
     expect(ENVELOPE_DEFAULT_FILES.has("operational_queue.json")).toBe(false);
+  });
+});
+
+describe("management_cockpit.json envelope", () => {
+  it("returns the v0 safe-empty shape with source_missing and zero counts", () => {
+    const doc = envelopeDefault("management_cockpit.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      source_missing: true,
+      generated_default: true,
+      automation_active: false,
+      updated_at: null,
+      file: "management_cockpit.json",
+    });
+    expect(doc.groups).toEqual([]);
+    expect(doc.inbox).toEqual([]);
+    expect(doc.owner_gates).toEqual([]);
+    expect(doc.summary).toEqual({
+      groups: 0,
+      open_items: 0,
+      blocked: 0,
+      needs_owner: 0,
+      needs_rabbi: 0,
+    });
+  });
+
+  it("never implies automation in the default value", () => {
+    const doc = envelopeDefault("management_cockpit.json", FIXED_ISO);
+    expect(doc._meta.automation_active).toBe(false);
+    expect(doc._meta.source_missing).toBe(true);
+  });
+
+  it("does not collide with the queue envelope shape", () => {
+    const mc = envelopeDefault("management_cockpit.json", FIXED_ISO);
+    const qp = envelopeDefault("queue_plan.json", FIXED_ISO);
+    expect("receipts" in mc).toBe(false);
+    expect("groups" in qp).toBe(false);
   });
 });
