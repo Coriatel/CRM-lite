@@ -2276,7 +2276,9 @@ function OperationalQueueRow({
   );
 }
 
-function OperationalQueueCard({
+export const OWNER_COLLAPSE_THRESHOLD = 5;
+
+export function OperationalQueueCard({
   doc,
   routes,
 }: {
@@ -2284,9 +2286,15 @@ function OperationalQueueCard({
   routes?: QueueRoutesDoc | null;
 }) {
   const { actionable, awaitingOwner, total } = operationalQueueGroups(doc);
+  const collapsible = awaitingOwner.length > OWNER_COLLAPSE_THRESHOLD;
+  const [ownerExpanded, setOwnerExpanded] = useState(false);
   if (total === 0) return null;
   const routesMap = routes?.routes ?? {};
   const summary = routes?.summary;
+  const ownerVisible = collapsible && !ownerExpanded
+    ? awaitingOwner.slice(0, OWNER_COLLAPSE_THRESHOLD)
+    : awaitingOwner.slice(0, 20);
+  const ownerHidden = awaitingOwner.length - ownerVisible.length;
   return (
     <section
       aria-label="תור תפעולי"
@@ -2327,6 +2335,10 @@ function OperationalQueueCard({
         <>
           <div
             style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
               fontSize: 11,
               fontWeight: 600,
               color: "#92400e",
@@ -2335,13 +2347,41 @@ function OperationalQueueCard({
               paddingTop: 6,
             }}
           >
-            ממתינים ל-owner
+            <span>ממתינים ל-owner ({awaitingOwner.length})</span>
+            {collapsible && (
+              <button
+                type="button"
+                onClick={() => setOwnerExpanded((v) => !v)}
+                aria-expanded={ownerExpanded}
+                aria-controls="ops-owner-gated-list"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#92400e",
+                  background: "transparent",
+                  border: "1px solid #fde68a",
+                  borderRadius: 999,
+                  padding: "1px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                {ownerExpanded ? "כווץ" : `הצג הכל (${awaitingOwner.length})`}
+              </button>
+            )}
           </div>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
-            {awaitingOwner.slice(0, 20).map((i) => (
+          <ul
+            id="ops-owner-gated-list"
+            style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}
+          >
+            {ownerVisible.map((i) => (
               <OperationalQueueRow key={i.id} item={i} route={routesMap[i.id]} />
             ))}
           </ul>
+          {collapsible && !ownerExpanded && ownerHidden > 0 && (
+            <div style={{ ...subLine, color: "#92400e", marginTop: 4 }}>
+              + {ownerHidden} מוסתרים
+            </div>
+          )}
         </>
       )}
     </section>
