@@ -688,6 +688,105 @@ export type QueueRoutesDoc = {
   routes?: Record<string, QueueRoute>;
 };
 
+// Execution-receipt projection — schema:
+// /srv/ops-vault/state/queue_receipt.schema.json
+// Read-only consumer view: only the fields the card surfaces.
+export type QueueReceiptOutcome =
+  | "planned"
+  | "started"
+  | "succeeded"
+  | "failed"
+  | "aborted"
+  | "skipped";
+
+export type QueueReceipt = {
+  id?: string;
+  item_id: string;
+  outcome: QueueReceiptOutcome;
+  retry_count: number;
+  dry_run: boolean;
+  started_at?: string | null;
+  finished_at?: string | null;
+  notes?: string;
+};
+
+// queue_plan.json / queue_receipts.json wire shape — accept either
+// {receipts:[...]} (what the planner emits) or a bare array (forward-compat
+// with a simpler future writer). Anything else is treated as empty.
+export type QueueReceiptDoc =
+  | { _meta?: Record<string, unknown>; receipts?: QueueReceipt[] }
+  | QueueReceipt[]
+  | null;
+
+export function parseReceipts(doc: QueueReceiptDoc): QueueReceipt[] {
+  if (!doc) return [];
+  const arr = Array.isArray(doc) ? doc : doc.receipts;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(
+    (r): r is QueueReceipt =>
+      !!r && typeof r === "object" && typeof r.item_id === "string" && typeof r.outcome === "string",
+  );
+}
+
+// Per item, pick the most-recent non-planned receipt (executor took action).
+// Tie-breaker: highest retry_count, then finished_at, then started_at.
+export function latestReceiptByItemId(
+  receipts: QueueReceipt[],
+): Record<string, QueueReceipt> {
+  const out: Record<string, QueueReceipt> = {};
+  for (const r of receipts) {
+    if (r.outcome === "planned") continue;
+    const cur = out[r.item_id];
+    if (!cur) {
+      out[r.item_id] = r;
+      continue;
+    }
+    const score = (x: QueueReceipt) =>
+      `${String(x.retry_count).padStart(6, "0")}|${x.finished_at ?? ""}|${x.started_at ?? ""}`;
+    if (score(r) > score(cur)) out[r.item_id] = r;
+  }
+  return out;
+}
+
+// Planned receipts are dry-run proposals (one per autonomous item). The card
+// shows the count + a per-item indicator, so consumers want both.
+export function plannedReceiptItemIds(receipts: QueueReceipt[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of receipts) {
+    if (r.outcome === "planned") out.add(r.item_id);
+  }
+  return out;
+}
+
+export type ExecutionStatusCounts = {
+  succeeded: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+};
+
+// "blocked" in the UI maps to schema outcome "aborted" — schema vocab is the
+// agent's perspective (the attempt was aborted), UI vocab is the item's
+// perspective (it is blocked from progress). Keep this mapping in one place.
+export function executionStatusCounts(
+  receipts: QueueReceipt[],
+): ExecutionStatusCounts {
+  const c: ExecutionStatusCounts = { succeeded: 0, failed: 0, blocked: 0, skipped: 0 };
+  for (const r of receipts) {
+    if (r.outcome === "succeeded") c.succeeded += 1;
+    else if (r.outcome === "failed") c.failed += 1;
+    else if (r.outcome === "aborted") c.blocked += 1;
+    else if (r.outcome === "skipped") c.skipped += 1;
+  }
+  return c;
+}
+
+// Per concepts/operational-queue.md §Remaining slices: retry_count >= 3 on a
+// failed attempt means the router would defer this item (max retries reached).
+export function isMaxRetries(r: QueueReceipt | undefined): boolean {
+  return !!r && r.outcome === "failed" && r.retry_count >= 3;
+}
+
 export type OperationalQueueGroups = {
   actionable: OperationalQueueItem[];
   awaitingOwner: OperationalQueueItem[];
@@ -882,13 +981,15 @@ export function OpsPage() {
   const [operationalQueue, setOperationalQueue] =
     useState<OperationalQueueDoc | null>(null);
   const [queueRoutes, setQueueRoutes] = useState<QueueRoutesDoc | null>(null);
+  const [queuePlan, setQueuePlan] = useState<QueueReceiptDoc>(null);
+  const [queueReceipts, setQueueReceipts] = useState<QueueReceiptDoc>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -907,6 +1008,8 @@ export function OpsPage() {
         fetchJson<RuntimeContinuityDoc>("/ops-data/runtime-continuity.json"),
         fetchJson<OperationalQueueDoc>("/ops-data/operational_queue.json"),
         fetchJson<QueueRoutesDoc>("/ops-data/queue_routes.json"),
+        fetchJson<QueueReceiptDoc>("/ops-data/queue_plan.json"),
+        fetchJson<QueueReceiptDoc>("/ops-data/queue_receipts.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -932,6 +1035,8 @@ export function OpsPage() {
       setRuntimeContinuity(rc ?? null);
       setOperationalQueue(oq ?? null);
       setQueueRoutes(qr ?? null);
+      setQueuePlan(qp ?? null);
+      setQueueReceipts(qrc ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -981,7 +1086,12 @@ export function OpsPage() {
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
-      <OperationalQueueCard doc={operationalQueue} routes={queueRoutes} />
+      <OperationalQueueCard
+        doc={operationalQueue}
+        routes={queueRoutes}
+        plan={queuePlan}
+        receipts={queueReceipts}
+      />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
@@ -2193,17 +2303,46 @@ const routePillStyle: Record<QueueRouteDecision, { bg: string; fg: string; label
   owner:      { bg: "#fef3c7", fg: "#92400e", label: "OWNER" },
 };
 
+// Execution-status pill colors. Mirrors the router pill palette so the two
+// rows of chips read as one visual language.
+const receiptPillStyle: Record<
+  "planned" | "started" | "succeeded" | "failed" | "blocked" | "skipped" | "max_retries",
+  { bg: string; fg: string; label: string; title: string }
+> = {
+  planned:     { bg: "#ede9fe", fg: "#5b21b6", label: "מתוכנן",  title: "dry-run planned" },
+  started:     { bg: "#e0e7ff", fg: "#3730a3", label: "רץ",       title: "started" },
+  succeeded:   { bg: "#dcfce7", fg: "#166534", label: "הצליח",   title: "succeeded" },
+  failed:      { bg: "#fee2e2", fg: "#991b1b", label: "נכשל",     title: "failed" },
+  blocked:     { bg: "#fed7aa", fg: "#9a3412", label: "חסום",     title: "aborted" },
+  skipped:     { bg: "#e5e7eb", fg: "#374151", label: "דולג",     title: "skipped" },
+  max_retries: { bg: "#fecaca", fg: "#7f1d1d", label: "מקסימום ניסיונות", title: "retry_count >= 3" },
+};
+
+function outcomeToReceiptKey(o: QueueReceiptOutcome): keyof typeof receiptPillStyle {
+  if (o === "aborted") return "blocked";
+  if (o === "planned" || o === "started" || o === "succeeded" || o === "failed" || o === "skipped") {
+    return o;
+  }
+  return "skipped";
+}
+
 function OperationalQueueRow({
   item,
   route,
+  planned,
+  latestReceipt,
 }: {
   item: OperationalQueueItem;
   route?: QueueRoute;
+  planned?: boolean;
+  latestReceipt?: QueueReceipt;
 }) {
   const lvl = severityFromQueue(item.severity);
   // Suppress the OWNER router pill when the GATE pill already says it,
   // to avoid duplicate visual noise.
   const showRoutePill = route && !(route.decision === "owner" && item.owner_gate);
+  const maxRetries = isMaxRetries(latestReceipt);
+  const statusKey = latestReceipt ? outcomeToReceiptKey(latestReceipt.outcome) : null;
   return (
     <li
       style={{
@@ -2215,7 +2354,7 @@ function OperationalQueueRow({
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontWeight: 500 }}>{item.summary}</span>
-        <span style={{ display: "inline-flex", gap: 6 }}>
+        <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
           {item.owner_gate && (
             <span
               style={{
@@ -2235,6 +2374,45 @@ function OperationalQueueRow({
               title="retryable"
             >
               ↻
+            </span>
+          )}
+          {planned && !latestReceipt && (
+            <span
+              style={{
+                ...pill,
+                background: receiptPillStyle.planned.bg,
+                color: receiptPillStyle.planned.fg,
+                fontWeight: 600,
+              }}
+              title={receiptPillStyle.planned.title}
+            >
+              {receiptPillStyle.planned.label}
+            </span>
+          )}
+          {statusKey && (
+            <span
+              style={{
+                ...pill,
+                background: receiptPillStyle[statusKey].bg,
+                color: receiptPillStyle[statusKey].fg,
+                fontWeight: 600,
+              }}
+              title={latestReceipt?.notes || receiptPillStyle[statusKey].title}
+            >
+              {receiptPillStyle[statusKey].label}
+            </span>
+          )}
+          {maxRetries && (
+            <span
+              style={{
+                ...pill,
+                background: receiptPillStyle.max_retries.bg,
+                color: receiptPillStyle.max_retries.fg,
+                fontWeight: 600,
+              }}
+              title={receiptPillStyle.max_retries.title}
+            >
+              {receiptPillStyle.max_retries.label}
             </span>
           )}
           {showRoutePill && route && (
@@ -2281,9 +2459,13 @@ export const OWNER_COLLAPSE_THRESHOLD = 5;
 export function OperationalQueueCard({
   doc,
   routes,
+  plan,
+  receipts,
 }: {
   doc: OperationalQueueDoc | null;
   routes?: QueueRoutesDoc | null;
+  plan?: QueueReceiptDoc;
+  receipts?: QueueReceiptDoc;
 }) {
   const { actionable, awaitingOwner, total } = operationalQueueGroups(doc);
   const collapsible = awaitingOwner.length > OWNER_COLLAPSE_THRESHOLD;
@@ -2291,6 +2473,11 @@ export function OperationalQueueCard({
   if (total === 0) return null;
   const routesMap = routes?.routes ?? {};
   const summary = routes?.summary;
+  const plannedIds = plannedReceiptItemIds(parseReceipts(plan ?? null));
+  const latestByItem = latestReceiptByItemId(parseReceipts(receipts ?? null));
+  const statusCounts = executionStatusCounts(parseReceipts(receipts ?? null));
+  const anyStatus =
+    statusCounts.succeeded + statusCounts.failed + statusCounts.blocked + statusCounts.skipped > 0;
   const ownerVisible = collapsible && !ownerExpanded
     ? awaitingOwner.slice(0, OWNER_COLLAPSE_THRESHOLD)
     : awaitingOwner.slice(0, 20);
@@ -2318,6 +2505,21 @@ export function OperationalQueueCard({
             </span>
           </>
         )}
+        {plannedIds.size > 0 && (
+          <>
+            {" · "}
+            <span title="dry-run planned receipts">מתוכנן {plannedIds.size}</span>
+          </>
+        )}
+        {anyStatus && (
+          <>
+            {" · "}
+            <span title="execution receipts">
+              הצליחו {statusCounts.succeeded} · נכשלו {statusCounts.failed} · חסומים {statusCounts.blocked}
+              {statusCounts.skipped > 0 ? ` · דולגו ${statusCounts.skipped}` : ""}
+            </span>
+          </>
+        )}
       </div>
       {actionable.length > 0 && (
         <>
@@ -2326,7 +2528,13 @@ export function OperationalQueueCard({
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
             {actionable.slice(0, 20).map((i) => (
-              <OperationalQueueRow key={i.id} item={i} route={routesMap[i.id]} />
+              <OperationalQueueRow
+                key={i.id}
+                item={i}
+                route={routesMap[i.id]}
+                planned={plannedIds.has(i.id)}
+                latestReceipt={latestByItem[i.id]}
+              />
             ))}
           </ul>
         </>
@@ -2374,7 +2582,13 @@ export function OperationalQueueCard({
             style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}
           >
             {ownerVisible.map((i) => (
-              <OperationalQueueRow key={i.id} item={i} route={routesMap[i.id]} />
+              <OperationalQueueRow
+                key={i.id}
+                item={i}
+                route={routesMap[i.id]}
+                planned={plannedIds.has(i.id)}
+                latestReceipt={latestByItem[i.id]}
+              />
             ))}
           </ul>
           {collapsible && !ownerExpanded && ownerHidden > 0 && (
