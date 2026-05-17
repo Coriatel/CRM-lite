@@ -29,51 +29,87 @@ const files = [
   "runtime-continuity.json",
   "operational_queue.json",
   "queue_routes.json",
+  "queue_plan.json",
+  "queue_receipts.json",
 ];
 
-mkdirSync(out, { recursive: true });
+// Truthful empty envelope for files OpsPage consumes via parseReceipts. Bare `{}`
+// would parse identically empty but loses the fact that the executor has never
+// run; `_meta.executor_inactive` keeps the signal so a future UI slice can
+// surface inactivity without implying automation that does not exist yet.
+export const ENVELOPE_DEFAULT_FILES = new Set(["queue_plan.json", "queue_receipts.json"]);
 
-for (const f of files) {
-  const src = `${vaultState}/${f}`;
-  const dst = `${out}/${f}`;
-  if (existsSync(src)) {
-    writeFileSync(dst, readFileSync(src));
-    console.log(`[ops-data] copied ${f}`);
-  } else {
-    writeFileSync(dst, "{}");
-    console.warn(`[ops-data] vault missing — wrote empty ${f}`);
-  }
+export function envelopeDefault(name, nowIso = new Date().toISOString()) {
+  return {
+    _meta: {
+      source: "missing",
+      executor_inactive: true,
+      generated_default: true,
+      generated_at: nowIso,
+      file: name,
+      writer: "scripts/sync-ops-data.mjs",
+    },
+    receipts: [],
+  };
 }
 
-// push-isolation snapshot: derive latest record from monthly jsonl history.
-const historyDir = `${vaultState}/push-isolation-history`;
-const isoDst = `${out}/push-isolation-latest.json`;
-try {
-  if (existsSync(historyDir)) {
-    const files = readdirSync(historyDir)
-      .filter((n) => n.endsWith(".jsonl"))
-      .sort();
-    const newest = files.at(-1);
-    if (newest) {
-      const lines = readFileSync(`${historyDir}/${newest}`, "utf8")
-        .split("\n")
-        .filter((l) => l.trim());
-      const last = lines.at(-1);
-      if (last) {
-        JSON.parse(last); // validate
-        writeFileSync(isoDst, last);
-        console.log(`[ops-data] copied push-isolation-latest from ${newest}`);
+export function missingDefaultBytes(name, nowIso = new Date().toISOString()) {
+  if (ENVELOPE_DEFAULT_FILES.has(name)) {
+    return JSON.stringify(envelopeDefault(name, nowIso), null, 2);
+  }
+  return "{}";
+}
+
+function syncAll() {
+  mkdirSync(out, { recursive: true });
+
+  for (const f of files) {
+    const src = `${vaultState}/${f}`;
+    const dst = `${out}/${f}`;
+    if (existsSync(src)) {
+      writeFileSync(dst, readFileSync(src));
+      console.log(`[ops-data] copied ${f}`);
+    } else {
+      writeFileSync(dst, missingDefaultBytes(f));
+      const label = ENVELOPE_DEFAULT_FILES.has(f) ? "envelope default" : "empty";
+      console.warn(`[ops-data] vault missing — wrote ${label} ${f}`);
+    }
+  }
+
+  // push-isolation snapshot: derive latest record from monthly jsonl history.
+  const historyDir = `${vaultState}/push-isolation-history`;
+  const isoDst = `${out}/push-isolation-latest.json`;
+  try {
+    if (existsSync(historyDir)) {
+      const histFiles = readdirSync(historyDir)
+        .filter((n) => n.endsWith(".jsonl"))
+        .sort();
+      const newest = histFiles.at(-1);
+      if (newest) {
+        const lines = readFileSync(`${historyDir}/${newest}`, "utf8")
+          .split("\n")
+          .filter((l) => l.trim());
+        const last = lines.at(-1);
+        if (last) {
+          JSON.parse(last); // validate
+          writeFileSync(isoDst, last);
+          console.log(`[ops-data] copied push-isolation-latest from ${newest}`);
+        } else {
+          writeFileSync(isoDst, "{}");
+        }
       } else {
         writeFileSync(isoDst, "{}");
       }
     } else {
       writeFileSync(isoDst, "{}");
+      console.warn("[ops-data] vault missing — wrote empty push-isolation-latest.json");
     }
-  } else {
+  } catch (err) {
     writeFileSync(isoDst, "{}");
-    console.warn("[ops-data] vault missing — wrote empty push-isolation-latest.json");
+    console.warn(`[ops-data] push-isolation snapshot read failed: ${err.message}`);
   }
-} catch (err) {
-  writeFileSync(isoDst, "{}");
-  console.warn(`[ops-data] push-isolation snapshot read failed: ${err.message}`);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  syncAll();
 }
