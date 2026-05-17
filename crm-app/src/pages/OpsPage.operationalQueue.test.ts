@@ -4,6 +4,7 @@ import {
   severityFromQueue,
   type OperationalQueueDoc,
   type OperationalQueueItem,
+  type QueueRoutesDoc,
 } from "./OpsPage";
 
 function makeItem(over: Partial<OperationalQueueItem>): OperationalQueueItem {
@@ -95,6 +96,23 @@ describe("operationalQueueGroups", () => {
     };
     const g = operationalQueueGroups(doc);
     expect(g.actionable.map((i) => i.id)).toEqual(["fresh-low", "stale-high"]);
+  });
+
+  it("accepts a QueueRoutesDoc shape (consumer contract)", () => {
+    const routes: QueueRoutesDoc = {
+      _meta: { schema_version: 1, routed_at: "2026-05-17T08:00:00Z" },
+      summary: { autonomous: 5, owner: 17, escalate: 2, defer: 0 },
+      routes: {
+        "runtime_issue:x": {
+          decision: "autonomous",
+          reason: "reversibility=reversible (one-shot)",
+        },
+        "blocker:y": { decision: "owner", reason: "type=blocker or owner_gate=true" },
+      },
+    };
+    // The doc compiles + values are accessible — schema contract held.
+    expect(routes.routes?.["runtime_issue:x"]?.decision).toBe("autonomous");
+    expect(routes.summary?.escalate).toBe(2);
   });
 
   it("does not mutate the input array", () => {

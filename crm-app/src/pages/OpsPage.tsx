@@ -675,6 +675,19 @@ export type OperationalQueueDoc = {
   queue?: OperationalQueueItem[];
 };
 
+export type QueueRouteDecision = "autonomous" | "owner" | "escalate" | "defer";
+export type QueueRoute = { decision: QueueRouteDecision; reason: string; since?: string };
+export type QueueRoutesDoc = {
+  _meta?: {
+    schema_version?: number;
+    routed_at?: string;
+    source_queue?: string;
+    item_count?: number;
+  };
+  summary?: Record<QueueRouteDecision, number>;
+  routes?: Record<string, QueueRoute>;
+};
+
 export type OperationalQueueGroups = {
   actionable: OperationalQueueItem[];
   awaitingOwner: OperationalQueueItem[];
@@ -868,13 +881,14 @@ export function OpsPage() {
     useState<RuntimeContinuityDoc | null>(null);
   const [operationalQueue, setOperationalQueue] =
     useState<OperationalQueueDoc | null>(null);
+  const [queueRoutes, setQueueRoutes] = useState<QueueRoutesDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -892,6 +906,7 @@ export function OpsPage() {
         fetchJson<PushIsolationSnapshot>("/ops-data/push-isolation-latest.json"),
         fetchJson<RuntimeContinuityDoc>("/ops-data/runtime-continuity.json"),
         fetchJson<OperationalQueueDoc>("/ops-data/operational_queue.json"),
+        fetchJson<QueueRoutesDoc>("/ops-data/queue_routes.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -916,6 +931,7 @@ export function OpsPage() {
       setPushIsolation(hasPushIsolationSnapshot(pi) ? pi : null);
       setRuntimeContinuity(rc ?? null);
       setOperationalQueue(oq ?? null);
+      setQueueRoutes(qr ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -965,7 +981,7 @@ export function OpsPage() {
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
-      <OperationalQueueCard doc={operationalQueue} />
+      <OperationalQueueCard doc={operationalQueue} routes={queueRoutes} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
@@ -2168,8 +2184,26 @@ const queueTypeLabel: Record<OperationalQueueType, string> = {
   blocked_session: "session חסומה",
 };
 
-function OperationalQueueRow({ item }: { item: OperationalQueueItem }) {
+// Pill colors per router decision. AUTO=green (safe to spawn), ESCALATE=amber,
+// DEFER=neutral, OWNER omitted since the GATE pill already encodes it.
+const routePillStyle: Record<QueueRouteDecision, { bg: string; fg: string; label: string }> = {
+  autonomous: { bg: "#dcfce7", fg: "#166534", label: "AUTO" },
+  escalate:   { bg: "#fed7aa", fg: "#9a3412", label: "ESCALATE" },
+  defer:      { bg: "#e5e7eb", fg: "#374151", label: "DEFER" },
+  owner:      { bg: "#fef3c7", fg: "#92400e", label: "OWNER" },
+};
+
+function OperationalQueueRow({
+  item,
+  route,
+}: {
+  item: OperationalQueueItem;
+  route?: QueueRoute;
+}) {
   const lvl = severityFromQueue(item.severity);
+  // Suppress the OWNER router pill when the GATE pill already says it,
+  // to avoid duplicate visual noise.
+  const showRoutePill = route && !(route.decision === "owner" && item.owner_gate);
   return (
     <li
       style={{
@@ -2203,6 +2237,19 @@ function OperationalQueueRow({ item }: { item: OperationalQueueItem }) {
               ↻
             </span>
           )}
+          {showRoutePill && route && (
+            <span
+              style={{
+                ...pill,
+                background: routePillStyle[route.decision].bg,
+                color: routePillStyle[route.decision].fg,
+                fontWeight: 600,
+              }}
+              title={route.reason}
+            >
+              {routePillStyle[route.decision].label}
+            </span>
+          )}
           <span
             style={{
               ...pill,
@@ -2229,9 +2276,17 @@ function OperationalQueueRow({ item }: { item: OperationalQueueItem }) {
   );
 }
 
-function OperationalQueueCard({ doc }: { doc: OperationalQueueDoc | null }) {
+function OperationalQueueCard({
+  doc,
+  routes,
+}: {
+  doc: OperationalQueueDoc | null;
+  routes?: QueueRoutesDoc | null;
+}) {
   const { actionable, awaitingOwner, total } = operationalQueueGroups(doc);
   if (total === 0) return null;
+  const routesMap = routes?.routes ?? {};
+  const summary = routes?.summary;
   return (
     <section
       aria-label="תור תפעולי"
@@ -2247,6 +2302,14 @@ function OperationalQueueCard({ doc }: { doc: OperationalQueueDoc | null }) {
       </div>
       <div style={{ fontSize: 11, color: "#6d28d9", marginBottom: 6 }}>
         {actionable.length} זמינים לעיבוד · {awaitingOwner.length} ממתינים ל-owner
+        {summary && (
+          <>
+            {" · "}
+            <span title="router classifier">
+              auto {summary.autonomous ?? 0} · escalate {summary.escalate ?? 0} · defer {summary.defer ?? 0}
+            </span>
+          </>
+        )}
       </div>
       {actionable.length > 0 && (
         <>
@@ -2255,7 +2318,7 @@ function OperationalQueueCard({ doc }: { doc: OperationalQueueDoc | null }) {
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
             {actionable.slice(0, 20).map((i) => (
-              <OperationalQueueRow key={i.id} item={i} />
+              <OperationalQueueRow key={i.id} item={i} route={routesMap[i.id]} />
             ))}
           </ul>
         </>
@@ -2276,7 +2339,7 @@ function OperationalQueueCard({ doc }: { doc: OperationalQueueDoc | null }) {
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
             {awaitingOwner.slice(0, 20).map((i) => (
-              <OperationalQueueRow key={i.id} item={i} />
+              <OperationalQueueRow key={i.id} item={i} route={routesMap[i.id]} />
             ))}
           </ul>
         </>

@@ -28,6 +28,7 @@ const files = [
   "_meta.json",
   "runtime-continuity.json",
   "operational_queue.json",
+  "queue_routes.json",
 ];
 
 mkdirSync(out, { recursive: true });
