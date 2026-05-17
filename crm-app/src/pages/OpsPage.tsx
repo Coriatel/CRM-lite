@@ -769,12 +769,20 @@ export type ExecutionStatusCounts = {
 //   ops-vault projects/merkaz-neshama-os/lane-a/management-cockpit-v0.md §4
 // Operator-facing projection on top of the operational queue. v0 is structural,
 // not content-bearing: no PII, no donor names, no amounts.
+export type ManagementCockpitGroupStatus = "defined" | "active" | "paused" | "archived";
+
+export type ManagementCockpitQueueMembership = {
+  mode?: "not_configured" | "wired" | string;
+};
+
 export type ManagementCockpitGroup = {
   id: string;
   display_name: string;
-  status?: "active" | "paused" | "archived";
+  status?: ManagementCockpitGroupStatus;
   summary?: ManagementCockpitSummary;
   last_activity_at?: string | null;
+  queue_membership?: ManagementCockpitQueueMembership;
+  operator?: string;
 };
 
 export type ManagementCockpitInboxItem = {
@@ -806,16 +814,28 @@ export type ManagementCockpitDoc = {
   _meta?: {
     schema_version?: string;
     source?: string;
+    writer?: string;
     source_missing?: boolean;
     generated_default?: boolean;
     automation_active?: boolean;
+    executor_active?: boolean;
+    generated_at?: string | null;
     updated_at?: string | null;
+    note?: string;
   };
   groups?: ManagementCockpitGroup[];
   inbox?: ManagementCockpitInboxItem[];
   owner_gates?: ManagementCockpitInboxItem[];
   summary?: ManagementCockpitSummary;
 };
+
+// Three truthful display states for the cockpit. "no_source" is the §4.2
+// default-envelope case (writer hasn't run or file is missing). "defined_no_queue"
+// is the current production state: owner-defined groups exist, but no real queue
+// is wired and automation is off — so per-group counts are vacuous zeros. "live"
+// means at least one group has a wired queue OR automation is active, so the
+// summary/group counts are real signals.
+export type ManagementCockpitDisplayState = "no_source" | "defined_no_queue" | "live";
 
 // Honesty rule per contract §4.2: if no writer has produced the file, the card
 // must render the "no data yet" state. Returns true when the doc is missing,
@@ -825,6 +845,31 @@ export function isManagementCockpitDefault(doc: ManagementCockpitDoc | null): bo
   if (doc._meta?.source_missing === true) return true;
   if (doc._meta?.generated_default === true) return true;
   return false;
+}
+
+// Returns true when the group's queue_membership.mode is anything other than
+// the explicit "not_configured" sentinel. Absent queue_membership is treated as
+// "legacy/unknown — preserve prior counts display"; only the explicit
+// not_configured sentinel suppresses counts as vacuous.
+export function isManagementCockpitGroupQueueConnected(
+  g: ManagementCockpitGroup | undefined | null,
+): boolean {
+  if (!g) return false;
+  return g.queue_membership?.mode !== "not_configured";
+}
+
+export function managementCockpitDisplayState(
+  doc: ManagementCockpitDoc | null,
+): ManagementCockpitDisplayState {
+  if (isManagementCockpitDefault(doc)) return "no_source";
+  if (doc?._meta?.automation_active === true) return "live";
+  if (doc?._meta?.executor_active === true) return "live";
+  const groups = doc?.groups ?? [];
+  if (groups.length === 0) return "live";
+  const allExplicitlyNotConfigured = groups.every(
+    (g) => g.queue_membership?.mode === "not_configured",
+  );
+  return allExplicitlyNotConfigured ? "defined_no_queue" : "live";
 }
 
 export function managementCockpitSummary(
@@ -2686,14 +2731,28 @@ export function OperationalQueueCard({
 // Contract: ops-vault projects/merkaz-neshama-os/lane-a/management-cockpit-v0.md
 // Always renders (never returns null on empty): the surface must be visible so
 // the operator knows the cockpit exists and is honest about its source state.
+//
+// Three display states (see managementCockpitDisplayState):
+//   - no_source: writer hasn't run / file missing / generated_default
+//   - defined_no_queue: groups owner-defined but every group has queue_membership.mode=not_configured AND automation/executor off — vacuous zeros suppressed
+//   - live: at least one group is queue-wired OR automation/executor is on — counts are real
 export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | null }) {
-  const isDefault = isManagementCockpitDefault(doc);
+  const state = managementCockpitDisplayState(doc);
   const summary = managementCockpitSummary(doc);
   const groups = doc?.groups ?? [];
+  const automationOn = doc?._meta?.automation_active === true;
+  const executorOn = doc?._meta?.executor_active === true;
+  const headerCount =
+    state === "no_source"
+      ? "אין נתונים עדיין"
+      : state === "defined_no_queue"
+        ? "תור לא מחובר"
+        : `${summary.open_items} פתוחים`;
   return (
     <section
       aria-label="ניהול עמותה"
       data-testid="management-cockpit-card"
+      data-display-state={state}
       style={{
         ...overviewCard,
         background: "#f0fdf4",
@@ -2702,11 +2761,9 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
     >
       <div style={{ ...overviewHead, color: "#166534" }}>
         <span>ניהול עמותה · MN-OS</span>
-        <span style={{ ...overviewCount, color: "#15803d" }}>
-          {isDefault ? "אין נתונים עדיין" : `${summary.open_items} פתוחים`}
-        </span>
+        <span style={{ ...overviewCount, color: "#15803d" }}>{headerCount}</span>
       </div>
-      {isDefault ? (
+      {state === "no_source" && (
         <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.5 }}>
           מקור עדיין לא קיים — לא רץ כותב לקובץ
           {" "}<code style={{ fontSize: 11 }}>management_cockpit.json</code>.
@@ -2715,7 +2772,68 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
             <span data-testid="management-cockpit-source-missing">מצב: ברירת מחדל · אוטומציה: לא פעילה</span>
           </div>
         </div>
-      ) : (
+      )}
+      {state === "defined_no_queue" && (
+        <>
+          <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.5 }}>
+            הקבוצה הוגדרה. תור תפעולי אמיתי טרם חובר, ולכן אין פריטים פתוחים להציג.
+          </div>
+          <div
+            data-testid="management-cockpit-runtime-flags"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              marginTop: 8,
+              fontSize: 11,
+            }}
+          >
+            <ManagementCockpitFlag label="תור" value="לא מחובר" />
+            <ManagementCockpitFlag
+              label="אוטומציה"
+              value={automationOn ? "פעילה" : "לא פעילה"}
+            />
+            <ManagementCockpitFlag
+              label="Executor"
+              value={executorOn ? "פעיל" : "לא פעיל"}
+            />
+          </div>
+          {groups.length > 0 && (
+            <ul
+              data-testid="management-cockpit-defined-groups"
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: "8px 0 0",
+                display: "grid",
+                gap: 4,
+                fontSize: 12,
+                color: "#14532d",
+              }}
+            >
+              {groups.slice(0, 10).map((g) => (
+                <li
+                  key={g.id}
+                  style={{ display: "flex", justifyContent: "space-between", gap: 8 }}
+                >
+                  <span>
+                    {g.display_name || g.id}
+                    {g.operator ? (
+                      <span style={{ color: "#15803d", marginInlineStart: 6 }}>
+                        · {g.operator}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span style={{ color: "#15803d" }}>
+                    {managementCockpitGroupStatusLabel(g.status)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      {state === "live" && (
         <>
           <div
             style={{
@@ -2744,20 +2862,51 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
                 color: "#14532d",
               }}
             >
-              {groups.slice(0, 10).map((g) => (
-                <li key={g.id} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span>{g.display_name || g.id}</span>
-                  <span style={{ color: "#15803d" }}>
-                    {g.summary?.open_items ?? 0} פתוחים · {g.summary?.blocked ?? 0} חסומים
-                  </span>
-                </li>
-              ))}
+              {groups.slice(0, 10).map((g) => {
+                const wired = isManagementCockpitGroupQueueConnected(g);
+                return (
+                  <li
+                    key={g.id}
+                    style={{ display: "flex", justifyContent: "space-between", gap: 8 }}
+                  >
+                    <span>
+                      {g.display_name || g.id}
+                      {g.operator ? (
+                        <span style={{ color: "#15803d", marginInlineStart: 6 }}>
+                          · {g.operator}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span style={{ color: "#15803d" }}>
+                      {wired
+                        ? `${g.summary?.open_items ?? 0} פתוחים · ${g.summary?.blocked ?? 0} חסומים`
+                        : `${managementCockpitGroupStatusLabel(g.status)} · אין תור מחובר`}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </>
       )}
     </section>
   );
+}
+
+export function managementCockpitGroupStatusLabel(
+  status: ManagementCockpitGroupStatus | undefined,
+): string {
+  switch (status) {
+    case "active":
+      return "פעיל";
+    case "paused":
+      return "מושהה";
+    case "archived":
+      return "ארכיון";
+    case "defined":
+    default:
+      return "מוגדר";
+  }
 }
 
 function ManagementCockpitMetric({ label, value }: { label: string; value: number }) {
@@ -2776,6 +2925,25 @@ function ManagementCockpitMetric({ label, value }: { label: string; value: numbe
       <span style={{ fontWeight: 600, fontSize: 16, color: "#14532d" }}>{value}</span>
       <span style={{ fontSize: 10, color: "#166534" }}>{label}</span>
     </div>
+  );
+}
+
+function ManagementCockpitFlag({ label, value }: { label: string; value: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "3px 8px",
+        borderRadius: 6,
+        background: "#dcfce7",
+        color: "#14532d",
+      }}
+    >
+      <span style={{ fontWeight: 600 }}>{label}:</span>
+      <span>{value}</span>
+    </span>
   );
 }
 
