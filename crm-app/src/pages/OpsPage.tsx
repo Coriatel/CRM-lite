@@ -498,6 +498,88 @@ export function runtimeContinuitySummary(
   };
 }
 
+// Aggregated runtime continuity projection emitted by
+// /srv/ops-vault/automation-registry/scripts/project_runtime_continuity.py.
+// Direct counts from continuity-events/*.jsonl, not derived from handoffs_index.
+export type RuntimeContinuityDoc = {
+  _meta?: {
+    ts?: string;
+    window_days?: number;
+    events_scanned?: number;
+    files_scanned?: number;
+  };
+  totals?: {
+    sessions?: number;
+    continuation_decisions?: number;
+    stops?: number;
+    owner_gates?: number;
+    shipped?: number;
+    handoffs?: number;
+  };
+  stops_by_reason?: Record<string, number>;
+  owner_gates_by_type?: Record<string, number>;
+  possible_false_stops?: Array<{
+    session_id?: string;
+    ts?: string;
+    reason?: string;
+    metric_cited?: boolean;
+  }>;
+};
+
+export type RuntimeContinuityMetrics = {
+  windowDays: number;
+  sessions: number;
+  continuations: number;
+  stops: number;
+  ownerGates: number;
+  shipped: number;
+  possibleFalseStops: number;
+  topStopReason: { reason: string; count: number } | null;
+  topOwnerGateType: { type: string; count: number } | null;
+  generatedAt: string | null;
+  hasData: boolean;
+};
+
+export function runtimeContinuityMetrics(
+  doc: RuntimeContinuityDoc | null,
+): RuntimeContinuityMetrics {
+  const t = doc?.totals ?? {};
+  const stopsBy = doc?.stops_by_reason ?? {};
+  const gatesBy = doc?.owner_gates_by_type ?? {};
+  const topEntry = (
+    rec: Record<string, number>,
+  ): [string, number] | null => {
+    let best: [string, number] | null = null;
+    for (const [k, v] of Object.entries(rec)) {
+      if (!best || v > best[1]) best = [k, v];
+    }
+    return best;
+  };
+  const topStop = topEntry(stopsBy);
+  const topGate = topEntry(gatesBy);
+  const sessions = t.sessions ?? 0;
+  const continuations = t.continuation_decisions ?? 0;
+  const stops = t.stops ?? 0;
+  const ownerGates = t.owner_gates ?? 0;
+  const shipped = t.shipped ?? 0;
+  const possibleFalseStops = doc?.possible_false_stops?.length ?? 0;
+  return {
+    windowDays: doc?._meta?.window_days ?? 7,
+    sessions,
+    continuations,
+    stops,
+    ownerGates,
+    shipped,
+    possibleFalseStops,
+    topStopReason: topStop ? { reason: topStop[0], count: topStop[1] } : null,
+    topOwnerGateType: topGate ? { type: topGate[0], count: topGate[1] } : null,
+    generatedAt: doc?._meta?.ts ?? null,
+    hasData:
+      sessions + continuations + stops + ownerGates + shipped > 0 ||
+      possibleFalseStops > 0,
+  };
+}
+
 type RuntimeIssue = {
   id: string;
   file?: string | null;
@@ -695,13 +777,15 @@ export function OpsPage() {
   const [dependencies, setDependencies] = useState<DependenciesDoc | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowsDoc | null>(null);
   const [pushIsolation, setPushIsolation] = useState<PushIsolationSnapshot | null>(null);
+  const [runtimeContinuity, setRuntimeContinuity] =
+    useState<RuntimeContinuityDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -717,6 +801,7 @@ export function OpsPage() {
         fetchJson<DependenciesDoc>("/ops-data/dependencies.json"),
         fetchJson<WorkflowsDoc>("/ops-data/workflows.json"),
         fetchJson<PushIsolationSnapshot>("/ops-data/push-isolation-latest.json"),
+        fetchJson<RuntimeContinuityDoc>("/ops-data/runtime-continuity.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -739,6 +824,7 @@ export function OpsPage() {
       setDependencies(dp ?? null);
       setWorkflows(wf ?? null);
       setPushIsolation(hasPushIsolationSnapshot(pi) ? pi : null);
+      setRuntimeContinuity(rc ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -799,6 +885,7 @@ export function OpsPage() {
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
       <PushIsolationCard snap={pushIsolation} />
+      <RuntimeContinuityMetricsCard doc={runtimeContinuity} />
       <RuntimeContinuityCard doc={handoffs} />
       <HandoffsCard doc={handoffs} />
       <RuntimeIssuesCard doc={runtimeIssues} />
@@ -1736,6 +1823,65 @@ function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function RuntimeContinuityMetricsCard({
+  doc,
+}: {
+  doc: RuntimeContinuityDoc | null;
+}) {
+  const m = runtimeContinuityMetrics(doc);
+  if (!m.hasData) return null;
+  const hasFalseStops = m.possibleFalseStops > 0;
+  const head = m.ownerGates > 0 ? "#b45309" : "#166534";
+  const bg = m.ownerGates > 0 ? "#fffbeb" : "#f0fdf4";
+  const border = m.ownerGates > 0 ? "#fde68a" : "#bbf7d0";
+  return (
+    <section
+      aria-label="מדדי רציפות runtime"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: head }}>
+        <span>
+          מדדי runtime · חלון {m.windowDays} ימים · {m.sessions} sessions
+        </span>
+        {m.ownerGates > 0 && (
+          <span style={{ ...overviewCount, color: head }}>
+            {m.ownerGates} owner gate{m.ownerGates === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      <div style={{ ...subLine, color: "#404040", marginTop: 4 }}>
+        ▶ {m.continuations} continuations
+        {m.stops > 0 && <> · ⏸ {m.stops} stops</>}
+        {m.shipped > 0 && <> · ✅ {m.shipped} shipped</>}
+        {hasFalseStops && (
+          <>
+            {" · "}
+            <span style={{ color: "#b45309" }}>
+              ⚠ {m.possibleFalseStops} possible false stop
+              {m.possibleFalseStops === 1 ? "" : "s"}
+            </span>
+          </>
+        )}
+      </div>
+      {m.topStopReason && m.topStopReason.count > 0 && (
+        <div style={{ ...subLine, color: "#404040" }}>
+          סיבת stop נפוצה: {m.topStopReason.reason} ({m.topStopReason.count})
+        </div>
+      )}
+      {m.topOwnerGateType && m.topOwnerGateType.count > 0 && (
+        <div style={{ ...subLine, color: "#404040" }}>
+          owner gate נפוץ: {m.topOwnerGateType.type} ({m.topOwnerGateType.count})
+        </div>
+      )}
+      {m.generatedAt && (
+        <div style={{ ...subLine, color: "#737373" }}>
+          חישוב אחרון: {relativeTimeHe(m.generatedAt)}
+        </div>
+      )}
     </section>
   );
 }

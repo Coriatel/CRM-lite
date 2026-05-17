@@ -26,6 +26,7 @@ const files = [
   "handoffs_index.json",
   "_freshness.json",
   "_meta.json",
+  "runtime-continuity.json",
 ];
 
 mkdirSync(out, { recursive: true });
