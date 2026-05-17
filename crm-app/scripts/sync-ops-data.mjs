@@ -23,6 +23,7 @@ const files = [
   "active_sessions.json",
   "dependencies.json",
   "workflows.json",
+  "handoffs_index.json",
 ];
 
 mkdirSync(out, { recursive: true });
