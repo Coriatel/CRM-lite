@@ -41,8 +41,13 @@ def check(label, ok, detail=""):
 
 
 def directus_get(path):
+    # Cloudflare in front of this Directus rejects Python-urllib/* UA with 403.
     r = urllib.request.Request(
-        URL + path, headers={"Authorization": f"Bearer {TOK}"}
+        URL + path,
+        headers={
+            "Authorization": f"Bearer {TOK}",
+            "User-Agent": "slice6-validator/1",
+        },
     )
     try:
         with urllib.request.urlopen(r) as resp:
