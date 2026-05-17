@@ -40,6 +40,30 @@ export function getGoogleAuthUrl(): string {
     return `${DIRECTUS_URL}/auth/login/google?redirect=${encodeURIComponent(redirect)}`;
 }
 
+export async function loginWithPassword(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; expires: number } | null> {
+    try {
+        const res = await fetch(`${DIRECTUS_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, mode: 'json' }),
+        });
+
+        if (!res.ok) return null;
+
+        const json = await res.json();
+        const data = json.data;
+        storeTokens(data.access_token, data.refresh_token, data.expires);
+
+        return {
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            expires: data.expires,
+        };
+    } catch {
+        return null;
+    }
+}
+
 export async function refreshAccessToken(): Promise<{ accessToken: string; refreshToken: string; expires: number } | null> {
     const { refreshToken } = getStoredTokens();
     if (!refreshToken) return null;

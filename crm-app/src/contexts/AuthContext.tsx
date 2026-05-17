@@ -14,6 +14,7 @@ import { clearTagCache } from "../hooks/useContacts";
 import {
   getStoredTokens,
   getGoogleAuthUrl,
+  loginWithPassword,
   refreshAccessToken,
   getCurrentUser,
   logout as authLogout,
@@ -26,6 +27,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   isDemo: boolean;
 }
@@ -166,6 +168,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const signInWithEmail = useCallback(async (email: string, password: string) => {
+    if (AUTH_MODE !== "oauth") return;
+    try {
+      setError(null);
+      const result = await loginWithPassword(email, password);
+      if (!result) {
+        setError("שם משתמש או סיסמה שגויים");
+        return;
+      }
+      setAuthToken(result.accessToken);
+      const currentUser = await getCurrentUser(result.accessToken);
+      if (!currentUser) {
+        clearTokens();
+        setAuthToken("");
+        setError("שגיאה בקבלת פרטי המשתמש");
+        return;
+      }
+      setUser(currentUser);
+      startTokenRefresh();
+    } catch {
+      setError("שגיאת אימות");
+    }
+  }, [startTokenRefresh]);
+
   const signOut = useCallback(async () => {
     if (AUTH_MODE === "oauth") {
       await authLogout();
@@ -187,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         error,
         signInWithGoogle,
+        signInWithEmail,
         signOut,
         isDemo: AUTH_MODE === "demo",
       }}

@@ -1,8 +1,24 @@
+import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { AUTH_MODE } from '../config';
 
 export function LoginPage() {
-    const { signInWithGoogle, error } = useAuth();
+    const { signInWithGoogle, signInWithEmail, error } = useAuth();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleEmailSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!email || !password || submitting) return;
+        setSubmitting(true);
+        try {
+            await signInWithEmail(email, password);
+        } finally {
+            setSubmitting(false);
+            setPassword('');
+        }
+    };
 
     // Static/demo modes auto-login — show spinner briefly
     if (AUTH_MODE !== 'oauth') {
@@ -60,6 +76,40 @@ export function LoginPage() {
                 </svg>
                 <span>התחבר עם Google</span>
             </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 320, margin: 'var(--spacing-lg) 0', color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.3)' }} />
+                <span>או</span>
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.3)' }} />
+            </div>
+
+            <form onSubmit={handleEmailSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 320 }}>
+                <input
+                    type="email"
+                    autoComplete="email"
+                    placeholder="אימייל"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    style={{ padding: '12px 14px', borderRadius: 8, border: 'none', fontSize: 14, direction: 'ltr', textAlign: 'left' }}
+                />
+                <input
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="סיסמה"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    style={{ padding: '12px 14px', borderRadius: 8, border: 'none', fontSize: 14, direction: 'ltr', textAlign: 'left' }}
+                />
+                <button
+                    type="submit"
+                    disabled={submitting || !email || !password}
+                    style={{ padding: '12px 14px', borderRadius: 8, border: 'none', background: 'white', color: '#1a5f7a', fontSize: 14, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                >
+                    {submitting ? 'מתחבר...' : 'התחבר עם אימייל'}
+                </button>
+            </form>
         </div>
     );
 }
