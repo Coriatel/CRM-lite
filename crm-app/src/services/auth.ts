@@ -101,7 +101,7 @@ export async function refreshAccessToken(): Promise<{ accessToken: string; refre
 
 export async function getCurrentUser(accessToken: string): Promise<AppUser | null> {
     try {
-        const res = await fetch(`${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,avatar`, {
+        const res = await fetch(`${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,avatar,role.name`, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
             },
@@ -111,12 +111,14 @@ export async function getCurrentUser(accessToken: string): Promise<AppUser | nul
 
         const json = await res.json();
         const u = json.data;
+        const roleName = u?.role?.name;
 
         return {
             uid: u.id,
             email: u.email || '',
             displayName: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || '',
             photoURL: u.avatar ? `${DIRECTUS_URL}/assets/${u.avatar}` : undefined,
+            role: typeof roleName === 'string' ? roleName : null,
         };
     } catch {
         return null;

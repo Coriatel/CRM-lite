@@ -82,6 +82,7 @@ export interface AppUser {
   email: string;
   displayName: string;
   photoURL?: string;
+  role?: string | null;
 }
 
 export interface AdvancedFilters {
