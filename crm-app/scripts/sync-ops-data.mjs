@@ -33,6 +33,7 @@ const files = [
   "queue_receipts.json",
   "management_cockpit.json",
   "safe_swarm.json",
+  "orchestrator_integrity.json",
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
@@ -45,6 +46,7 @@ export const ENVELOPE_DEFAULT_FILES = new Set([
   "queue_receipts.json",
   "management_cockpit.json",
   "safe_swarm.json",
+  "orchestrator_integrity.json",
 ]);
 
 export function envelopeDefault(name, nowIso = new Date().toISOString()) {
@@ -91,6 +93,72 @@ export function envelopeDefault(name, nowIso = new Date().toISOString()) {
       },
       next_slices: [],
       health: {
+        status: "red",
+        reasons: ["projection_not_synced"],
+      },
+    };
+  }
+  if (name === "orchestrator_integrity.json") {
+    // Shape per /srv/ops-vault/state/orchestrator_integrity.schema.json (v0).
+    // Honesty rule: generated_default=true ⇒ canonical_readable=false,
+    // merger_healthy=false, integrity_status.status='red',
+    // safe_parallelism.confidence='unknown' (per schema description on
+    // _meta.generated_default + safe_parallelism.confidence enum docs).
+    return {
+      _meta: {
+        schema_version: "v0",
+        writer: "scripts/sync-ops-data.mjs",
+        source: "missing — vault projection not synced",
+        generated_at: nowIso,
+        generated_default: true,
+        note: "Safe-empty default envelope written by the CRM ops-data sync when /srv/ops-vault/state/orchestrator_integrity.json is unavailable. Mirrors the producer's generated_default contract; safe to parse before the ops-vault writer (PR #89) has shipped.",
+      },
+      registry: {
+        canonical_readable: false,
+        canonical_mtime: null,
+        canonical_age_seconds: null,
+        heartbeat_ttl_seconds: 300,
+        canonical_stale: true,
+        derived_projection_present: false,
+        derived_mtime: null,
+        derived_age_seconds: null,
+        derived_provenance: null,
+        fallback_used: false,
+      },
+      sessions: {
+        active_count: 0,
+        stale_count: 0,
+        ownerless_count: 0,
+        ownerless_stale_count: 0,
+        stale_ids: [],
+      },
+      merger: {
+        timer_active: false,
+        last_health_ts: null,
+        last_health_age_seconds: null,
+        last_applied: 0,
+        last_rejected: 0,
+        spool_depth_after: 0,
+        last_error: null,
+        merger_healthy: false,
+      },
+      projection_drift: {
+        meta_manifest_regenerated_at: null,
+        meta_manifest_age_seconds: null,
+        meta_manifest_stale: true,
+        drift_threshold_seconds: 3600,
+        drifted_files: [],
+      },
+      runtime_issues: {
+        open_count: 0,
+        by_severity: {},
+        by_class: {},
+      },
+      safe_parallelism: {
+        confidence: "unknown",
+        reasons: ["projection_not_synced"],
+      },
+      integrity_status: {
         status: "red",
         reasons: ["projection_not_synced"],
       },
