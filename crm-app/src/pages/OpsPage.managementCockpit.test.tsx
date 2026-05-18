@@ -9,6 +9,7 @@ import {
   managementCockpitGroupStatusLabel,
   managementCockpitSummary,
   type ManagementCockpitDoc,
+  type ManagementCockpitInboxItem,
 } from "./OpsPage";
 
 const FROZEN_NOW = new Date("2026-05-17T18:00:00Z");
@@ -109,17 +110,18 @@ describe("managementCockpitSummary", () => {
 });
 
 describe("ManagementCockpitCard — honesty rendering", () => {
-  it("renders the empty/default state when source is missing", () => {
+  it("renders the no_source state copy when source is missing", () => {
     render(<ManagementCockpitCard doc={safeEmpty} />);
-    expect(screen.getByText(/אין נתונים עדיין/)).toBeTruthy();
+    expect(screen.getByText(/הכוכב טרם הופעל/)).toBeTruthy();
+    expect(screen.getByText(/לאחר הפעלת האוטומציה/)).toBeTruthy();
     expect(
       screen.getByTestId("management-cockpit-source-missing").textContent,
     ).toMatch(/אוטומציה: לא פעילה/);
   });
 
-  it("renders the empty/default state when doc is null (404 / not fetched)", () => {
+  it("renders the no_source state copy when doc is null (404 / not fetched)", () => {
     render(<ManagementCockpitCard doc={null} />);
-    expect(screen.getByText(/אין נתונים עדיין/)).toBeTruthy();
+    expect(screen.getByText(/הכוכב טרם הופעל/)).toBeTruthy();
   });
 
   it("does NOT show numeric '0 open' framing in the default state (no false success)", () => {
@@ -307,6 +309,12 @@ describe("ManagementCockpitCard — defined_no_queue (production shape)", () => 
     expect(within(card).queryByText(/0 פתוחים/)).toBeNull();
   });
 
+  it("renders operator-readable defined_no_queue copy explaining vacuous zeros", () => {
+    render(<ManagementCockpitCard doc={definedNoQueue} />);
+    expect(screen.getByText(/קבוצות הוגדרו — תור עדיין לא מחובר/)).toBeTruthy();
+    expect(screen.getByText(/הספירות הן אפסים מבנייה/)).toBeTruthy();
+  });
+
   it("renders the three runtime flag chips (תור / אוטומציה / Executor)", () => {
     render(<ManagementCockpitCard doc={definedNoQueue} />);
     const flags = screen.getByTestId("management-cockpit-runtime-flags");
@@ -486,5 +494,88 @@ describe("ManagementCockpitCard — live state with mixed queue wiring", () => {
     expect(within(card).getByText(/3 פתוחים · 1 חסומים/)).toBeTruthy();
     expect(within(card).getByText(/מוגדר · אין תור מחובר/)).toBeTruthy();
     expect(within(card).getByText(/אלרון/)).toBeTruthy();
+  });
+});
+
+const liveBase: ManagementCockpitDoc = {
+  _meta: {
+    schema_version: "v0",
+    source: "writer",
+    source_missing: false,
+    generated_default: false,
+    automation_active: true,
+  },
+  groups: [
+    {
+      id: "g1",
+      display_name: "קבוצה ראשית",
+      status: "active",
+      queue_membership: { mode: "wired" },
+      summary: { groups: 0, open_items: 2, blocked: 0, needs_owner: 0, needs_rabbi: 0 },
+    },
+  ],
+  inbox: [],
+  owner_gates: [],
+  summary: { groups: 1, open_items: 2, blocked: 0, needs_owner: 0, needs_rabbi: 0 },
+};
+
+const ownerGateItem: ManagementCockpitInboxItem = {
+  id: "gate-1",
+  group_id: "g1",
+  lifecycle: "waiting_on_owner",
+  gate_role: "owner",
+  urgency_band: "today",
+};
+
+describe("ManagementCockpitCard — owner gates banner", () => {
+  it("does NOT render the owner-gates banner when owner_gates is empty", () => {
+    render(<ManagementCockpitCard doc={liveBase} />);
+    expect(screen.queryByTestId("management-cockpit-owner-gates")).toBeNull();
+  });
+
+  it("does NOT render the owner-gates banner when owner_gates is absent", () => {
+    const { owner_gates: _og, ...noGates } = liveBase;
+    render(<ManagementCockpitCard doc={noGates} />);
+    expect(screen.queryByTestId("management-cockpit-owner-gates")).toBeNull();
+  });
+
+  it("renders the owner-gates banner with correct count and Hebrew label when gates present", () => {
+    const withGates: ManagementCockpitDoc = {
+      ...liveBase,
+      owner_gates: [ownerGateItem, { ...ownerGateItem, id: "gate-2" }],
+    };
+    render(<ManagementCockpitCard doc={withGates} />);
+    const banner = screen.getByTestId("management-cockpit-owner-gates");
+    expect(banner).toBeTruthy();
+    expect(screen.getByTestId("management-cockpit-owner-gates-count").textContent).toBe("2");
+    expect(banner.textContent).toMatch(/דורש אישור בעלים/);
+  });
+
+  it("renders the owner-gates banner with count 1 for a single gate item", () => {
+    const withOneGate: ManagementCockpitDoc = {
+      ...liveBase,
+      owner_gates: [ownerGateItem],
+    };
+    render(<ManagementCockpitCard doc={withOneGate} />);
+    expect(screen.getByTestId("management-cockpit-owner-gates-count").textContent).toBe("1");
+  });
+
+  it("does NOT render owner-gates banner in no_source state even with gates in doc", () => {
+    const noSourceWithGates: ManagementCockpitDoc = {
+      ...liveBase,
+      _meta: { source_missing: true, generated_default: true },
+      owner_gates: [ownerGateItem],
+    };
+    render(<ManagementCockpitCard doc={noSourceWithGates} />);
+    expect(screen.queryByTestId("management-cockpit-owner-gates")).toBeNull();
+  });
+
+  it("does NOT render owner-gates banner in defined_no_queue state even with gates in doc", () => {
+    const dnqWithGates: ManagementCockpitDoc = {
+      ...definedNoQueue,
+      owner_gates: [ownerGateItem],
+    };
+    render(<ManagementCockpitCard doc={dnqWithGates} />);
+    expect(screen.queryByTestId("management-cockpit-owner-gates")).toBeNull();
   });
 });
