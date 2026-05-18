@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  classifyOperationalQueueForOperator,
   executionStatusCounts,
   isMaxRetries,
   latestReceiptByItemId,
@@ -8,6 +9,7 @@ import {
   plannedReceiptItemIds,
   severityFromQueue,
   type OperationalQueueDoc,
+  type OperationalQueueGroups,
   type OperationalQueueItem,
   type QueueReceipt,
   type QueueRoutesDoc,
@@ -216,5 +218,108 @@ describe("isMaxRetries", () => {
     expect(isMaxRetries(makeReceipt({ item_id: "a", outcome: "failed", retry_count: 2 }))).toBe(false);
     expect(isMaxRetries(makeReceipt({ item_id: "a", outcome: "failed", retry_count: 3 }))).toBe(true);
     expect(isMaxRetries(makeReceipt({ item_id: "a", outcome: "succeeded", retry_count: 5 }))).toBe(false);
+  });
+});
+
+describe("classifyOperationalQueueForOperator", () => {
+  function makeItem(id: string, ownerGate: boolean): OperationalQueueItem {
+    return {
+      id,
+      type: "runtime_issue",
+      severity: "medium",
+      lane: null,
+      source: { producer: "p", ref: "r" },
+      created_at: "2026-05-18T10:00:00Z",
+      freshness: "fresh",
+      retryable: false,
+      owner_gate: ownerGate,
+      continuation_candidate: false,
+      suggested_action: "—",
+      operational_priority: 50,
+    } as OperationalQueueItem;
+  }
+  function groups(actionableN: number, ownerN: number): OperationalQueueGroups {
+    const actionable = Array.from({ length: actionableN }, (_, i) => makeItem(`a${i}`, false));
+    const awaitingOwner = Array.from({ length: ownerN }, (_, i) => makeItem(`o${i}`, true));
+    return { actionable, awaitingOwner, total: actionableN + ownerN };
+  }
+
+  it("empty when no items in queue (caller hides the card, but classifier is well-defined)", () => {
+    const v = classifyOperationalQueueForOperator({ groups: groups(0, 0) });
+    expect(v.topCategory).toBe("empty");
+    expect(v.severity).toBe("info");
+  });
+
+  it("actionable_ready is the normal healthy state", () => {
+    const v = classifyOperationalQueueForOperator({ groups: groups(3, 0) });
+    expect(v.topCategory).toBe("actionable_ready");
+    expect(v.severity).toBe("info");
+    expect(v.headline).toContain("(3)");
+  });
+
+  it("failures_present is the top action category and counts failed+blocked together", () => {
+    const v = classifyOperationalQueueForOperator({
+      groups: groups(5, 3),
+      failedCount: 2,
+      blockedCount: 1,
+    });
+    expect(v.topCategory).toBe("failures_present");
+    expect(v.severity).toBe("action");
+    expect(v.headline).toContain("(3)");
+  });
+
+  it("owner_only when no actionable items remain", () => {
+    const v = classifyOperationalQueueForOperator({ groups: groups(0, 4) });
+    expect(v.topCategory).toBe("owner_only");
+    expect(v.severity).toBe("watch");
+    expect(v.headline).toContain("(4)");
+  });
+
+  it("awaiting_owner_majority when owners overwhelm actionable and cross threshold", () => {
+    const v = classifyOperationalQueueForOperator({
+      groups: groups(2, 7),
+      awaitingOwnerThreshold: 5,
+    });
+    expect(v.topCategory).toBe("awaiting_owner_majority");
+    expect(v.severity).toBe("watch");
+  });
+
+  it("does NOT classify as awaiting_owner_majority when below threshold", () => {
+    const v = classifyOperationalQueueForOperator({
+      groups: groups(2, 4), // 4 > 2 but 4 not > 5
+      awaitingOwnerThreshold: 5,
+    });
+    expect(v.topCategory).toBe("actionable_ready");
+  });
+
+  it("large_backlog when total exceeds threshold and other rules quiet", () => {
+    const v = classifyOperationalQueueForOperator({
+      groups: groups(15, 10),
+      largeBacklogThreshold: 20,
+      awaitingOwnerThreshold: 50, // disable majority rule for this assertion
+    });
+    expect(v.topCategory).toBe("large_backlog");
+    expect(v.severity).toBe("watch");
+    expect(v.headline).toContain("(25");
+  });
+
+  it("failures_present outranks owner_only, awaiting-majority, and large_backlog", () => {
+    const v = classifyOperationalQueueForOperator({
+      groups: groups(0, 30),
+      failedCount: 1,
+      blockedCount: 0,
+    });
+    expect(v.topCategory).toBe("failures_present");
+    expect(v.categories).toContain("owner_only");
+    expect(v.categories).toContain("awaiting_owner_majority");
+    expect(v.categories).toContain("large_backlog");
+  });
+
+  it("queue_quiet fallback when no other rule fires (shouldn't happen given current rules, but is defended)", () => {
+    // Constructed corner: total > 0 but no actionable AND no awaitingOwner is
+    // impossible from operationalQueueGroups (every item has owner_gate
+    // true/false). Skip — covered by `empty` and the others.
+    const v = classifyOperationalQueueForOperator({ groups: groups(1, 0) });
+    expect(v.topCategory).toBe("actionable_ready"); // sanity, not queue_quiet
   });
 });

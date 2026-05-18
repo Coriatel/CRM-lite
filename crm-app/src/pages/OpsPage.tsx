@@ -1208,6 +1208,114 @@ export function operationalQueueGroups(
   return { actionable, awaitingOwner, total: all.length };
 }
 
+// Operator-facing classifier for the operational queue — same #88/#89/#91
+// contract. Folds (groups, execution-receipt counts) into a single
+// severity/headline/meaning/nextAction view. Pure; no rendering coupling.
+export type OperationalQueueCategory =
+  | "failures_present"
+  | "owner_only"
+  | "awaiting_owner_majority"
+  | "large_backlog"
+  | "actionable_ready"
+  | "queue_quiet"
+  | "empty";
+
+export type OperationalQueueOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory: OperationalQueueCategory;
+  categories: OperationalQueueCategory[];
+  headline: string;
+  meaning: string;
+  nextAction: string;
+};
+
+export type OperationalQueueClassifyInput = {
+  groups: OperationalQueueGroups;
+  failedCount?: number;
+  blockedCount?: number;
+  awaitingOwnerThreshold?: number;
+  largeBacklogThreshold?: number;
+};
+
+export function classifyOperationalQueueForOperator(
+  input: OperationalQueueClassifyInput,
+): OperationalQueueOperatorView {
+  const { groups } = input;
+  const failedCount = input.failedCount ?? 0;
+  const blockedCount = input.blockedCount ?? 0;
+  const awaitingOwnerThreshold = input.awaitingOwnerThreshold ?? 5;
+  const largeBacklogThreshold = input.largeBacklogThreshold ?? 20;
+  const cats: OperationalQueueCategory[] = [];
+  if (groups.total === 0) cats.push("empty");
+  else {
+    if (failedCount + blockedCount > 0) cats.push("failures_present");
+    if (groups.actionable.length === 0 && groups.awaitingOwner.length > 0) cats.push("owner_only");
+    if (
+      groups.awaitingOwner.length > groups.actionable.length &&
+      groups.awaitingOwner.length > awaitingOwnerThreshold
+    ) {
+      cats.push("awaiting_owner_majority");
+    }
+    if (groups.total > largeBacklogThreshold) cats.push("large_backlog");
+    if (cats.length === 0 && groups.actionable.length > 0) cats.push("actionable_ready");
+    if (cats.length === 0) cats.push("queue_quiet");
+  }
+  const topCategory = cats[0];
+  const total = groups.total;
+  const actionableN = groups.actionable.length;
+  const awaitingN = groups.awaitingOwner.length;
+  let severity: "info" | "watch" | "action";
+  let headline: string;
+  let meaning: string;
+  let nextAction: string;
+  switch (topCategory) {
+    case "failures_present":
+      severity = "action";
+      headline = `כשלים בתור (${failedCount + blockedCount})`;
+      meaning = "פעולה אחת או יותר נכשלה או נחסמה. ייתכן צורך בהתערבות לפני שהתור ימשיך לזרום.";
+      nextAction = "סקור את הקבלות (receipts) של הפעולות שנכשלו והחלט אם לנסות שוב או להעלות לבעלים.";
+      break;
+    case "owner_only":
+      severity = "watch";
+      headline = `כל הפריטים מחכים לבעלים (${awaitingN})`;
+      meaning = "אין פריטים זמינים לעיבוד אוטונומי כרגע — כולם דורשים אישור.";
+      nextAction = "פתח את רשימת ה-owner gates והחלט אילו לאשר, לדחות או לסגור.";
+      break;
+    case "awaiting_owner_majority":
+      severity = "watch";
+      headline = `רוב התור מחכה לבעלים (${awaitingN}/${total})`;
+      meaning = "התור מתחיל להצטבר על owner gates ולא זורם בקצב רגיל.";
+      nextAction = "סגור כמה owner gates כדי לפתוח את הצוואר.";
+      break;
+    case "large_backlog":
+      severity = "watch";
+      headline = `גודש בתור (${total} פריטים)`;
+      meaning = "התור מכיל יותר פריטים ממה שמצופה למצב יציב; ייתכן שכותב פולט מהר מהקצב המעבד.";
+      nextAction = "בדוק אם יש כשלים חוסמים או אם יש להגדיל ספאון מאושר; אין דחיפות אם אין כשלים.";
+      break;
+    case "actionable_ready":
+      severity = "info";
+      headline = `פריטים מוכנים לעיבוד (${actionableN})`;
+      meaning = "התור פעיל ויש פריטים זמינים לעיבוד אוטונומי.";
+      nextAction = "ניתן להמשיך לעבוד; המעבד יבחר את הפריטים לפי priority.";
+      break;
+    case "empty":
+      severity = "info";
+      headline = "התור ריק";
+      meaning = "אין פריטים פתוחים בתור התפעולי.";
+      nextAction = "אין צורך לפעול.";
+      break;
+    case "queue_quiet":
+    default:
+      severity = "info";
+      headline = "התור שקט";
+      meaning = "אין פריטים זמינים לעיבוד ולא נצברו owner gates.";
+      nextAction = "אין צורך לפעול.";
+      break;
+  }
+  return { severity, topCategory, categories: cats, headline, meaning, nextAction };
+}
+
 // Collapse the schema's 5-level severity onto the OpsPage 4-level SeverityLevel
 // for visual reuse (critical → high; info → low). Keep the schema enum on the
 // data side; only fold at render time.
@@ -3015,6 +3123,15 @@ export function OperationalQueueCard({
     ? awaitingOwner.slice(0, OWNER_COLLAPSE_THRESHOLD)
     : awaitingOwner.slice(0, 20);
   const ownerHidden = awaitingOwner.length - ownerVisible.length;
+  const view = classifyOperationalQueueForOperator({
+    groups: { actionable, awaitingOwner, total },
+    failedCount: statusCounts.failed,
+    blockedCount: statusCounts.blocked,
+  });
+  const severityLabel =
+    view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "תקין";
+  const severityBg =
+    view.severity === "action" ? "#dc2626" : view.severity === "watch" ? "#a16207" : "#525252";
   return (
     <section
       aria-label="תור תפעולי"
@@ -3025,9 +3142,43 @@ export function OperationalQueueCard({
       }}
     >
       <div style={{ ...overviewHead, color: "#5b21b6" }}>
-        <span>תור תפעולי · MN-OS</span>
+        <span>
+          <span
+            data-testid="ops-queue-operator-severity"
+            style={{
+              ...pill,
+              background: severityBg,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabel}
+          </span>
+          תור תפעולי · MN-OS
+        </span>
         <span style={{ ...overviewCount, color: "#6d28d9" }}>{total}</span>
       </div>
+      <div
+        data-testid="ops-queue-operator-headline"
+        style={{ fontSize: 14, fontWeight: 600, color: "#5b21b6", marginBottom: 4 }}
+      >
+        {view.headline}
+      </div>
+      <p
+        data-testid="ops-queue-operator-meaning"
+        style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}
+      >
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p
+        data-testid="ops-queue-operator-next-action"
+        style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}
+      >
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
       <div style={{ fontSize: 11, color: "#6d28d9", marginBottom: 6 }}>
         {actionable.length} זמינים לעיבוד · {awaitingOwner.length} ממתינים ל-owner
         {summary && (
