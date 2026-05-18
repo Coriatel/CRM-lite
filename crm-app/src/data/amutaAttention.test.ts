@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { bucketAttention, type AttentionItem } from "./amutaAttention";
+import {
+  bucketAttention,
+  classifyAttentionBucketForOperator,
+  type AttentionItem,
+} from "./amutaAttention";
 
 const item = (over: Partial<AttentionItem>): AttentionItem => ({
   id: "x",
@@ -43,5 +47,102 @@ describe("bucketAttention", () => {
     ];
     const b = bucketAttention(items);
     expect(b.needsElron.map((i) => i.id)).toEqual(["crit", "norm", "low"]);
+  });
+});
+
+describe("classifyAttentionBucketForOperator", () => {
+  it("returns empty/info when the bucket has no items", () => {
+    const v = classifyAttentionBucketForOperator([]);
+    expect(v.topCategory).toBe("empty");
+    expect(v.severity).toBe("info");
+    expect(v.headline).toMatch(/אין כרגע משימות פתוחות/);
+  });
+
+  it("returns critical_present/action when any item is urgency=critical", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "critical", status: "open" }),
+      item({ id: "2", urgency: "normal", status: "open" }),
+    ]);
+    expect(v.topCategory).toBe("critical_present");
+    expect(v.severity).toBe("action");
+    expect(v.headline).toMatch(/דחופות מאוד \(1\)/);
+  });
+
+  it("returns blocked_present/action when status=blocked and no critical", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "normal", status: "blocked" }),
+      item({ id: "2", urgency: "normal", status: "open" }),
+    ]);
+    expect(v.topCategory).toBe("blocked_present");
+    expect(v.severity).toBe("action");
+    expect(v.headline).toMatch(/חסומות שדורשות טיפול \(1\)/);
+  });
+
+  it("prefers critical_present over blocked_present when both present", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "critical", status: "open" }),
+      item({ id: "2", urgency: "normal", status: "blocked" }),
+    ]);
+    expect(v.topCategory).toBe("critical_present");
+    expect(v.categories).toContain("blocked_present");
+  });
+
+  it("returns stale_present/watch when stale items exist and no action signals", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "normal", status: "stale" }),
+      item({ id: "2", urgency: "normal", status: "open" }),
+    ]);
+    expect(v.topCategory).toBe("stale_present");
+    expect(v.severity).toBe("watch");
+    expect(v.headline).toMatch(/ישנות שכדאי לבדוק \(1\)/);
+  });
+
+  it("returns waiting_majority/watch when more than half the bucket is waiting", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "normal", status: "waiting" }),
+      item({ id: "2", urgency: "normal", status: "waiting" }),
+      item({ id: "3", urgency: "normal", status: "open" }),
+    ]);
+    expect(v.topCategory).toBe("waiting_majority");
+    expect(v.severity).toBe("watch");
+    expect(v.headline).toMatch(/ממתינות לאישור \(2\/3\)/);
+  });
+
+  it("does NOT classify as waiting_majority at exactly half waiting", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "normal", status: "waiting" }),
+      item({ id: "2", urgency: "normal", status: "open" }),
+    ]);
+    expect(v.topCategory).toBe("actionable_ready");
+  });
+
+  it("returns actionable_ready/info for a healthy open queue", () => {
+    const v = classifyAttentionBucketForOperator([
+      item({ id: "1", urgency: "normal", status: "open" }),
+      item({ id: "2", urgency: "high", status: "open" }),
+    ]);
+    expect(v.topCategory).toBe("actionable_ready");
+    expect(v.severity).toBe("info");
+    expect(v.headline).toMatch(/פתוחות לטיפול \(2\)/);
+  });
+
+  it("always returns non-empty meaning and nextAction across category space", () => {
+    const buckets: AttentionItem[][] = [
+      [],
+      [item({ id: "1", urgency: "critical", status: "open" })],
+      [item({ id: "1", urgency: "normal", status: "blocked" })],
+      [item({ id: "1", urgency: "normal", status: "stale" })],
+      [
+        item({ id: "1", urgency: "normal", status: "waiting" }),
+        item({ id: "2", urgency: "normal", status: "waiting" }),
+        item({ id: "3", urgency: "normal", status: "open" }),
+      ],
+      [item({ id: "1", urgency: "normal", status: "open" })],
+    ];
+    for (const b of buckets) {
+      const v = classifyAttentionBucketForOperator(b);
+      expect(v.meaning.length).toBeGreaterThan(0);
+      expect(v.nextAction.length).toBeGreaterThan(0);
+    }
   });
 });
