@@ -62,10 +62,11 @@ describe("envelopeDefault wire contract", () => {
 });
 
 describe("ENVELOPE_DEFAULT_FILES", () => {
-  it("covers the queue + management cockpit envelope files", () => {
+  it("covers the queue + management cockpit + safe swarm envelope files", () => {
     expect(ENVELOPE_DEFAULT_FILES.has("queue_plan.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_receipts.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("management_cockpit.json")).toBe(true);
+    expect(ENVELOPE_DEFAULT_FILES.has("safe_swarm.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_routes.json")).toBe(false);
     expect(ENVELOPE_DEFAULT_FILES.has("operational_queue.json")).toBe(false);
   });
@@ -105,5 +106,63 @@ describe("management_cockpit.json envelope", () => {
     const qp = envelopeDefault("queue_plan.json", FIXED_ISO);
     expect("receipts" in mc).toBe(false);
     expect("groups" in qp).toBe(false);
+  });
+});
+
+describe("safe_swarm.json envelope", () => {
+  it("returns the v0 safe-empty shape — generated_default true, every substrate available=false, health red", () => {
+    const doc = envelopeDefault("safe_swarm.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      writer: "scripts/sync-ops-data.mjs",
+      generated_at: FIXED_ISO,
+      generated_default: true,
+    });
+    expect(typeof doc._meta.source).toBe("string");
+    expect(typeof doc._meta.note).toBe("string");
+    const slots = [
+      "recommend",
+      "claim",
+      "materialize",
+      "queue_audit",
+      "validate_return",
+      "validate_next",
+      "preflight_collision",
+      "spawn",
+    ];
+    for (const k of slots) {
+      expect(doc.substrate[k]).toEqual({ available: false, script_path: null });
+    }
+    expect(doc.health.status).toBe("red");
+    expect(Array.isArray(doc.health.reasons)).toBe(true);
+    expect(doc.health.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("returns nullable runtime_health + queue_snapshot fields and empty arrays for gates/next_slices", () => {
+    const doc = envelopeDefault("safe_swarm.json", FIXED_ISO);
+    expect(doc.runtime_health).toEqual({
+      merger_timer_active: null,
+      last_health_ts: null,
+      last_health_applied: null,
+      last_health_rejected: null,
+      last_health_error: null,
+      spool_depth_after: null,
+    });
+    expect(doc.queue_snapshot).toEqual({
+      queue_present: false,
+      queue_item_count: null,
+      routes_present: false,
+      active_sessions_present: false,
+      active_session_count: null,
+    });
+    expect(doc.gates).toEqual([]);
+    expect(doc.next_slices).toEqual([]);
+  });
+
+  it("missingDefaultBytes emits the safe_swarm envelope as JSON", () => {
+    const bytes = missingDefaultBytes("safe_swarm.json", FIXED_ISO);
+    const doc = JSON.parse(bytes);
+    expect(doc._meta.generated_default).toBe(true);
+    expect(doc.health.status).toBe("red");
   });
 });

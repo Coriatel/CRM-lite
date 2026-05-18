@@ -32,6 +32,7 @@ const files = [
   "queue_plan.json",
   "queue_receipts.json",
   "management_cockpit.json",
+  "safe_swarm.json",
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
@@ -43,9 +44,58 @@ export const ENVELOPE_DEFAULT_FILES = new Set([
   "queue_plan.json",
   "queue_receipts.json",
   "management_cockpit.json",
+  "safe_swarm.json",
 ]);
 
 export function envelopeDefault(name, nowIso = new Date().toISOString()) {
+  if (name === "safe_swarm.json") {
+    // Shape per /srv/ops-vault/state/safe_swarm.schema.json.
+    // Honesty rule #1: generated_default=true ⇒ every substrate.*.available=false,
+    // every gate 'blocked', health.status='red'. The spawn slot is permanently
+    // {available:false, script_path:null} in v0 (karpathy §Authority gate #7).
+    const slot = { available: false, script_path: null };
+    return {
+      _meta: {
+        schema_version: "v0",
+        writer: "scripts/sync-ops-data.mjs",
+        source: "missing — vault projection not synced",
+        generated_at: nowIso,
+        generated_default: true,
+        note: "Safe-empty default envelope written by the CRM ops-data sync when /srv/ops-vault/state/safe_swarm.json is unavailable.",
+      },
+      substrate: {
+        recommend: slot,
+        claim: slot,
+        materialize: slot,
+        queue_audit: slot,
+        validate_return: slot,
+        validate_next: slot,
+        preflight_collision: slot,
+        spawn: { available: false, script_path: null },
+      },
+      gates: [],
+      runtime_health: {
+        merger_timer_active: null,
+        last_health_ts: null,
+        last_health_applied: null,
+        last_health_rejected: null,
+        last_health_error: null,
+        spool_depth_after: null,
+      },
+      queue_snapshot: {
+        queue_present: false,
+        queue_item_count: null,
+        routes_present: false,
+        active_sessions_present: false,
+        active_session_count: null,
+      },
+      next_slices: [],
+      health: {
+        status: "red",
+        reasons: ["projection_not_synced"],
+      },
+    };
+  }
   if (name === "management_cockpit.json") {
     // Shape per projects/merkaz-neshama-os/lane-a/management-cockpit-v0.md §4.
     // Honesty rule §4.2.3: generated_default=true ⇒ all counts must be 0.
