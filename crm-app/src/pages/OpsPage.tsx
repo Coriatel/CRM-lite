@@ -131,6 +131,76 @@ export function hasPushIsolationSnapshot(snap: PushIsolationSnapshot | null): bo
   return !!snap && typeof snap.ts === "string" && snap.ts.length > 0;
 }
 
+export type OrchestratorIntegrityDoc = {
+  _meta?: { generated_at?: string; generated_default?: boolean; writer?: string; source?: string };
+  registry?: {
+    canonical_readable?: boolean;
+    canonical_age_seconds?: number | null;
+    heartbeat_ttl_seconds?: number;
+    canonical_stale?: boolean;
+    fallback_used?: boolean;
+  };
+  sessions?: {
+    active_count?: number;
+    stale_count?: number;
+    ownerless_count?: number;
+    ownerless_stale_count?: number;
+    stale_ids?: string[];
+  };
+  merger?: {
+    timer_active?: boolean;
+    last_health_age_seconds?: number | null;
+    last_error?: string | null;
+    spool_depth_after?: number;
+    merger_healthy?: boolean;
+  };
+  projection_drift?: {
+    meta_manifest_stale?: boolean;
+    drift_threshold_seconds?: number;
+    drifted_files?: { file: string; delta_seconds: number }[];
+  };
+  runtime_issues?: {
+    open_count?: number;
+    by_severity?: Record<string, number>;
+  };
+  safe_parallelism?: { confidence?: "high" | "degraded" | "unknown"; reasons?: string[] };
+  integrity_status?: { status?: "green" | "yellow" | "red"; reasons?: string[] };
+};
+
+export type OrchestratorIntegritySummary = {
+  status: "green" | "yellow" | "red" | "unknown";
+  confidence: "high" | "degraded" | "unknown";
+  reasons: string[];
+  staleSessions: number;
+  ownerlessStaleSessions: number;
+  driftedFiles: number;
+  mergerHealthy: boolean;
+  fallbackUsed: boolean;
+  highSeverityIssues: number;
+};
+
+// Pure summarizer extracted for unit testing. Defensive against missing
+// nested fields — every consumer field is optional in OrchestratorIntegrityDoc.
+export function summarizeOrchestratorIntegrity(
+  doc: OrchestratorIntegrityDoc | null,
+): OrchestratorIntegritySummary | null {
+  if (!doc) return null;
+  const status = doc.integrity_status?.status ?? "unknown";
+  const confidence = doc.safe_parallelism?.confidence ?? "unknown";
+  const sev = doc.runtime_issues?.by_severity ?? {};
+  return {
+    status,
+    confidence,
+    reasons: (doc.integrity_status?.reasons ?? []).slice(0, 6),
+    staleSessions: doc.sessions?.stale_count ?? 0,
+    ownerlessStaleSessions: doc.sessions?.ownerless_stale_count ?? 0,
+    driftedFiles: (doc.projection_drift?.drifted_files ?? []).length,
+    mergerHealthy: doc.merger?.merger_healthy ?? false,
+    fallbackUsed: doc.registry?.fallback_used ?? false,
+    highSeverityIssues: (sev.high ?? 0) + (sev.critical ?? 0),
+  };
+}
+
 type ActiveSession = {
   id: string;
   lane?: string | null;
@@ -1124,13 +1194,15 @@ export function OpsPage() {
   const [managementCockpit, setManagementCockpit] =
     useState<ManagementCockpitDoc | null>(null);
   const [safeSwarm, setSafeSwarm] = useState<SafeSwarmDoc | null>(null);
+  const [orchestratorIntegrity, setOrchestratorIntegrity] =
+    useState<OrchestratorIntegrityDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -1153,6 +1225,7 @@ export function OpsPage() {
         fetchJson<QueueReceiptDoc>("/ops-data/queue_receipts.json"),
         fetchJson<ManagementCockpitDoc>("/ops-data/management_cockpit.json"),
         fetchJson<SafeSwarmDoc>("/ops-data/safe_swarm.json"),
+        fetchJson<OrchestratorIntegrityDoc>("/ops-data/orchestrator_integrity.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -1182,6 +1255,7 @@ export function OpsPage() {
       setQueueReceipts(qrc ?? null);
       setManagementCockpit(mc ?? null);
       setSafeSwarm(ss ?? null);
+      setOrchestratorIntegrity(oi ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -1239,6 +1313,7 @@ export function OpsPage() {
       />
       <ManagementCockpitCard doc={managementCockpit} />
       <SafeSwarmCard doc={safeSwarm} />
+      <OrchestratorIntegrityCard doc={orchestratorIntegrity} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
@@ -2602,6 +2677,75 @@ function OperationalQueueRow({
 }
 
 export const OWNER_COLLAPSE_THRESHOLD = 5;
+
+function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | null }) {
+  const sum = summarizeOrchestratorIntegrity(doc);
+  if (!sum) return null;
+  // Attention-only: hide when integrity_status=green AND confidence=high. Surfacing
+  // a permanent green card adds visual noise without operational signal.
+  if (sum.status === "green" && sum.confidence === "high") return null;
+
+  const isRed = sum.status === "red";
+  const isYellow = sum.status === "yellow";
+  const headColor = isRed ? "#991b1b" : isYellow ? "#a16207" : "#404040";
+  const bg = isRed ? "#fef2f2" : isYellow ? "#fefce8" : "#fafafa";
+  const border = isRed ? "#fecaca" : isYellow ? "#fde68a" : "#e5e5e5";
+  const statusPillBg = isRed ? "#dc2626" : isYellow ? "#a16207" : "#525252";
+
+  return (
+    <section
+      aria-label="שלמות תזמורת הריצה"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            style={{
+              ...pill,
+              background: statusPillBg,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {sum.status}
+          </span>
+          שלמות תזמורת
+        </span>
+        <span style={{ ...overviewCount, color: headColor }}>
+          ביטחון מקבילות: {sum.confidence}
+        </span>
+      </div>
+      <div style={{ ...subLine, marginBottom: 6 }}>
+        {sum.staleSessions > 0 && (
+          <span style={{ marginInlineEnd: 10 }}>סשנים שאיבדו הלב: {sum.staleSessions}</span>
+        )}
+        {sum.ownerlessStaleSessions > 0 && (
+          <span style={{ marginInlineEnd: 10 }}>חשד יתום: {sum.ownerlessStaleSessions}</span>
+        )}
+        {sum.driftedFiles > 0 && (
+          <span style={{ marginInlineEnd: 10 }}>קבצים בסחיפה: {sum.driftedFiles}</span>
+        )}
+        {!sum.mergerHealthy && (
+          <span style={{ marginInlineEnd: 10 }}>מתווך כתיבה: לא תקין</span>
+        )}
+        {sum.fallbackUsed && (
+          <span style={{ marginInlineEnd: 10 }}>קריאה מהפרויקציה הנגזרת</span>
+        )}
+        {sum.highSeverityIssues > 0 && (
+          <span style={{ marginInlineEnd: 10 }}>תקלות חמורות פתוחות: {sum.highSeverityIssues}</span>
+        )}
+      </div>
+      {sum.reasons.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}>
+          {sum.reasons.map((r, i) => (
+            <li key={i} style={{ fontSize: 12, color: "#525252" }}>· {r}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 export function OperationalQueueCard({
   doc,
