@@ -2906,6 +2906,7 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
   const state = managementCockpitDisplayState(doc);
   const summary = managementCockpitSummary(doc);
   const groups = doc?.groups ?? [];
+  const ownerGates = doc?.owner_gates ?? [];
   const automationOn = doc?._meta?.automation_active === true;
   const executorOn = doc?._meta?.executor_active === true;
   const freshness = state === "no_source" ? null : formatManagementCockpitFreshness(doc);
@@ -2932,9 +2933,8 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
       </div>
       {state === "no_source" && (
         <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.5 }}>
-          מקור עדיין לא קיים — לא רץ כותב לקובץ
-          {" "}<code style={{ fontSize: 11 }}>management_cockpit.json</code>.
-          התצוגה תופיע אוטומטית כשהמקור יתחיל לכתוב.
+          <strong>הכוכב טרם הופעל.</strong> כותב המידע עדיין לא רץ — אין נתונים להציג.
+          {" "}לאחר הפעלת האוטומציה, התצוגה תתעדכן אוטומטית.
           <div style={{ ...subLine, marginTop: 4, color: "#15803d" }}>
             <span data-testid="management-cockpit-source-missing">מצב: ברירת מחדל · אוטומציה: לא פעילה</span>
           </div>
@@ -2943,7 +2943,8 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
       {state === "defined_no_queue" && (
         <>
           <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.5 }}>
-            הקבוצה הוגדרה. תור תפעולי אמיתי טרם חובר, ולכן אין פריטים פתוחים להציג.
+            <strong>קבוצות הוגדרו — תור עדיין לא מחובר.</strong> הספירות הן אפסים מבנייה, לא אמת.
+            {" "}כשהתור יחובר לאוטומציה, כאן יופיעו הנתונים האמיתיים.
           </div>
           <div
             data-testid="management-cockpit-runtime-flags"
@@ -3031,6 +3032,38 @@ export function ManagementCockpitCard({ doc }: { doc: ManagementCockpitDoc | nul
               style={{ ...subLine, marginTop: 6, color: "#15803d" }}
             >
               {freshness}
+            </div>
+          )}
+          {ownerGates.length > 0 && (
+            <div
+              data-testid="management-cockpit-owner-gates"
+              style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                borderRadius: 8,
+                background: "#fef9c3",
+                borderInlineStart: "3px solid #ca8a04",
+                fontSize: 12,
+                color: "#713f12",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span
+                data-testid="management-cockpit-owner-gates-count"
+                style={{
+                  fontWeight: 700,
+                  background: "#fde047",
+                  borderRadius: 12,
+                  padding: "1px 7px",
+                  fontSize: 13,
+                  color: "#713f12",
+                }}
+              >
+                {ownerGates.length}
+              </span>
+              <span>דורש אישור בעלים — פריטים ממתינים לטיפולך</span>
             </div>
           )}
           {groups.length > 0 && (
