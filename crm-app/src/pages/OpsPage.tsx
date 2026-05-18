@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { SafeSwarmCard, type SafeSwarmDoc } from "./SafeSwarmCard";
+import {
+  OrchestrationIntegrityCard,
+  type OrchestratorIntegrityDoc,
+} from "./OrchestrationIntegrityCard";
 
 type ProjectRow = {
   key: string;
@@ -1124,13 +1128,15 @@ export function OpsPage() {
   const [managementCockpit, setManagementCockpit] =
     useState<ManagementCockpitDoc | null>(null);
   const [safeSwarm, setSafeSwarm] = useState<SafeSwarmDoc | null>(null);
+  const [orchestratorIntegrity, setOrchestratorIntegrity] =
+    useState<OrchestratorIntegrityDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -1153,6 +1159,7 @@ export function OpsPage() {
         fetchJson<QueueReceiptDoc>("/ops-data/queue_receipts.json"),
         fetchJson<ManagementCockpitDoc>("/ops-data/management_cockpit.json"),
         fetchJson<SafeSwarmDoc>("/ops-data/safe_swarm.json"),
+        fetchJson<OrchestratorIntegrityDoc>("/ops-data/orchestrator_integrity.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -1182,6 +1189,7 @@ export function OpsPage() {
       setQueueReceipts(qrc ?? null);
       setManagementCockpit(mc ?? null);
       setSafeSwarm(ss ?? null);
+      setOrchestratorIntegrity(oi ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -1239,6 +1247,7 @@ export function OpsPage() {
       />
       <ManagementCockpitCard doc={managementCockpit} />
       <SafeSwarmCard doc={safeSwarm} />
+      <OrchestrationIntegrityCard doc={orchestratorIntegrity} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
       <DependenciesCard doc={dependencies} />
