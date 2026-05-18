@@ -111,6 +111,9 @@ export function TodayPage() {
   const [donorsError, setDonorsError] = useState<string | null>(null);
   const [donorsFetchedAt, setDonorsFetchedAt] = useState<Date | null>(null);
   const [callsFetchedAt, setCallsFetchedAt] = useState<Date | null>(null);
+  const [attentionFetchedAt, setAttentionFetchedAt] = useState<Date | null>(
+    null,
+  );
   const {
     buckets: attention,
     source: attentionSource,
@@ -118,6 +121,10 @@ export function TodayPage() {
     loading: attentionLoading,
     refresh: refreshAttention,
   } = useAmutaAttention();
+
+  useEffect(() => {
+    if (attention) setAttentionFetchedAt(new Date());
+  }, [attention]);
   const {
     buckets: callBuckets,
     error: callsError,
@@ -203,6 +210,7 @@ export function TodayPage() {
 
       <AttentionSectionHeader
         loading={attentionLoading}
+        fetchedAt={attentionFetchedAt}
         onRefresh={refreshAttention}
       />
       <AttentionCard
@@ -211,6 +219,18 @@ export function TodayPage() {
         items={attention?.needsElron ?? null}
         error={attentionError}
         source={attentionSource}
+        onRefresh={refreshAttention}
+        emptyHint={
+          <span style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
+            אין פריטים שדורשים תשומת לב עכשיו —{" "}
+            <Link
+              to="/calls-today"
+              style={{ color: "var(--color-primary)", textDecoration: "none" }}
+            >
+              עבור לשיחות המתוכננות להיום ←
+            </Link>
+          </span>
+        }
         footer={
           <Link
             to="/elron"
@@ -231,6 +251,12 @@ export function TodayPage() {
         items={attention?.needsRav ?? null}
         error={attentionError}
         source={attentionSource}
+        onRefresh={refreshAttention}
+        emptyHint={
+          <span style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
+            אין פריטים שדורשים תשומת לב עכשיו
+          </span>
+        }
         footer={
           <Link
             to="/rabbi"
@@ -251,6 +277,12 @@ export function TodayPage() {
         items={attention?.stuck ?? null}
         error={attentionError}
         source={attentionSource}
+        onRefresh={refreshAttention}
+        emptyHint={
+          <span style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
+            אין פריטים תקועים — הכל זורם
+          </span>
+        }
       />
 
       <PeopleCareCard
@@ -306,13 +338,23 @@ export function TodayPage() {
   );
 }
 
+const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
 function AttentionSectionHeader({
   loading,
+  fetchedAt,
   onRefresh,
 }: {
   loading: boolean;
+  fetchedAt: Date | null;
   onRefresh: () => void;
 }) {
+  const staleMinutes =
+    fetchedAt && !loading
+      ? Math.floor((Date.now() - fetchedAt.getTime()) / 60_000)
+      : 0;
+  const isStale = staleMinutes >= STALE_THRESHOLD_MS / 60_000;
+
   return (
     <div
       style={{
@@ -322,16 +364,34 @@ function AttentionSectionHeader({
         marginBottom: "var(--spacing-sm)",
       }}
     >
-      <h2
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: "var(--color-text-secondary)",
-          margin: 0,
-        }}
-      >
-        מוקדי תשומת לב
-      </h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <h2
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: "var(--color-text-secondary)",
+            margin: 0,
+          }}
+        >
+          מוקדי תשומת לב
+        </h2>
+        {isStale && (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border)",
+              borderRadius: 999,
+              padding: "2px 8px",
+              whiteSpace: "nowrap",
+            }}
+            title={`עודכן: ${fetchedAt!.toISOString()}`}
+            aria-label={`מידע מלפני ${staleMinutes} דקות`}
+          >
+            מידע מלפני {staleMinutes} דק׳
+          </span>
+        )}
+      </div>
       <button
         type="button"
         onClick={onRefresh}
@@ -369,6 +429,8 @@ function AttentionCard({
   items,
   error,
   source,
+  onRefresh,
+  emptyHint,
   footer,
 }: {
   icon: React.ReactNode;
@@ -376,6 +438,8 @@ function AttentionCard({
   items: AttentionItem[] | null;
   error: string | null;
   source: string | null;
+  onRefresh: () => void;
+  emptyHint?: React.ReactNode;
   footer?: React.ReactNode;
 }) {
   const action =
@@ -397,15 +461,47 @@ function AttentionCard({
   return (
     <CardFrame icon={icon} title={title} action={action}>
       {error ? (
-        <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <p
+            style={{
+              color: "var(--color-danger)",
+              fontSize: 14,
+              margin: 0,
+              flex: 1,
+            }}
+          >
+            לא הצלחנו לטעון תור תשומת-לב
+          </p>
+          <button
+            type="button"
+            onClick={onRefresh}
+            aria-label="נסה שוב לטעון תור תשומת לב"
+            style={{
+              background: "none",
+              border: "1px solid var(--color-danger)",
+              borderRadius: 999,
+              padding: "3px 10px",
+              fontSize: 12,
+              color: "var(--color-danger)",
+              cursor: "pointer",
+            }}
+          >
+            נסה שוב
+          </button>
+        </div>
       ) : items === null ? (
         <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
           טוען…
         </p>
       ) : items.length === 0 ? (
-        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
-          אין פריטים פתוחים
-        </p>
+        <div style={{ fontSize: 14 }}>{emptyHint ?? "אין פריטים פתוחים"}</div>
       ) : (
         <ul
           style={{
