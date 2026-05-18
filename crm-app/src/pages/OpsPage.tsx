@@ -201,6 +201,126 @@ export function summarizeOrchestratorIntegrity(
   };
 }
 
+// Operator-facing classification: turn the technical summary into the three
+// signals a daily operator actually needs — "is it safe?", "what does it
+// mean?", "what should I do?". Pure function so the mapping is unit-testable
+// and the rendering component stays thin.
+export type IntegrityCategory =
+  | "merger_unhealthy"
+  | "high_severity_issue"
+  | "orphan_session"
+  | "stale_projection"
+  | "missing_canonical_source"
+  | "degraded_confidence"
+  | "safe_degraded"
+  | "all_clear"
+  | "unknown";
+
+export type IntegrityOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory: IntegrityCategory;
+  categories: IntegrityCategory[];
+  headline: string;
+  meaning: string;
+  nextAction: string;
+};
+
+const INTEGRITY_COPY: Record<
+  IntegrityCategory,
+  { severity: "info" | "watch" | "action"; headline: string; meaning: string; nextAction: string }
+> = {
+  merger_unhealthy: {
+    severity: "action",
+    headline: "מתווך הסנכרון לא תקין",
+    meaning: "השירות שמסנכרן מצב בין סשנים מדווח על תקלה. נתונים חדשים עלולים לא להתעדכן.",
+    nextAction: "בדוק יומני שירות mn-os-agent-registry-merger ופנה לבעלים אם הבעיה נמשכת.",
+  },
+  high_severity_issue: {
+    severity: "action",
+    headline: "תקלה פתוחה דורשת טיפול",
+    meaning: "תקלת runtime ברמת חומרה גבוהה פתוחה במערכת.",
+    nextAction: "פתח את רשימת התקלות הפתוחות וטפל לפי סדר חומרה.",
+  },
+  orphan_session: {
+    severity: "watch",
+    headline: "סשן יתום ברקע",
+    meaning: "קיים סשן שלא דיווח על חיים זמן מה ואין לו בעלים פעיל. בדרך כלל לא מסוכן, אבל יכול להחזיק משאבים.",
+    nextAction: "בדוק אם הסשן עדיין רץ; אם לא — הוא ינוקה אוטומטית בתוך 7 ימים.",
+  },
+  stale_projection: {
+    severity: "watch",
+    headline: "מידע מסוים לא עודכן לאחרונה",
+    meaning: "המערכת מזהה שחלק מהקבצים שמציגים מצב לא רעננו במשך זמן ארוך. ניתן להמשיך לעבוד, אך חלק מהמידע ב-/ops עשוי להיות לא עדכני.",
+    nextAction: "בדוק אם קיימים סשנים פעילים או שירותים שלא סונכרנו; אין דחיפות מיידית.",
+  },
+  missing_canonical_source: {
+    severity: "watch",
+    headline: "מקור המידע הראשי לא נגיש",
+    meaning: "לא הצלחנו לקרוא את מאגר הסשנים הקנוני. המערכת משתמשת בעותק נגזר במקום.",
+    nextAction: "התצוגה עדיין מהימנה לרוב הצרכים; פנה לבעלים אם המצב נמשך מעבר לכמה שעות.",
+  },
+  degraded_confidence: {
+    severity: "watch",
+    headline: "המערכת פעילה במצב מוגבל",
+    meaning: "ביטחון המקבילות ירוד — מספר אותות חלקיים מצטברים יחד.",
+    nextAction: "ניתן להמשיך לעבוד; הימנע מהפעלת סשנים מקבילים נוספים עד שהמצב יתייצב.",
+  },
+  safe_degraded: {
+    severity: "info",
+    headline: "המערכת פעילה — קריאה מעותק נגזר",
+    meaning: "המקור הראשי לא נגיש אבל העותק הנגזר מעודכן והשירותים תקינים. אפשר להמשיך לעבוד כרגיל.",
+    nextAction: "אין צורך לפעול. מעקב פסיבי בלבד.",
+  },
+  all_clear: {
+    severity: "info",
+    headline: "המערכת תקינה",
+    meaning: "כל האותות ירוקים.",
+    nextAction: "אין צורך לפעול.",
+  },
+  unknown: {
+    severity: "watch",
+    headline: "מצב המערכת לא ידוע",
+    meaning: "נתוני שלמות התזמורת לא זמינים כרגע.",
+    nextAction: "רענן את הדף; אם המצב נמשך, בדוק שמסלול /ops-data מגיב.",
+  },
+};
+
+export function classifyIntegrityForOperator(
+  sum: OrchestratorIntegritySummary | null,
+): IntegrityOperatorView | null {
+  if (!sum) return null;
+  const cats: IntegrityCategory[] = [];
+  if (!sum.mergerHealthy && sum.status !== "unknown") cats.push("merger_unhealthy");
+  if (sum.highSeverityIssues > 0) cats.push("high_severity_issue");
+  if (sum.ownerlessStaleSessions > 0) cats.push("orphan_session");
+  if (sum.driftedFiles > 0) cats.push("stale_projection");
+  if (sum.fallbackUsed) {
+    // "safe_degraded" is the calmer label when the only issue is that we
+    // fell back to the derived projection, the merger is fine, and nothing
+    // else is screaming. Otherwise call it what it is: source missing.
+    const onlyFallback =
+      sum.mergerHealthy && sum.driftedFiles === 0 && sum.highSeverityIssues === 0 &&
+      sum.ownerlessStaleSessions === 0;
+    cats.push(onlyFallback ? "safe_degraded" : "missing_canonical_source");
+  }
+  if (cats.length === 0) {
+    if (sum.status === "green" && sum.confidence === "high") cats.push("all_clear");
+    else if (sum.status === "unknown" && sum.confidence === "unknown") cats.push("unknown");
+    else if (sum.confidence === "degraded") cats.push("degraded_confidence");
+    else cats.push("unknown");
+  }
+  const topCategory = cats[0];
+  const copy = INTEGRITY_COPY[topCategory];
+  return {
+    severity: copy.severity,
+    topCategory,
+    categories: cats,
+    headline: copy.headline,
+    meaning: copy.meaning,
+    nextAction: copy.nextAction,
+  };
+}
+
 type ActiveSession = {
   id: string;
   lane?: string | null;
@@ -2685,12 +2805,19 @@ function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | nu
   // a permanent green card adds visual noise without operational signal.
   if (sum.status === "green" && sum.confidence === "high") return null;
 
-  const isRed = sum.status === "red";
-  const isYellow = sum.status === "yellow";
-  const headColor = isRed ? "#991b1b" : isYellow ? "#a16207" : "#404040";
-  const bg = isRed ? "#fef2f2" : isYellow ? "#fefce8" : "#fafafa";
-  const border = isRed ? "#fecaca" : isYellow ? "#fde68a" : "#e5e5e5";
-  const statusPillBg = isRed ? "#dc2626" : isYellow ? "#a16207" : "#525252";
+  const view = classifyIntegrityForOperator(sum)!;
+
+  // Visual severity is the *operator* severity (calm/watch/action), not the
+  // raw integrity_status color. A "red" canonical that resolves to safe_degraded
+  // for the operator should not look alarming.
+  const isAction = view.severity === "action";
+  const isWatch = view.severity === "watch";
+  const headColor = isAction ? "#991b1b" : isWatch ? "#a16207" : "#404040";
+  const bg = isAction ? "#fef2f2" : isWatch ? "#fefce8" : "#fafafa";
+  const border = isAction ? "#fecaca" : isWatch ? "#fde68a" : "#e5e5e5";
+  const statusPillBg = isAction ? "#dc2626" : isWatch ? "#a16207" : "#525252";
+  const severityLabel =
+    view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "תקין";
 
   return (
     <section
@@ -2708,7 +2835,7 @@ function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | nu
               padding: "1px 6px",
             }}
           >
-            {sum.status}
+            {severityLabel}
           </span>
           שלמות תזמורת
         </span>
@@ -2716,6 +2843,17 @@ function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | nu
           ביטחון מקבילות: {sum.confidence}
         </span>
       </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
       <div style={{ ...subLine, marginBottom: 6 }}>
         {sum.staleSessions > 0 && (
           <span style={{ marginInlineEnd: 10 }}>סשנים שאיבדו הלב: {sum.staleSessions}</span>
@@ -2737,11 +2875,16 @@ function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | nu
         )}
       </div>
       {sum.reasons.length > 0 && (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}>
-          {sum.reasons.map((r, i) => (
-            <li key={i} style={{ fontSize: 12, color: "#525252" }}>· {r}</li>
-          ))}
-        </ul>
+        <details style={{ fontSize: 12, color: "#525252" }}>
+          <summary style={{ cursor: "pointer", color: "#737373", marginBottom: 4 }}>
+            פרטים טכניים ({sum.reasons.length})
+          </summary>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}>
+            {sum.reasons.map((r, i) => (
+              <li key={i}>· {r}</li>
+            ))}
+          </ul>
+        </details>
       )}
     </section>
   );

@@ -1,5 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { summarizeOrchestratorIntegrity, type OrchestratorIntegrityDoc } from "./OpsPage";
+import {
+  summarizeOrchestratorIntegrity,
+  classifyIntegrityForOperator,
+  type OrchestratorIntegrityDoc,
+  type OrchestratorIntegritySummary,
+} from "./OpsPage";
+
+function summary(
+  overrides: Partial<OrchestratorIntegritySummary> = {},
+): OrchestratorIntegritySummary {
+  return {
+    status: "green",
+    confidence: "high",
+    reasons: [],
+    staleSessions: 0,
+    ownerlessStaleSessions: 0,
+    driftedFiles: 0,
+    mergerHealthy: true,
+    fallbackUsed: false,
+    highSeverityIssues: 0,
+    ...overrides,
+  };
+}
 
 describe("summarizeOrchestratorIntegrity", () => {
   it("returns null for null doc", () => {
@@ -110,5 +132,129 @@ describe("summarizeOrchestratorIntegrity", () => {
     expect(s.mergerHealthy).toBe(false);
     expect(s.fallbackUsed).toBe(false);
     expect(s.reasons).toEqual(["projection_not_synced"]);
+  });
+});
+
+describe("classifyIntegrityForOperator", () => {
+  it("returns null for null summary", () => {
+    expect(classifyIntegrityForOperator(null)).toBeNull();
+  });
+
+  it("all-clear when status=green and confidence=high", () => {
+    const v = classifyIntegrityForOperator(summary())!;
+    expect(v.topCategory).toBe("all_clear");
+    expect(v.severity).toBe("info");
+    expect(v.headline).toContain("תקינה");
+  });
+
+  it("safe_degraded when only signal is fallbackUsed and merger is healthy", () => {
+    const v = classifyIntegrityForOperator(
+      summary({ status: "red", confidence: "degraded", fallbackUsed: true }),
+    )!;
+    expect(v.topCategory).toBe("safe_degraded");
+    expect(v.severity).toBe("info");
+    expect(v.nextAction).toContain("אין צורך לפעול");
+  });
+
+  it("merger_unhealthy is highest-priority action category", () => {
+    const v = classifyIntegrityForOperator(
+      summary({
+        status: "red",
+        confidence: "degraded",
+        mergerHealthy: false,
+        fallbackUsed: true,
+        driftedFiles: 3,
+        ownerlessStaleSessions: 1,
+        highSeverityIssues: 1,
+      }),
+    )!;
+    expect(v.topCategory).toBe("merger_unhealthy");
+    expect(v.severity).toBe("action");
+    expect(v.categories).toContain("high_severity_issue");
+    expect(v.categories).toContain("orphan_session");
+    expect(v.categories).toContain("stale_projection");
+  });
+
+  it("high_severity_issue outranks orphan/stale/missing-source", () => {
+    const v = classifyIntegrityForOperator(
+      summary({
+        status: "red",
+        highSeverityIssues: 2,
+        ownerlessStaleSessions: 1,
+        driftedFiles: 5,
+        fallbackUsed: true,
+      }),
+    )!;
+    expect(v.topCategory).toBe("high_severity_issue");
+    expect(v.severity).toBe("action");
+  });
+
+  it("stale_projection when only drifted files are present", () => {
+    const v = classifyIntegrityForOperator(
+      summary({ status: "yellow", confidence: "degraded", driftedFiles: 8 }),
+    )!;
+    expect(v.topCategory).toBe("stale_projection");
+    expect(v.severity).toBe("watch");
+    expect(v.meaning).toContain("לא רעננו");
+  });
+
+  it("missing_canonical_source when fallback is used alongside other watch signals", () => {
+    const v = classifyIntegrityForOperator(
+      summary({
+        status: "red",
+        confidence: "degraded",
+        fallbackUsed: true,
+        driftedFiles: 2,
+      }),
+    )!;
+    // stale_projection comes before missing_canonical_source by priority, but
+    // both are present in categories.
+    expect(v.topCategory).toBe("stale_projection");
+    expect(v.categories).toContain("missing_canonical_source");
+    expect(v.categories).not.toContain("safe_degraded");
+  });
+
+  it("orphan_session is a watch, not an action (no auto-escalation)", () => {
+    const v = classifyIntegrityForOperator(
+      summary({ status: "yellow", confidence: "degraded", ownerlessStaleSessions: 1 }),
+    )!;
+    expect(v.topCategory).toBe("orphan_session");
+    expect(v.severity).toBe("watch");
+    expect(v.nextAction).toContain("7 ימים");
+  });
+
+  it("degraded_confidence shown when confidence is degraded but no concrete signal fired", () => {
+    const v = classifyIntegrityForOperator(
+      summary({ status: "yellow", confidence: "degraded" }),
+    )!;
+    expect(v.topCategory).toBe("degraded_confidence");
+    expect(v.severity).toBe("watch");
+  });
+
+  it("unknown when both status and confidence are unknown (data missing)", () => {
+    const v = classifyIntegrityForOperator(
+      summary({ status: "unknown", confidence: "unknown", mergerHealthy: false }),
+    )!;
+    // mergerHealthy=false is suppressed when status=unknown — we don't have
+    // signal to assert merger is broken vs missing data.
+    expect(v.topCategory).toBe("unknown");
+  });
+
+  it("live production-shape doc resolves to a watch state, never silent", () => {
+    // Mirror of the live JSON at session time: canonical not readable,
+    // 1 ownerless stale session, 8 drifted files, merger healthy, fallback used.
+    const v = classifyIntegrityForOperator(
+      summary({
+        status: "red",
+        confidence: "degraded",
+        ownerlessStaleSessions: 1,
+        driftedFiles: 8,
+        mergerHealthy: true,
+        fallbackUsed: true,
+        highSeverityIssues: 1,
+      }),
+    )!;
+    expect(v.severity).toBe("action"); // high_severity_issue triggers action
+    expect(v.topCategory).toBe("high_severity_issue");
   });
 });
