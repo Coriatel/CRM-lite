@@ -8,6 +8,7 @@ import {
 import type {
   AttentionContext,
   AttentionItem,
+  AttentionStatus,
   AttentionUrgency,
 } from "../../data/amutaAttention";
 
@@ -23,6 +24,38 @@ const URGENCY_COLOR: Record<AttentionUrgency, string> = {
   high: "var(--color-danger)",
   normal: "var(--color-text-secondary)",
   low: "var(--color-text-secondary)",
+};
+
+// Only render a status pill when the status carries operational meaning
+// beyond "this item is in the queue". `open` is the default actionable
+// state and `done` items are filtered out of buckets upstream — a pill
+// for either would be visual noise.
+interface StatusPillSpec {
+  label: string;
+  color: string;
+  title: string;
+  testId: string;
+}
+
+const STATUS_PILL: Partial<Record<AttentionStatus, StatusPillSpec>> = {
+  blocked: {
+    label: "חסום",
+    color: "var(--color-danger)",
+    title: "חסום — לא ניתן להתקדם עד שמשהו אחר ייפתר",
+    testId: "attention-status-blocked",
+  },
+  waiting: {
+    label: "ממתין",
+    color: "var(--color-text-secondary)",
+    title: "ממתין — תלוי בגורם חיצוני או בהחלטה",
+    testId: "attention-status-waiting",
+  },
+  stale: {
+    label: "ישן",
+    color: "var(--color-text-secondary)",
+    title: "ישן — הפריט יושב בתור זמן רב ולא נוגעו בו",
+    testId: "attention-status-stale",
+  },
 };
 
 export interface AttentionQueueCardProps {
@@ -46,6 +79,7 @@ export function AttentionQueueCard({
   const bodySize = dense ? 12 : 13;
   const stripeWidth = dense ? 3 : 4;
   const paddingInlineStart = dense ? 10 : undefined;
+  const statusPill = STATUS_PILL[item.status];
 
   return (
     <Tag
@@ -77,6 +111,24 @@ export function AttentionQueueCard({
             item.title
           )}
         </div>
+        {statusPill ? (
+          <span
+            data-testid={statusPill.testId}
+            title={statusPill.title}
+            aria-label={statusPill.title}
+            style={{
+              fontSize: 11,
+              color: statusPill.color,
+              border: `1px solid ${statusPill.color}`,
+              borderRadius: 999,
+              padding: "1px 8px",
+              whiteSpace: "nowrap",
+              lineHeight: 1.4,
+            }}
+          >
+            {statusPill.label}
+          </span>
+        ) : null}
         <span
           style={{
             fontSize: 11,
