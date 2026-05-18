@@ -62,11 +62,12 @@ describe("envelopeDefault wire contract", () => {
 });
 
 describe("ENVELOPE_DEFAULT_FILES", () => {
-  it("covers the queue + management cockpit + safe swarm envelope files", () => {
+  it("covers the queue + management cockpit + safe swarm + orchestrator integrity envelope files", () => {
     expect(ENVELOPE_DEFAULT_FILES.has("queue_plan.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_receipts.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("management_cockpit.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("safe_swarm.json")).toBe(true);
+    expect(ENVELOPE_DEFAULT_FILES.has("orchestrator_integrity.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_routes.json")).toBe(false);
     expect(ENVELOPE_DEFAULT_FILES.has("operational_queue.json")).toBe(false);
   });
@@ -164,5 +165,100 @@ describe("safe_swarm.json envelope", () => {
     const doc = JSON.parse(bytes);
     expect(doc._meta.generated_default).toBe(true);
     expect(doc.health.status).toBe("red");
+  });
+});
+
+describe("orchestrator_integrity.json envelope", () => {
+  it("returns the v0 safe-empty shape — generated_default true, integrity_status red, safe_parallelism unknown", () => {
+    const doc = envelopeDefault("orchestrator_integrity.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      writer: "scripts/sync-ops-data.mjs",
+      generated_at: FIXED_ISO,
+      generated_default: true,
+    });
+    expect(typeof doc._meta.source).toBe("string");
+    expect(typeof doc._meta.note).toBe("string");
+    expect(doc.integrity_status.status).toBe("red");
+    expect(doc.safe_parallelism.confidence).toBe("unknown");
+  });
+
+  it("honesty rule: every readability/healthy boolean is false when generated_default", () => {
+    const doc = envelopeDefault("orchestrator_integrity.json", FIXED_ISO);
+    expect(doc.registry.canonical_readable).toBe(false);
+    expect(doc.registry.canonical_stale).toBe(true);
+    expect(doc.registry.derived_projection_present).toBe(false);
+    expect(doc.registry.fallback_used).toBe(false);
+    expect(doc.merger.timer_active).toBe(false);
+    expect(doc.merger.merger_healthy).toBe(false);
+    expect(doc.projection_drift.meta_manifest_stale).toBe(true);
+  });
+
+  it("reasons arrays carry the projection_not_synced signal", () => {
+    const doc = envelopeDefault("orchestrator_integrity.json", FIXED_ISO);
+    expect(doc.integrity_status.reasons).toContain("projection_not_synced");
+    expect(doc.safe_parallelism.reasons).toContain("projection_not_synced");
+  });
+
+  it("required schema fields are all present (no schema break)", () => {
+    const doc = envelopeDefault("orchestrator_integrity.json", FIXED_ISO);
+    for (const k of [
+      "_meta", "registry", "sessions", "merger",
+      "projection_drift", "runtime_issues", "safe_parallelism", "integrity_status",
+    ]) {
+      expect(doc).toHaveProperty(k);
+    }
+    for (const k of [
+      "schema_version", "writer", "source", "generated_at", "generated_default", "note",
+    ]) {
+      expect(doc._meta).toHaveProperty(k);
+    }
+    for (const k of [
+      "canonical_readable", "canonical_mtime", "canonical_age_seconds",
+      "heartbeat_ttl_seconds", "canonical_stale", "derived_projection_present",
+      "derived_mtime", "derived_age_seconds", "derived_provenance", "fallback_used",
+    ]) {
+      expect(doc.registry).toHaveProperty(k);
+    }
+    for (const k of [
+      "active_count", "stale_count", "ownerless_count",
+      "ownerless_stale_count", "stale_ids",
+    ]) {
+      expect(doc.sessions).toHaveProperty(k);
+    }
+    for (const k of [
+      "timer_active", "last_health_ts", "last_health_age_seconds",
+      "last_applied", "last_rejected", "spool_depth_after",
+      "last_error", "merger_healthy",
+    ]) {
+      expect(doc.merger).toHaveProperty(k);
+    }
+    for (const k of [
+      "meta_manifest_regenerated_at", "meta_manifest_age_seconds",
+      "meta_manifest_stale", "drift_threshold_seconds", "drifted_files",
+    ]) {
+      expect(doc.projection_drift).toHaveProperty(k);
+    }
+    expect(doc.runtime_issues).toMatchObject({
+      open_count: 0,
+      by_severity: {},
+      by_class: {},
+    });
+  });
+
+  it("missingDefaultBytes emits the orchestrator_integrity envelope as JSON", () => {
+    const bytes = missingDefaultBytes("orchestrator_integrity.json", FIXED_ISO);
+    const doc = JSON.parse(bytes);
+    expect(doc._meta.generated_default).toBe(true);
+    expect(doc.integrity_status.status).toBe("red");
+    expect(doc.safe_parallelism.confidence).toBe("unknown");
+  });
+
+  it("does not collide with the management_cockpit or safe_swarm envelope shapes", () => {
+    const oi = envelopeDefault("orchestrator_integrity.json", FIXED_ISO);
+    expect("groups" in oi).toBe(false);
+    expect("inbox" in oi).toBe(false);
+    expect("substrate" in oi).toBe(false);
+    expect("gates" in oi).toBe(false);
   });
 });
