@@ -6,6 +6,7 @@ import {
   isSafeSwarmDefault,
   isSafeSwarmStale,
   safeSwarmAvailableCount,
+  classifySafeSwarmForOperator,
   type SafeSwarmDoc,
 } from "./SafeSwarmCard";
 
@@ -382,5 +383,178 @@ describe("SafeSwarmCard — render states", () => {
   it("aria-label is 'Safe Swarm'", () => {
     render(<SafeSwarmCard doc={greenLive} />);
     expect(screen.getByLabelText("Safe Swarm")).toBeTruthy();
+  });
+
+  it("renders operator-readable severity pill + headline + meaning + nextAction", () => {
+    render(<SafeSwarmCard doc={generatedDefault} />);
+    // no_source → info severity → "תקין" pill, headline names the missing source
+    expect(screen.getByTestId("safe-swarm-operator-severity").textContent).toBe("תקין");
+    expect(screen.getByTestId("safe-swarm-operator-headline").textContent).toContain("עדיין לא זמין");
+    expect(screen.getByTestId("safe-swarm-operator-meaning").textContent).toContain("מה זה אומר");
+    expect(screen.getByTestId("safe-swarm-operator-next-action").textContent).toContain("מה ניתן לעשות");
+  });
+});
+
+describe("classifySafeSwarmForOperator", () => {
+  it("no_source for null doc", () => {
+    const v = classifySafeSwarmForOperator(null, FROZEN_NOW);
+    expect(v.topCategory).toBe("no_source");
+    expect(v.severity).toBe("info");
+  });
+
+  it("no_source when _meta.generated_default is true (writer not yet live)", () => {
+    const v = classifySafeSwarmForOperator(generatedDefault, FROZEN_NOW);
+    expect(v.topCategory).toBe("no_source");
+    expect(v.severity).toBe("info");
+    expect(v.nextAction).toContain("אין צורך לפעול");
+  });
+
+  it("merger_unhealthy is highest-priority action when merger timer is inactive", () => {
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:59:30Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: false,
+        last_health_ts: null,
+        last_health_applied: null,
+        last_health_rejected: null,
+        last_health_error: null,
+        spool_depth_after: null,
+      },
+      health: { status: "red", reasons: ["x"] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("merger_unhealthy");
+    expect(v.severity).toBe("action");
+  });
+
+  it("merger_unhealthy also fires on non-null last_health_error", () => {
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:59:30Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: true,
+        last_health_ts: "2026-05-18T11:59:00Z",
+        last_health_applied: 0,
+        last_health_rejected: 0,
+        last_health_error: "spool write failed",
+        spool_depth_after: 0,
+      },
+      health: { status: "green", reasons: [] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("merger_unhealthy");
+  });
+
+  it("swarm_red when health.status=red and merger is fine", () => {
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:59:30Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: true,
+        last_health_ts: "2026-05-18T11:59:00Z",
+        last_health_applied: 0,
+        last_health_rejected: 0,
+        last_health_error: null,
+        spool_depth_after: 0,
+      },
+      health: { status: "red", reasons: ["gate blocked"] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("swarm_red");
+    expect(v.severity).toBe("action");
+  });
+
+  it("stale_projection when generated_at older than 5 min, merger fine, status green", () => {
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:00:00Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: true,
+        last_health_ts: "2026-05-18T11:00:00Z",
+        last_health_applied: 1,
+        last_health_rejected: 0,
+        last_health_error: null,
+        spool_depth_after: 0,
+      },
+      health: { status: "green", reasons: [] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("stale_projection");
+    expect(v.severity).toBe("watch");
+  });
+
+  it("swarm_yellow when status=yellow and merger fine and not stale", () => {
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:59:30Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: true,
+        last_health_ts: "2026-05-18T11:59:00Z",
+        last_health_applied: 0,
+        last_health_rejected: 0,
+        last_health_error: null,
+        spool_depth_after: 0,
+      },
+      health: { status: "yellow", reasons: ["one indicator soft"] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("swarm_yellow");
+    expect(v.severity).toBe("watch");
+  });
+
+  it("pending_v1 when green + spawn.available=false (the v0 baseline)", () => {
+    const slotOnLive = { available: true, script_path: "scripts/x.py" };
+    const slotOffLive = { available: false, script_path: null };
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:59:30Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: true,
+        last_health_ts: "2026-05-18T11:59:00Z",
+        last_health_applied: 1,
+        last_health_rejected: 0,
+        last_health_error: null,
+        spool_depth_after: 0,
+      },
+      substrate: {
+        recommend: slotOnLive,
+        claim: slotOnLive,
+        materialize: slotOnLive,
+        queue_audit: slotOnLive,
+        validate_return: slotOnLive,
+        validate_next: slotOnLive,
+        preflight_collision: slotOnLive,
+        spawn: slotOffLive,
+      },
+      health: { status: "green", reasons: [] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("pending_v1");
+    expect(v.severity).toBe("info");
+    expect(v.headline).toContain("v0");
+  });
+
+  it("all_clear when green + spawn.available=true", () => {
+    const slotOnLive = { available: true, script_path: "scripts/x.py" };
+    const doc: SafeSwarmDoc = {
+      _meta: { generated_at: "2026-05-18T11:59:30Z", generated_default: false },
+      runtime_health: {
+        merger_timer_active: true,
+        last_health_ts: "2026-05-18T11:59:00Z",
+        last_health_applied: 1,
+        last_health_rejected: 0,
+        last_health_error: null,
+        spool_depth_after: 0,
+      },
+      substrate: {
+        recommend: slotOnLive,
+        claim: slotOnLive,
+        materialize: slotOnLive,
+        queue_audit: slotOnLive,
+        validate_return: slotOnLive,
+        validate_next: slotOnLive,
+        preflight_collision: slotOnLive,
+        spawn: slotOnLive,
+      },
+      health: { status: "green", reasons: [] },
+    };
+    const v = classifySafeSwarmForOperator(doc, FROZEN_NOW);
+    expect(v.topCategory).toBe("all_clear");
+    expect(v.severity).toBe("info");
   });
 });
