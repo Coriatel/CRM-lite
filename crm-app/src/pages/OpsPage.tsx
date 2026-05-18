@@ -817,6 +817,71 @@ export function openRuntimeIssues(doc: RuntimeIssuesDoc | null): RuntimeIssue[] 
     });
 }
 
+// Operator-readable severity label for the per-row pill. The raw English
+// severity words leak the producer schema into the operator surface; rendering
+// Hebrew matches the rest of the card's voice.
+export const SEVERITY_LABEL_HE: Record<SeverityLevel, string> = {
+  high: "חמורה",
+  medium: "בינונית",
+  low: "נמוכה",
+  unknown: "לא ידוע",
+};
+
+export type RuntimeIssuesOperatorView = {
+  severity: "info" | "watch" | "action";
+  headline: string;
+  meaning: string;
+  nextAction: string;
+  openCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
+  unknownCount: number;
+};
+
+// Pure classifier mirroring the #88 contract — turns "N open runtime issues
+// by severity" into the three operator signals (is it safe / what does it
+// mean / what can I do). Card hides itself when openCount === 0, so the
+// classifier returns null only for the explicit no-data case.
+export function classifyRuntimeIssuesForOperator(
+  rows: RuntimeIssue[],
+): RuntimeIssuesOperatorView | null {
+  if (rows.length === 0) return null;
+  let highCount = 0, mediumCount = 0, lowCount = 0, unknownCount = 0;
+  for (const r of rows) {
+    const s = parseSeverity(r.severity);
+    if (s === "high") highCount++;
+    else if (s === "medium") mediumCount++;
+    else if (s === "low") lowCount++;
+    else unknownCount++;
+  }
+  const openCount = rows.length;
+  let severity: "info" | "watch" | "action";
+  let headline: string;
+  let meaning: string;
+  let nextAction: string;
+  if (highCount > 0) {
+    severity = "action";
+    headline = `תקלות חמורות פתוחות (${highCount})`;
+    meaning = "לפחות תקלת runtime אחת ברמת חומרה גבוהה דורשת בדיקה. עלולה לחסום סשנים או לפגוע באמינות התצוגה.";
+    nextAction = "פתח את הרשימה לפי סדר חומרה וטפל בתקלה החמורה ביותר ראשונה.";
+  } else if (mediumCount > 0) {
+    severity = "watch";
+    headline = `תקלות פתוחות לטיפול (${openCount})`;
+    meaning = "אין תקלות חוסמות, אבל קיימות תקלות ברמה בינונית שמחכות להחלטה (להעלות חומרה, להוריד או לסגור).";
+    nextAction = "סקור את הרשימה כשנוח; ניתן להמשיך לעבוד בינתיים.";
+  } else {
+    severity = "info";
+    headline = `ייעוצים פתוחים ברקע (${openCount})`;
+    meaning = "כל התקלות הפתוחות הן ייעוץ ברמה נמוכה — לא חוסמות פעילות.";
+    nextAction = "אפשר לסקור כשנוח; חלקן ייסגרו אוטומטית כשהסיבה תיעלם.";
+  }
+  return {
+    severity, headline, meaning, nextAction,
+    openCount, highCount, mediumCount, lowCount, unknownCount,
+  };
+}
+
 // Operational queue — unified routable view across runtime producers.
 // Schema: /srv/ops-vault/state/queue_item.schema.json
 // Contract: /srv/ops-vault/concepts/operational-queue.md
@@ -2568,19 +2633,52 @@ const severityPillFg: Record<SeverityLevel, string> = {
 function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
   const rows = openRuntimeIssues(doc);
   if (rows.length === 0) return null;
+  const view = classifyRuntimeIssuesForOperator(rows)!;
+  // Visual severity follows operator severity (calm/watch/action), not raw
+  // open-count — a long list of low-severity advisories should not look
+  // dangerous. Mirrors #88's IntegrityCard pattern.
+  const isAction = view.severity === "action";
+  const isWatch = view.severity === "watch";
+  const bg = isAction ? "#fef2f2" : isWatch ? "#fffbeb" : "#fafafa";
+  const border = isAction ? "#fecaca" : isWatch ? "#fde68a" : "#e5e5e5";
+  const headColor = isAction ? "#991b1b" : isWatch ? "#92400e" : "#404040";
+  const countColor = isAction ? "#dc2626" : isWatch ? "#b45309" : "#525252";
+  const pillBg = isAction ? "#dc2626" : isWatch ? "#a16207" : "#525252";
+  const severityLabel =
+    view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "ייעוץ";
   return (
     <section
       aria-label="תקלות runtime פתוחות"
-      style={{
-        ...overviewCard,
-        background: "#fffbeb",
-        borderColor: "#fde68a",
-      }}
+      style={{ ...overviewCard, background: bg, borderColor: border }}
     >
-      <div style={{ ...overviewHead, color: "#92400e" }}>
-        <span>תקלות runtime פתוחות · ייעוץ</span>
-        <span style={{ ...overviewCount, color: "#b45309" }}>{rows.length}</span>
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            style={{
+              ...pill,
+              background: pillBg,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabel}
+          </span>
+          תקלות runtime פתוחות
+        </span>
+        <span style={{ ...overviewCount, color: countColor }}>{rows.length}</span>
       </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
       <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
         {rows.map((i) => {
           const lvl = parseSeverity(i.severity);
@@ -2602,8 +2700,9 @@ function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
                     background: severityPillBg[lvl],
                     color: severityPillFg[lvl],
                   }}
+                  title={lvl}
                 >
-                  {lvl}
+                  {SEVERITY_LABEL_HE[lvl]}
                 </span>
               </div>
               <div style={subLine}>
