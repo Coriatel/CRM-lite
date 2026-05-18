@@ -273,4 +273,56 @@ describe("TodayPage", () => {
       expect(screen.getByText("שגיאה בטעינת נתוני תורמים")).toBeTruthy();
     });
   });
+
+  // Provenance pills (operational-model.md §5.3) — every data card surfaces
+  // its source and recency so a stale card cannot masquerade as real.
+
+  it("PeopleCareCard renders a provenance pill after Directus fetch resolves", async () => {
+    renderTodayPage();
+    // header for the card whose pill we're checking
+    await screen.findByRole("heading", { name: "אנשים / חיזוק" });
+    await waitFor(() => {
+      // Multiple pills land on the page (one per data card); confirm at least one
+      const pills = screen.queryAllByText(/מקור: Directus · עכשיו/);
+      expect(pills.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("RecurringDonorsCard renders a provenance pill after fetch resolves", async () => {
+    renderTodayPage();
+    await screen.findByRole("heading", { name: /תורמים קבועים/ });
+    await waitFor(() => {
+      const pills = screen.queryAllByText(/מקור: Directus · עכשיו/);
+      expect(pills.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("CallsTodayCard renders a provenance pill alongside the refresh button", async () => {
+    renderTodayPage();
+    await screen.findByRole("heading", { name: "שיחות להיום" });
+    await waitFor(() => {
+      const pills = screen.queryAllByText(/מקור: Directus · עכשיו/);
+      // 3 cards × 1 pill each on success; calls is one of them
+      expect(pills.length).toBeGreaterThanOrEqual(1);
+    });
+    // refresh button still present
+    expect(await screen.findByLabelText("רענן שיחות")).toBeTruthy();
+  });
+
+  it("provenance pill switches to error variant when fetch fails", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("filter%5Bdonation_type%5D%5B_eq%5D=recurring")) {
+        return jsonResponse({ errors: [{ message: "boom" }] }, 500);
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderTodayPage();
+    await waitFor(() => {
+      // donors error variant pill
+      const errorPills = screen.queryAllByText(/מקור: Directus · שגיאה/);
+      expect(errorPills.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

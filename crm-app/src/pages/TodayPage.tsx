@@ -48,6 +48,57 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function formatRelativeHebrew(d: Date, now: number = Date.now()): string {
+  const diffSec = Math.max(0, Math.floor((now - d.getTime()) / 1000));
+  if (diffSec < 60) return "עכשיו";
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `לפני ${mins} דק׳`;
+  const hours = Math.floor(mins / 60);
+  return `לפני ${hours} שעות`;
+}
+
+function ProvenancePill({
+  fetchedAt,
+  hasError,
+}: {
+  fetchedAt: Date | null;
+  hasError: boolean;
+}) {
+  if (hasError) {
+    return (
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--color-danger)",
+          border: "1px solid var(--color-danger)",
+          borderRadius: 999,
+          padding: "2px 8px",
+          whiteSpace: "nowrap",
+        }}
+        title="כשל בטעינה מ-Directus"
+      >
+        מקור: Directus · שגיאה
+      </span>
+    );
+  }
+  if (!fetchedAt) return null;
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        color: "var(--color-text-secondary)",
+        border: "1px solid var(--color-border)",
+        borderRadius: 999,
+        padding: "2px 8px",
+        whiteSpace: "nowrap",
+      }}
+      title={`עודכן: ${fetchedAt.toISOString()}`}
+    >
+      מקור: Directus · {formatRelativeHebrew(fetchedAt)}
+    </span>
+  );
+}
+
 export function TodayPage() {
   const navigate = useNavigate();
   const { setAdvancedFilters } = useOutletContext<{
@@ -55,8 +106,11 @@ export function TodayPage() {
   }>();
   const [people, setPeople] = useState<PeopleCounts | null>(null);
   const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [peopleFetchedAt, setPeopleFetchedAt] = useState<Date | null>(null);
   const [donors, setDonors] = useState<DonorCounts | null>(null);
   const [donorsError, setDonorsError] = useState<string | null>(null);
+  const [donorsFetchedAt, setDonorsFetchedAt] = useState<Date | null>(null);
+  const [callsFetchedAt, setCallsFetchedAt] = useState<Date | null>(null);
   const {
     buckets: attention,
     source: attentionSource,
@@ -95,6 +149,7 @@ export function TodayPage() {
           neverCalled: neverCalled.length,
           neverCalledOver: neverCalled.length >= SOFT_CAP,
         });
+        setPeopleFetchedAt(new Date());
       } catch {
         if (!cancelled) setPeopleError("שגיאה בטעינת נתוני אנשים");
       }
@@ -110,6 +165,7 @@ export function TodayPage() {
           recurring: recurring.length,
           recurringOver: recurring.length >= SOFT_CAP,
         });
+        setDonorsFetchedAt(new Date());
       } catch {
         if (!cancelled) setDonorsError("שגיאה בטעינת נתוני תורמים");
       }
@@ -118,6 +174,10 @@ export function TodayPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (callBuckets) setCallsFetchedAt(new Date());
+  }, [callBuckets]);
 
   return (
     <main
@@ -196,6 +256,7 @@ export function TodayPage() {
       <PeopleCareCard
         people={people}
         error={peopleError}
+        fetchedAt={peopleFetchedAt}
         onFollowUpDueClick={() => {
           setAdvancedFilters({ followUpBefore: todayIso() });
           navigate("/people");
@@ -208,11 +269,13 @@ export function TodayPage() {
       <CallsTodayCard
         calls={calls}
         error={callsError}
+        fetchedAt={callsFetchedAt}
         onRefresh={refreshCalls}
       />
       <RecurringDonorsCard
         donors={donors}
         error={donorsError}
+        fetchedAt={donorsFetchedAt}
         onRecurringClick={() => {
           setAdvancedFilters({ donationType: "recurring" });
           navigate("/people");
@@ -403,16 +466,22 @@ function CardFrame({
 function PeopleCareCard({
   people,
   error,
+  fetchedAt,
   onFollowUpDueClick,
   onNeverCalledClick,
 }: {
   people: PeopleCounts | null;
   error: string | null;
+  fetchedAt: Date | null;
   onFollowUpDueClick: () => void;
   onNeverCalledClick: () => void;
 }) {
   return (
-    <CardFrame icon={<Users size={20} />} title="אנשים / חיזוק">
+    <CardFrame
+      icon={<Users size={20} />}
+      title="אנשים / חיזוק"
+      action={<ProvenancePill fetchedAt={fetchedAt} hasError={!!error} />}
+    >
       {error ? (
         <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
       ) : !people ? (
@@ -500,10 +569,12 @@ function PeopleCareCard({
 function CallsTodayCard({
   calls,
   error,
+  fetchedAt,
   onRefresh,
 }: {
   calls: CallsCounts | null;
   error: string | null;
+  fetchedAt: Date | null;
   onRefresh: () => void;
 }) {
   return (
@@ -511,22 +582,25 @@ function CallsTodayCard({
       icon={<PhoneCall size={20} />}
       title="שיחות להיום"
       action={
-        <button
-          type="button"
-          onClick={onRefresh}
-          aria-label="רענן שיחות"
-          title="רענן"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--color-text-secondary)",
-            cursor: "pointer",
-            padding: 4,
-            fontSize: 13,
-          }}
-        >
-          ↻
-        </button>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <ProvenancePill fetchedAt={fetchedAt} hasError={!!error} />
+          <button
+            type="button"
+            onClick={onRefresh}
+            aria-label="רענן שיחות"
+            title="רענן"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--color-text-secondary)",
+              cursor: "pointer",
+              padding: 4,
+              fontSize: 13,
+            }}
+          >
+            ↻
+          </button>
+        </span>
       }
     >
       {error ? (
@@ -588,14 +662,20 @@ function CallsTodayCard({
 function RecurringDonorsCard({
   donors,
   error,
+  fetchedAt,
   onRecurringClick,
 }: {
   donors: DonorCounts | null;
   error: string | null;
+  fetchedAt: Date | null;
   onRecurringClick: () => void;
 }) {
   return (
-    <CardFrame icon={<HandHeart size={20} />} title="תורמים קבועים">
+    <CardFrame
+      icon={<HandHeart size={20} />}
+      title="תורמים קבועים"
+      action={<ProvenancePill fetchedAt={fetchedAt} hasError={!!error} />}
+    >
       {error ? (
         <p style={{ color: "var(--color-danger)", fontSize: 14 }}>{error}</p>
       ) : !donors ? (
