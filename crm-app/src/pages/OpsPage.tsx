@@ -131,6 +131,93 @@ export function hasPushIsolationSnapshot(snap: PushIsolationSnapshot | null): bo
   return !!snap && typeof snap.ts === "string" && snap.ts.length > 0;
 }
 
+// Operator-facing classification: turn the push-isolation snapshot into the
+// three signals a daily operator needs — "is push-trailer coverage healthy?",
+// "what does it mean?", "what should I do?". Mirrors #88/#89/#91/#92 pattern.
+export type PushIsolationCategory =
+  | "no_snapshot"
+  | "stale_snapshot"
+  | "low_coverage"
+  | "partial_coverage"
+  | "all_clear";
+
+export type PushIsolationOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory: PushIsolationCategory;
+  headline: string;
+  meaning: string;
+  nextAction: string;
+};
+
+const PUSH_ISOLATION_COPY: Record<
+  PushIsolationCategory,
+  { severity: "info" | "watch" | "action"; headline: string; meaning: string; nextAction: string }
+> = {
+  no_snapshot: {
+    severity: "watch",
+    headline: "אין נתוני בידוד פוש",
+    meaning: "המערכת לא מצאה snapshot של בידוד פוש. ייתכן שהכותב לא פעיל.",
+    nextAction: "בדוק שמסלול /ops-data/push-isolation-latest.json מתעדכן ושהשירות שכותב אותו רץ.",
+  },
+  stale_snapshot: {
+    severity: "watch",
+    headline: "נתוני בידוד הפוש לא רעננו לאחרונה",
+    meaning: "ה-snapshot ישן מעבר לסף (2 שעות). ייתכן שהמדדים כאן לא משקפים פושים אחרונים.",
+    nextAction: "בדוק שהכותב של push-isolation-latest.json פעיל; אין דחיפות אם זה חלון תחזוקה.",
+  },
+  low_coverage: {
+    severity: "action",
+    headline: "רוב הפושים האחרונים חסרים סימון בידוד session",
+    meaning:
+      "פחות מ-50% מהקומיטים בחלון האחרון נושאים trailer של בידוד. סשנים מקבילים עלולים לדרוס זה את עבודתו של זה.",
+    nextAction:
+      "סקור את רשימת ה-untrailed לפי מחבר; ודא שה-hook המקומי או ה-CI מכפה את ה-trailer לפני push.",
+  },
+  partial_coverage: {
+    severity: "watch",
+    headline: "חלק מהפושים האחרונים חסרים סימון בידוד session",
+    meaning: "רוב הפושים מסומנים תקין, אבל יש סשנים שעדיין דוחפים בלי trailer של בידוד.",
+    nextAction: "סקור את רשימת ה-untrailed לפי מחבר ובדוק אם הסשנים הללו צריכים לעדכן את ה-hook שלהם.",
+  },
+  all_clear: {
+    severity: "info",
+    headline: "בידוד פוש תקין",
+    meaning: "כל הקומיטים בחלון האחרון נושאים trailer של בידוד session.",
+    nextAction: "אין צורך לפעול.",
+  },
+};
+
+export function classifyPushIsolationForOperator(
+  snap: PushIsolationSnapshot | null,
+  now: Date = new Date(),
+): PushIsolationOperatorView {
+  let topCategory: PushIsolationCategory;
+  if (!hasPushIsolationSnapshot(snap)) {
+    topCategory = "no_snapshot";
+  } else if (isPushIsolationStale(snap, now)) {
+    topCategory = "stale_snapshot";
+  } else {
+    const cov = typeof snap?.coverage_pct === "number" ? snap.coverage_pct : null;
+    if (cov === null) {
+      topCategory = "no_snapshot";
+    } else if (cov < 50) {
+      topCategory = "low_coverage";
+    } else if (cov < 100) {
+      topCategory = "partial_coverage";
+    } else {
+      topCategory = "all_clear";
+    }
+  }
+  const copy = PUSH_ISOLATION_COPY[topCategory];
+  return {
+    severity: copy.severity,
+    topCategory,
+    headline: copy.headline,
+    meaning: copy.meaning,
+    nextAction: copy.nextAction,
+  };
+}
+
 export type OrchestratorIntegrityDoc = {
   _meta?: { generated_at?: string; generated_default?: boolean; writer?: string; source?: string };
   registry?: {
@@ -2396,8 +2483,17 @@ function PushIsolationCard({ snap }: { snap: PushIsolationSnapshot | null }) {
   const age = pushIsolationAgeHours(snap);
   const stale = isPushIsolationStale(snap);
   const cov = typeof snap.coverage_pct === "number" ? snap.coverage_pct : null;
-  const lowCoverage = cov !== null && cov < 50;
-  const warn = stale || lowCoverage;
+  const view = classifyPushIsolationForOperator(snap);
+  const isAction = view.severity === "action";
+  const isWatch = view.severity === "watch";
+  const bg = isAction ? "#fef2f2" : isWatch ? "#fffbeb" : "#f8fafc";
+  const border = isAction ? "#fecaca" : isWatch ? "#fde68a" : "#e2e8f0";
+  const headColor = isAction ? "#991b1b" : isWatch ? "#92400e" : "#334155";
+  const countColor = isAction ? "#dc2626" : isWatch ? "#b45309" : "#475569";
+  const pillBg = isAction ? "#dc2626" : isWatch ? "#a16207" : "#525252";
+  const severityLabel =
+    view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "תקין";
+  const bodyColor = isAction ? "#7f1d1d" : isWatch ? "#78350f" : "#334155";
   const ageLabel =
     age === null
       ? "?"
@@ -2410,18 +2506,50 @@ function PushIsolationCard({ snap }: { snap: PushIsolationSnapshot | null }) {
   return (
     <section
       aria-label="בידוד פוש"
-      style={{
-        ...overviewCard,
-        background: warn ? "#fffbeb" : "#f8fafc",
-        borderColor: warn ? "#fde68a" : "#e2e8f0",
-      }}
+      data-testid="push-isolation-card"
+      data-display-state={view.topCategory}
+      style={{ ...overviewCard, background: bg, borderColor: border }}
     >
-      <div style={{ ...overviewHead, color: warn ? "#92400e" : "#334155" }}>
-        <span>בידוד פוש · snapshot</span>
-        <span style={{ ...overviewCount, color: warn ? "#b45309" : "#475569" }}>
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            data-testid="push-isolation-operator-severity"
+            style={{
+              ...pill,
+              background: pillBg,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabel}
+          </span>
+          בידוד פוש · snapshot
+        </span>
+        <span style={{ ...overviewCount, color: countColor }}>
           {cov === null ? "?" : `${cov.toFixed(0)}%`}
         </span>
       </div>
+      <div
+        data-testid="push-isolation-operator-headline"
+        style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}
+      >
+        {view.headline}
+      </div>
+      <p
+        data-testid="push-isolation-operator-meaning"
+        style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}
+      >
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p
+        data-testid="push-isolation-operator-next-action"
+        style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}
+      >
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
       <ul
         style={{
           listStyle: "none",
@@ -2430,7 +2558,7 @@ function PushIsolationCard({ snap }: { snap: PushIsolationSnapshot | null }) {
           display: "grid",
           gap: 4,
           fontSize: 13,
-          color: warn ? "#78350f" : "#334155",
+          color: bodyColor,
           lineHeight: 1.5,
         }}
       >
