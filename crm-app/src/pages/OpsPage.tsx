@@ -607,6 +607,73 @@ export function workflowsAttention(doc: WorkflowsDoc | null): {
   };
 }
 
+export type WorkflowsOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory:
+    | "prod_critical_failing"
+    | "failing_only"
+    | "stale_only";
+  headline: string;
+  meaning: string;
+  nextAction: string;
+  failingCount: number;
+  staleCount: number;
+  productionCriticalFailing: number;
+};
+
+// Pure classifier mirroring the #88/#89 contract — turns "N failing / N stale
+// workflows" into operator copy (is it safe / what does it mean / what can
+// I do). WorkflowsCard hides itself when failing.length + stale.length === 0,
+// so the classifier returns null only for that no-attention case.
+export function classifyWorkflowsForOperator(
+  att: ReturnType<typeof workflowsAttention>,
+): WorkflowsOperatorView | null {
+  const failingCount = att.failing.length;
+  const staleCount = att.stale.length;
+  if (failingCount === 0 && staleCount === 0) return null;
+  const prodCrit = att.productionCriticalFailing;
+  let topCategory: WorkflowsOperatorView["topCategory"];
+  let severity: WorkflowsOperatorView["severity"];
+  let headline: string;
+  let meaning: string;
+  let nextAction: string;
+  if (prodCrit > 0) {
+    topCategory = "prod_critical_failing";
+    severity = "action";
+    headline = `תזרים קריטי לפרודקשן נכשל (${prodCrit})`;
+    meaning =
+      "לפחות תזרים אחד שמסומן כקריטי לפרודקשן נמצא במצב כשל. סביר שיש פגיעה בפעולות שמשתמשים תלויים בהן.";
+    nextAction =
+      "פתח את התזרים הקריטי ברשימה, בדוק את הריצה האחרונה, וטפל בכשל לפני שעוברים לפריט הבא.";
+  } else if (failingCount > 0) {
+    topCategory = "failing_only";
+    severity = "action";
+    headline = `תזרימים בכשל (${failingCount})`;
+    meaning =
+      "תזרימים פעילים נכשלו אך אין כשל בתזרים שסומן קריטי לפרודקשן. הפעולה הרגילה שלהם לא רצה כרגע.";
+    nextAction =
+      "עבור על התזרימים שנכשלו לפי סדר חומרת ה־criticality וטפל בהם — אפשר לרוץ עד תחתית הרשימה.";
+  } else {
+    topCategory = "stale_only";
+    severity = "watch";
+    headline = `תזרימים במצב לא ידוע (${staleCount})`;
+    meaning =
+      "אין כשלים פעילים, אבל יש תזרימים שלא דיווחו בריאות לאחרונה. ייתכן שהם רצים, וייתכן שהם תקועים בשקט.";
+    nextAction =
+      "סקור את הרשימה כשנוח כדי לוודא שהם רצים בפועל; ניתן להמשיך לעבוד בינתיים.";
+  }
+  return {
+    severity,
+    topCategory,
+    headline,
+    meaning,
+    nextAction,
+    failingCount,
+    staleCount,
+    productionCriticalFailing: prodCrit,
+  };
+}
+
 // Verifier status enum from build-handoffs-index --include-verifier.
 // drift/error are owner-actionable; ok/ancestor/not_applicable/missing_state are not.
 export type VerifierStatus =
@@ -2306,12 +2373,17 @@ function DependenciesCard({ doc }: { doc: DependenciesDoc | null }) {
 function WorkflowsCard({ doc }: { doc: WorkflowsDoc | null }) {
   if (!doc) return null;
   const att = workflowsAttention(doc);
-  if (att.failing.length === 0 && att.stale.length === 0) return null;
+  const view = classifyWorkflowsForOperator(att);
+  if (!view) return null;
 
   const hasProdCritFail = att.productionCriticalFailing > 0;
   const headColor = hasProdCritFail ? "#991b1b" : att.failing.length > 0 ? "#b91c1c" : "#a16207";
   const bg = hasProdCritFail ? "#fef2f2" : att.failing.length > 0 ? "#fef2f2" : "#fefce8";
   const border = hasProdCritFail ? "#fecaca" : att.failing.length > 0 ? "#fecaca" : "#fde68a";
+  const severityPillBgWf =
+    view.severity === "action" ? "#dc2626" : view.severity === "watch" ? "#a16207" : "#525252";
+  const severityLabelWf =
+    view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "ייעוץ";
 
   const renderRow = (w: Workflow, kind: "failing" | "stale") => {
     const h = (w.health ?? "").toLowerCase();
@@ -2379,6 +2451,17 @@ function WorkflowsCard({ doc }: { doc: WorkflowsDoc | null }) {
     >
       <div style={{ ...overviewHead, color: headColor }}>
         <span>
+          <span
+            style={{
+              ...pill,
+              background: severityPillBgWf,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabelWf}
+          </span>
           תזרימים · {att.failing.length === 0 ? "אין כשלים" : `${att.failing.length} בכשל`}
           {att.stale.length > 0 ? ` · ${att.stale.length} ללא ידוע` : ""}
         </span>
@@ -2388,6 +2471,17 @@ function WorkflowsCard({ doc }: { doc: WorkflowsDoc | null }) {
             : `${att.healthy} תקינים · ${att.disabled} מושבתים · ${att.deprecated} מיושנים`}
         </span>
       </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
 
       {att.failing.length > 0 && (
         <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px 0", display: "grid", gap: 8 }}>

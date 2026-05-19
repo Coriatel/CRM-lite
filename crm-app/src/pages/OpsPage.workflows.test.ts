@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { workflowsAttention } from "./OpsPage";
+import { classifyWorkflowsForOperator, workflowsAttention } from "./OpsPage";
 
 describe("workflowsAttention", () => {
   it("returns empty buckets for null doc", () => {
@@ -97,5 +97,130 @@ describe("workflowsAttention", () => {
     });
     expect(r.failing.map((w) => w.workflow_key)).toEqual(["a"]);
     expect(r.disabled).toBe(1);
+  });
+});
+
+describe("classifyWorkflowsForOperator", () => {
+  it("returns null when no failing and no stale rows", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "h", enabled: true, health: "healthy" },
+        { workflow_key: "x", enabled: true, health: "deprecated" },
+      ],
+    });
+    expect(classifyWorkflowsForOperator(att)).toBeNull();
+  });
+
+  it("returns null for empty doc (card hidden upstream)", () => {
+    expect(classifyWorkflowsForOperator(workflowsAttention(null))).toBeNull();
+  });
+
+  it("prod-critical failing → action severity + prod_critical_failing category", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "failing", criticality: "production_critical" },
+        { workflow_key: "b", enabled: true, health: "failing", criticality: "normal" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.severity).toBe("action");
+    expect(v.topCategory).toBe("prod_critical_failing");
+    expect(v.productionCriticalFailing).toBe(1);
+    expect(v.failingCount).toBe(2);
+    expect(v.headline).toContain("(1)");
+  });
+
+  it("failing-only (no prod-critical) → action severity + failing_only category", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "failing", criticality: "important" },
+        { workflow_key: "b", enabled: true, health: "broken_confirmed", criticality: "normal" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.severity).toBe("action");
+    expect(v.topCategory).toBe("failing_only");
+    expect(v.productionCriticalFailing).toBe(0);
+    expect(v.failingCount).toBe(2);
+    expect(v.headline).toContain("(2)");
+  });
+
+  it("stale-only → watch severity + stale_only category", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "stale" },
+        { workflow_key: "b", enabled: true, health: "unknown" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.severity).toBe("watch");
+    expect(v.topCategory).toBe("stale_only");
+    expect(v.staleCount).toBe(2);
+    expect(v.failingCount).toBe(0);
+    expect(v.headline).toContain("(2)");
+  });
+
+  it("prod-critical wins over stale + non-critical failing", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "failing", criticality: "production_critical" },
+        { workflow_key: "b", enabled: true, health: "failing", criticality: "low" },
+        { workflow_key: "c", enabled: true, health: "stale" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.topCategory).toBe("prod_critical_failing");
+    expect(v.severity).toBe("action");
+  });
+
+  it("failing rows beat stale rows when no prod-critical", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "failing", criticality: "normal" },
+        { workflow_key: "b", enabled: true, health: "stale" },
+        { workflow_key: "c", enabled: true, health: "unknown" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.topCategory).toBe("failing_only");
+    expect(v.severity).toBe("action");
+  });
+
+  it("headline / meaning / nextAction are non-empty Hebrew strings", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "failing", criticality: "production_critical" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.headline.length).toBeGreaterThan(0);
+    expect(v.meaning.length).toBeGreaterThan(0);
+    expect(v.nextAction.length).toBeGreaterThan(0);
+    // Hebrew chars present (Unicode block 0590–05FF)
+    expect(/[֐-׿]/.test(v.headline)).toBe(true);
+    expect(/[֐-׿]/.test(v.meaning)).toBe(true);
+    expect(/[֐-׿]/.test(v.nextAction)).toBe(true);
+  });
+
+  it("disabled + deprecated alone do not trigger the card view", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: false, health: "failing" },
+        { workflow_key: "b", enabled: true, health: "deprecated" },
+        { workflow_key: "c", enabled: true, health: "disabled" },
+      ],
+    });
+    expect(classifyWorkflowsForOperator(att)).toBeNull();
+  });
+
+  it("single prod-critical failure surfaces count of 1 in headline", () => {
+    const att = workflowsAttention({
+      workflows: [
+        { workflow_key: "a", enabled: true, health: "broken_confirmed", criticality: "production_critical" },
+      ],
+    });
+    const v = classifyWorkflowsForOperator(att)!;
+    expect(v.headline).toContain("(1)");
+    expect(v.productionCriticalFailing).toBe(1);
   });
 });
