@@ -131,6 +131,13 @@ export function AttentionQueueCard({
   const lastActivityTitle = item.context?.last_call_date
     ? `שיחה אחרונה: ${item.context.last_call_date}`
     : "";
+  // Mirror of the last-activity indicator for the prospective side. Same
+  // suppression rules: only renders when the date exists AND parses to a
+  // non-empty relative-time string ("בעוד 3 ימים" for future dates).
+  const followUpRel = relativeFromNow(item.context?.follow_up_date);
+  const followUpTitle = item.context?.follow_up_date
+    ? `יעד מעקב: ${item.context.follow_up_date}`
+    : "";
 
   return (
     <Tag
@@ -201,6 +208,24 @@ export function AttentionQueueCard({
           >
             <Clock3 size={11} aria-hidden />
             {lastActivityRel}
+          </span>
+        ) : null}
+        {followUpRel ? (
+          <span
+            data-testid="attention-follow-up"
+            title={followUpTitle}
+            aria-label={`${followUpTitle} (${followUpRel})`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              color: "var(--color-text-secondary)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <CalendarClock size={11} aria-hidden />
+            {followUpRel}
           </span>
         ) : null}
         {statusPill ? (
