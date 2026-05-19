@@ -376,3 +376,82 @@ describe("AttentionQueueCard interest-level dot-cluster", () => {
     expect(screen.getByTestId("attention-interest-level")).toBeTruthy();
   });
 });
+
+describe("AttentionQueueCard extended-info disclosure", () => {
+  it("renders the disclosure section by default (non-dense card)", () => {
+    renderCard(makeItem({}));
+    expect(screen.getByTestId("attention-extended-info")).toBeTruthy();
+    expect(screen.getByTestId("attention-extended-info-summary")).toBeTruthy();
+  });
+
+  it("starts closed (no `open` attribute), defaulting to progressive disclosure", () => {
+    renderCard(makeItem({}));
+    const details = screen.getByTestId("attention-extended-info");
+    expect(details.hasAttribute("open")).toBe(false);
+  });
+
+  it("exposes the item id inside the disclosure for operator/dev reference", () => {
+    renderCard(makeItem({ id: "att-test-99" }));
+    const idEl = screen.getByTestId("attention-extended-id");
+    expect(idEl.textContent).toBe("att-test-99");
+  });
+
+  it("translates owner=elron to the Hebrew label אלרון", () => {
+    renderCard(makeItem({ owner: "elron" }));
+    expect(screen.getByTestId("attention-extended-owner").textContent).toBe(
+      "אלרון",
+    );
+  });
+
+  it("translates owner=rav to the Hebrew label הרב", () => {
+    renderCard(makeItem({ owner: "rav" }));
+    expect(screen.getByTestId("attention-extended-owner").textContent).toBe(
+      "הרב",
+    );
+  });
+
+  it("translates owner=system to the Hebrew label המערכת", () => {
+    renderCard(makeItem({ owner: "system" }));
+    expect(screen.getByTestId("attention-extended-owner").textContent).toBe(
+      "המערכת",
+    );
+  });
+
+  it("suppresses the disclosure entirely in dense mode (compact previews)", () => {
+    render(
+      <MemoryRouter>
+        <ul>
+          <AttentionQueueCard item={makeItem({})} dense />
+        </ul>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByTestId("attention-extended-info")).toBeNull();
+  });
+
+  it("does not displace the existing title-row indicators when present", () => {
+    // Regression guard: shipping the disclosure must not affect the
+    // glanceability suite (#90/#98/#99/#101/#102/#103). With a fully-loaded
+    // item all three time-axis + interest indicators still render.
+    const past = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+    const future = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+    renderCard(
+      makeItem({
+        status: "blocked",
+        urgency: "critical",
+        domain: "people",
+        context: {
+          last_call_date: past,
+          follow_up_date: future,
+          interest_level: 4,
+        },
+      }),
+    );
+    expect(screen.getByTestId("attention-status-blocked")).toBeTruthy();
+    expect(screen.getByTestId("attention-domain-people")).toBeTruthy();
+    expect(screen.getByTestId("attention-urgency-critical")).toBeTruthy();
+    expect(screen.getByTestId("attention-last-activity")).toBeTruthy();
+    expect(screen.getByTestId("attention-follow-up")).toBeTruthy();
+    expect(screen.getByTestId("attention-interest-level")).toBeTruthy();
+    expect(screen.getByTestId("attention-extended-info")).toBeTruthy();
+  });
+});

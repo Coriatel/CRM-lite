@@ -18,6 +18,7 @@ import type {
   AttentionContext,
   AttentionDomain,
   AttentionItem,
+  AttentionOwner,
   AttentionStatus,
   AttentionUrgency,
 } from "../../data/amutaAttention";
@@ -75,6 +76,16 @@ const DOMAIN_ICON: Record<AttentionDomain, DomainIconSpec> = {
   finance: { Icon: Coins, label: "תחום: כספים" },
   automation: { Icon: Bot, label: "תחום: אוטומציה" },
   runtime: { Icon: Activity, label: "תחום: מערכת" },
+};
+
+// Hebrew label for the AttentionOwner enum, used inside the progressive-
+// disclosure "מידע מורחב" section so operators see "אלרון" / "הרב" /
+// "המערכת" rather than the raw machine value. Kept module-local; if a
+// future caller needs the same translation outside the card, promote.
+const OWNER_LABEL: Record<AttentionOwner, string> = {
+  elron: "אלרון",
+  rav: "הרב",
+  system: "המערכת",
 };
 
 const STATUS_PILL: Partial<Record<AttentionStatus, StatusPillSpec>> = {
@@ -319,6 +330,42 @@ export function AttentionQueueCard({
         >
           {actions}
         </div>
+      ) : null}
+      {!dense ? (
+        <details
+          data-testid="attention-extended-info"
+          style={{
+            marginTop: "var(--spacing-sm)",
+            fontSize: 12,
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          <summary
+            data-testid="attention-extended-info-summary"
+            style={{ cursor: "pointer", userSelect: "none" }}
+          >
+            מידע מורחב
+          </summary>
+          <dl
+            style={{
+              margin: "6px 0 0 0",
+              display: "grid",
+              gridTemplateColumns: "auto 1fr",
+              gap: "2px 8px",
+            }}
+          >
+            <dt style={{ fontWeight: 600, margin: 0 }}>מזהה:</dt>
+            <dd data-testid="attention-extended-id" style={{ margin: 0 }}>
+              <code style={{ fontSize: 11, fontFamily: "var(--font-mono, monospace)" }}>
+                {item.id}
+              </code>
+            </dd>
+            <dt style={{ fontWeight: 600, margin: 0 }}>בעלים:</dt>
+            <dd data-testid="attention-extended-owner" style={{ margin: 0 }}>
+              {OWNER_LABEL[item.owner]}
+            </dd>
+          </dl>
+        </details>
       ) : null}
     </Tag>
   );
