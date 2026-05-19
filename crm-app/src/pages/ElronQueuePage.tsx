@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { UserCog, RefreshCw, AlertOctagon, Clock3, Zap } from "lucide-react";
 import { useAmutaAttention } from "../data/useAmutaAttention";
 import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
+import { AttentionBucketOperatorSummary } from "../components/dashboard/AttentionBucketOperatorSummary";
 import type { AttentionItem } from "../data/amutaAttention";
 
 interface Group {
@@ -144,7 +145,19 @@ export function ElronQueuePage() {
           טוען…
         </p>
       ) : (
-        groups.map((g) => <QueueGroup key={g.key} group={g} />)
+        <>
+          {groups.some((g) => g.items.length > 0) ? (
+            <section className="card" style={{ marginBottom: "var(--spacing-md)" }}>
+              <AttentionBucketOperatorSummary
+                items={groups.flatMap((g) => g.items)}
+                testIdPrefix="elron-queue"
+              />
+            </section>
+          ) : null}
+          {groups.map((g) => (
+            <QueueGroup key={g.key} group={g} />
+          ))}
+        </>
       )}
 
       <p

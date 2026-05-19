@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAmutaAttention } from "../data/useAmutaAttention";
 import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
+import { AttentionBucketOperatorSummary } from "../components/dashboard/AttentionBucketOperatorSummary";
 
 const DISABLED_HINT = "יופעל אחרי אישור attention_items";
 
@@ -102,7 +103,14 @@ export function RabbiQueuePage() {
           אין פניות פתוחות לרב כרגע.
         </p>
       ) : (
-        <ul
+        <>
+          <section className="card" style={{ marginBottom: "var(--spacing-md)" }}>
+            <AttentionBucketOperatorSummary
+              items={items}
+              testIdPrefix="rabbi-queue"
+            />
+          </section>
+          <ul
           style={{
             listStyle: "none",
             padding: 0,
@@ -136,6 +144,7 @@ export function RabbiQueuePage() {
             />
           ))}
         </ul>
+        </>
       )}
 
       <p
