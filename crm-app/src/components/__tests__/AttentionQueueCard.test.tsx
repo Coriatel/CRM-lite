@@ -297,3 +297,82 @@ describe("AttentionQueueCard follow-up indicator", () => {
     expect(el.getAttribute("style") ?? "").toContain("--color-text-secondary");
   });
 });
+
+describe("AttentionQueueCard interest-level dot-cluster", () => {
+  it("renders 3 filled + 2 empty dots for interest_level=3", () => {
+    renderCard(makeItem({ context: { interest_level: 3 } }));
+    const el = screen.getByTestId("attention-interest-level");
+    expect(el.textContent).toBe("●●●○○");
+  });
+
+  it("renders all-filled (5/5) for the maximum value", () => {
+    renderCard(makeItem({ context: { interest_level: 5 } }));
+    const el = screen.getByTestId("attention-interest-level");
+    expect(el.textContent).toBe("●●●●●");
+    expect(el.getAttribute("data-interest-level")).toBe("5");
+  });
+
+  it("renders 1 filled + 4 empty (1/5) for the minimum value", () => {
+    renderCard(makeItem({ context: { interest_level: 1 } }));
+    const el = screen.getByTestId("attention-interest-level");
+    expect(el.textContent).toBe("●○○○○");
+    expect(el.getAttribute("data-interest-level")).toBe("1");
+  });
+
+  it("rounds non-integer values to the nearest integer 1..5", () => {
+    renderCard(makeItem({ context: { interest_level: 3.7 } }));
+    const el = screen.getByTestId("attention-interest-level");
+    expect(el.textContent).toBe("●●●●○");
+    expect(el.getAttribute("data-interest-level")).toBe("4");
+  });
+
+  it("does not render the indicator when context is missing entirely", () => {
+    renderCard(makeItem({ context: undefined }));
+    expect(screen.queryByTestId("attention-interest-level")).toBeNull();
+  });
+
+  it("does not render the indicator when interest_level is absent", () => {
+    renderCard(makeItem({ context: { why_now: "x" } }));
+    expect(screen.queryByTestId("attention-interest-level")).toBeNull();
+  });
+
+  it("does not render the indicator for out-of-range values (0, 6+, NaN)", () => {
+    for (const bad of [0, 6, 7, -1, Number.NaN]) {
+      const { unmount } = renderCard(
+        makeItem({ context: { interest_level: bad as number } }),
+      );
+      expect(screen.queryByTestId("attention-interest-level")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("exposes רמת עניין: N/5 in the title attribute for hover context", () => {
+    renderCard(makeItem({ context: { interest_level: 4 } }));
+    const el = screen.getByTestId("attention-interest-level");
+    expect(el.getAttribute("title")).toBe("רמת עניין: 4/5");
+    expect(el.getAttribute("aria-label")).toBe("רמת עניין: 4/5");
+  });
+
+  it("uses a subtle supporting color (color-text-secondary)", () => {
+    renderCard(makeItem({ context: { interest_level: 2 } }));
+    const el = screen.getByTestId("attention-interest-level");
+    expect(el.getAttribute("style") ?? "").toContain("--color-text-secondary");
+  });
+
+  it("renders alongside last-activity and follow-up when all three are present", () => {
+    const past = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+    const future = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+    renderCard(
+      makeItem({
+        context: {
+          last_call_date: past,
+          follow_up_date: future,
+          interest_level: 3,
+        },
+      }),
+    );
+    expect(screen.getByTestId("attention-last-activity")).toBeTruthy();
+    expect(screen.getByTestId("attention-follow-up")).toBeTruthy();
+    expect(screen.getByTestId("attention-interest-level")).toBeTruthy();
+  });
+});

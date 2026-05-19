@@ -138,6 +138,24 @@ export function AttentionQueueCard({
   const followUpTitle = item.context?.follow_up_date
     ? `יעד מעקב: ${item.context.follow_up_date}`
     : "";
+  // Compact dot-cluster ("●●●○○") for interest_level (1..5). Suppressed when
+  // missing, non-numeric, or out of range. Subtle role like the other
+  // hoisted indicators — no color, no shape escalation; just shape parity
+  // with the existing QuickContext Flame badge below.
+  const interestLevelRaw = item.context?.interest_level;
+  const interestLevel =
+    typeof interestLevelRaw === "number" &&
+    Number.isFinite(interestLevelRaw) &&
+    interestLevelRaw >= 1 &&
+    interestLevelRaw <= 5
+      ? Math.round(interestLevelRaw)
+      : null;
+  const interestDots =
+    interestLevel === null
+      ? ""
+      : "●".repeat(interestLevel) + "○".repeat(5 - interestLevel);
+  const interestTitle =
+    interestLevel === null ? "" : `רמת עניין: ${interestLevel}/5`;
 
   return (
     <Tag
@@ -226,6 +244,23 @@ export function AttentionQueueCard({
           >
             <CalendarClock size={11} aria-hidden />
             {followUpRel}
+          </span>
+        ) : null}
+        {interestLevel !== null ? (
+          <span
+            data-testid="attention-interest-level"
+            data-interest-level={interestLevel}
+            title={interestTitle}
+            aria-label={interestTitle}
+            style={{
+              fontSize: 11,
+              color: "var(--color-text-secondary)",
+              letterSpacing: "0.5px",
+              whiteSpace: "nowrap",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {interestDots}
           </span>
         ) : null}
         {statusPill ? (
