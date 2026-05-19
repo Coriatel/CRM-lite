@@ -246,3 +246,54 @@ describe("AttentionQueueCard last-activity indicator", () => {
     expect(style).toContain("--color-text-secondary");
   });
 });
+
+describe("AttentionQueueCard follow-up indicator", () => {
+  it("renders a relative-time indicator for a future follow_up_date", () => {
+    const iso = new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10);
+    renderCard(makeItem({ context: { follow_up_date: iso } }));
+    const el = screen.getByTestId("attention-follow-up");
+    expect(el).toBeTruthy();
+    expect((el.textContent ?? "").trim().length).toBeGreaterThan(0);
+  });
+
+  it("does not render the indicator when context is missing entirely", () => {
+    renderCard(makeItem({ context: undefined }));
+    expect(screen.queryByTestId("attention-follow-up")).toBeNull();
+  });
+
+  it("does not render the indicator when follow_up_date is absent", () => {
+    renderCard(makeItem({ context: { why_now: "x" } }));
+    expect(screen.queryByTestId("attention-follow-up")).toBeNull();
+  });
+
+  it("does not render the indicator for an unparseable follow_up_date", () => {
+    renderCard(makeItem({ context: { follow_up_date: "not-a-date" } }));
+    expect(screen.queryByTestId("attention-follow-up")).toBeNull();
+  });
+
+  it("exposes the raw date in the title attribute with the יעד מעקב label", () => {
+    const iso = "2026-06-30";
+    renderCard(makeItem({ context: { follow_up_date: iso } }));
+    const el = screen.getByTestId("attention-follow-up");
+    const title = el.getAttribute("title") ?? "";
+    expect(title).toContain(iso);
+    expect(title).toContain("יעד מעקב");
+  });
+
+  it("renders alongside last-activity when both dates are present (time-axis pair)", () => {
+    const past = new Date(Date.now() - 5 * 86400_000).toISOString().slice(0, 10);
+    const future = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
+    renderCard(
+      makeItem({ context: { last_call_date: past, follow_up_date: future } }),
+    );
+    expect(screen.getByTestId("attention-last-activity")).toBeTruthy();
+    expect(screen.getByTestId("attention-follow-up")).toBeTruthy();
+  });
+
+  it("uses a subtle supporting color (color-text-secondary), not a warning color", () => {
+    const iso = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+    renderCard(makeItem({ context: { follow_up_date: iso } }));
+    const el = screen.getByTestId("attention-follow-up");
+    expect(el.getAttribute("style") ?? "").toContain("--color-text-secondary");
+  });
+});
