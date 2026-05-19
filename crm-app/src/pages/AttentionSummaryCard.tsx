@@ -68,6 +68,34 @@ export type AttentionSummaryInput = {
 
 const STALE_HOURS_THRESHOLD = 6;
 
+// Each summary bucket has one stable destination card on the same /ops page.
+// IDs are matched by `id=` on the destination <section> — see OpsPage.tsx.
+// Keeping the mapping explicit (vs registry/reflection) so a renamed card
+// fails loud at type-check / smoke instead of silently no-op-ing the jump.
+export const ATTENTION_TARGET_ID: Record<AttentionCategoryKey, string> = {
+  owner_required: "ops-card-owner-gates",
+  escalate: "ops-card-runtime-issues",
+  autonomous_ready: "ops-card-operational-queue",
+  stale: "ops-card-staleness",
+  blockers: "ops-card-blockers",
+};
+
+const ATTENTION_TARGET_LABEL: Record<AttentionCategoryKey, string> = {
+  owner_required: "החלטות שממתינות לבעלים",
+  escalate: "תקלות runtime פתוחות",
+  autonomous_ready: "תור תפעולי",
+  stale: "נתונים מתיישנים",
+  blockers: "חסמים פעילים",
+};
+
+function scrollToAttentionTarget(id: string): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.getElementById(id);
+  if (!el) return false;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
+}
+
 function shortenName(file: string | null | undefined): string {
   if (!file) return "—";
   const tail = file.split("/").pop() ?? file;
@@ -443,6 +471,22 @@ const cellExpandedSource: CSSProperties = {
   opacity: 0.7,
 };
 
+const cellJumpRow: CSSProperties = {
+  marginTop: 4,
+};
+
+const cellJumpButton: CSSProperties = {
+  all: "unset",
+  display: "inline-block",
+  cursor: "pointer",
+  fontSize: 11,
+  fontWeight: 600,
+  padding: "3px 8px",
+  border: "1px solid currentColor",
+  borderRadius: 4,
+  opacity: 0.85,
+};
+
 const emptyState: CSSProperties = {
   fontSize: 13,
   color: "#52525b",
@@ -571,6 +615,20 @@ export function AttentionSummaryCard(props: AttentionSummaryInput) {
                     >
                       {c.source}
                     </div>
+                  </div>
+                  <div style={cellJumpRow}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        scrollToAttentionTarget(ATTENTION_TARGET_ID[c.key])
+                      }
+                      aria-label={`פתח כרטיס מלא: ${ATTENTION_TARGET_LABEL[c.key]}`}
+                      data-testid={`attention-summary-${c.key}-jump`}
+                      data-target-id={ATTENTION_TARGET_ID[c.key]}
+                      style={cellJumpButton}
+                    >
+                      פתח כרטיס מלא ↓
+                    </button>
                   </div>
                 </div>
               )}

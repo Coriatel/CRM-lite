@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, fireEvent } from "@testing-library/react";
 import {
   AttentionSummaryCard,
+  ATTENTION_TARGET_ID,
   type AttentionSummaryInput,
 } from "./AttentionSummaryCard";
 
@@ -192,5 +193,83 @@ describe("<AttentionSummaryCard> — tap-to-expand", () => {
     expect(screen.getByTestId("attention-summary-stale-source")).toBeTruthy();
     // No next-action row should render when nextAction is null.
     expect(screen.queryByTestId("attention-summary-stale-next-action")).toBeNull();
+  });
+});
+
+describe("<AttentionSummaryCard> — jump-to-card navigation", () => {
+  it("exports a stable target-id mapping for all 5 categories", () => {
+    expect(ATTENTION_TARGET_ID).toEqual({
+      owner_required: "ops-card-owner-gates",
+      escalate: "ops-card-runtime-issues",
+      autonomous_ready: "ops-card-operational-queue",
+      stale: "ops-card-staleness",
+      blockers: "ops-card-blockers",
+    });
+  });
+
+  it("expanded cell renders a jump-to-card button with stable testid + target reference", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    render(<AttentionSummaryCard {...input} />);
+    fireEvent.click(screen.getByTestId("attention-summary-owner_required-toggle"));
+    const jump = screen.getByTestId("attention-summary-owner_required-jump");
+    expect(jump.getAttribute("data-target-id")).toBe("ops-card-owner-gates");
+    expect(jump.getAttribute("aria-label")).toMatch(/החלטות שממתינות לבעלים/);
+  });
+
+  it("collapsed cell does NOT render a jump button — expand is required first", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    render(<AttentionSummaryCard {...input} />);
+    expect(
+      screen.queryByTestId("attention-summary-owner_required-jump"),
+    ).toBeNull();
+  });
+
+  it("clicking the jump button calls scrollIntoView on the target element", () => {
+    const input = baseInput();
+    input.blockers = [{ id: "b1", summary: "x" }];
+    // Mount a stub destination card in the same document so jump can find it.
+    const target = document.createElement("section");
+    target.id = "ops-card-blockers";
+    const scrollSpy = vi.fn();
+    target.scrollIntoView = scrollSpy;
+    document.body.appendChild(target);
+    try {
+      render(<AttentionSummaryCard {...input} />);
+      fireEvent.click(screen.getByTestId("attention-summary-blockers-toggle"));
+      fireEvent.click(screen.getByTestId("attention-summary-blockers-jump"));
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      const arg = scrollSpy.mock.calls[0]?.[0] as ScrollIntoViewOptions;
+      expect(arg.behavior).toBe("smooth");
+      expect(arg.block).toBe("start");
+    } finally {
+      target.remove();
+    }
+  });
+
+  it("jump button is a no-op when target element is missing (degrade honestly, no throw)", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    render(<AttentionSummaryCard {...input} />);
+    fireEvent.click(screen.getByTestId("attention-summary-owner_required-toggle"));
+    // No destination element exists → click must not throw.
+    expect(() =>
+      fireEvent.click(screen.getByTestId("attention-summary-owner_required-jump")),
+    ).not.toThrow();
+  });
+
+  it("clicking jump button does not collapse the expanded cell (separate concerns)", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    render(<AttentionSummaryCard {...input} />);
+    fireEvent.click(screen.getByTestId("attention-summary-owner_required-toggle"));
+    expect(
+      screen.getByTestId("attention-summary-owner_required-toggle").getAttribute("aria-expanded"),
+    ).toBe("true");
+    fireEvent.click(screen.getByTestId("attention-summary-owner_required-jump"));
+    expect(
+      screen.getByTestId("attention-summary-owner_required-toggle").getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 });
