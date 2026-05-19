@@ -2733,13 +2733,67 @@ function LanesOverview({ lanes }: { lanes: LaneRow[] }) {
 
 // Strip markdown emphasis/strikethrough markers so the gate text reads cleanly.
 // Raw source is bullet text scraped from CURRENT.md by scripts/build-session-index.sh.
-function plainifyGate(s: string): string {
+export function plainifyGate(s: string): string {
   return s
     .replace(/~~([^~]+)~~/g, "")        // drop strikethrough segments entirely (resolved)
     .replace(/\*\*([^*]+)\*\*/g, "$1")  // unwrap bold
     .replace(/`([^`]+)`/g, "$1")        // unwrap inline code
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// "Active" owner gates = gates whose plainified text is non-empty.
+// Fully-resolved entries (everything wrapped in ~~strikethrough~~)
+// collapse to "" and are dropped, mirroring the card's filter.
+export function activeOwnerGates(gates: string[]): string[] {
+  return gates.map(plainifyGate).filter((g) => g.length > 0);
+}
+
+export type OwnerGatesOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory: "backlog" | "pending";
+  headline: string;
+  meaning: string;
+  nextAction: string;
+  count: number;
+};
+
+// Pure classifier mirroring the #88/#89 contract — turns "N owner gates"
+// into operator copy. Owner gates are decisions the autonomous loop cannot
+// resolve without the owner; the operator's job is to surface them or, if
+// they are the owner, work through them in order. Card hides itself when
+// activeOwnerGates === 0.
+export function classifyOwnerGatesForOperator(
+  gates: string[],
+): OwnerGatesOperatorView | null {
+  const active = activeOwnerGates(gates);
+  if (active.length === 0) return null;
+  const count = active.length;
+  if (count >= 5) {
+    return {
+      severity: "action",
+      topCategory: "backlog",
+      count,
+      headline: `הצטברו החלטות בעלים (${count})`,
+      meaning:
+        "מצטברות יותר מ־4 החלטות שדורשות את הבעלים. כל עוד הן פתוחות, סלייסים שתלויים בהן נשארים על המדף.",
+      nextAction:
+        "אם אתה הבעלים — עבור עליהן בסדר הופעתן; אחרת — קדם אותן לפניו כדי לפתוח את הצוואר.",
+    };
+  }
+  return {
+    severity: "watch",
+    topCategory: "pending",
+    count,
+    headline:
+      count === 1
+        ? "החלטה אחת ממתינה לבעלים"
+        : `החלטות ממתינות לבעלים (${count})`,
+    meaning:
+      "יש החלטות שהלולאה האוטונומית לא יכולה לבחור בהן בלי הבעלים. אין שריפה — פשוט המתנה.",
+    nextAction:
+      "אפשר להמשיך בעבודה אחרת; כשהבעלים פנוי, להחזיר אותו לרשימה הזו לפי הסדר.",
+  };
 }
 
 function ActiveIncidentsCard({ incidents }: { incidents: string[] }) {
@@ -2883,28 +2937,61 @@ function PushIsolationCard({ snap }: { snap: PushIsolationSnapshot | null }) {
 }
 
 function OwnerGatesCard({ gates }: { gates: string[] }) {
-  const clean = gates.map(plainifyGate).filter((g) => g.length > 0);
-  if (clean.length === 0) return null;
+  const clean = activeOwnerGates(gates);
+  const view = classifyOwnerGatesForOperator(gates);
+  if (!view) return null;
+  const isAction = view.severity === "action";
+  const bg = isAction ? "#fef2f2" : "#fffbeb";
+  const border = isAction ? "#fecaca" : "#fde68a";
+  const headColor = isAction ? "#991b1b" : "#92400e";
+  const countColor = isAction ? "#dc2626" : "#b45309";
+  const itemColor = isAction ? "#7f1d1d" : "#78350f";
+  const severityPillBgGate = isAction ? "#dc2626" : "#a16207";
+  const severityLabelGate = isAction ? "דורש פעולה" : "במעקב";
   return (
     <section
       aria-label="החלטות שממתינות לבעלים"
       style={{
         ...overviewCard,
-        background: "#fffbeb",
-        borderColor: "#fde68a",
+        background: bg,
+        borderColor: border,
       }}
     >
-      <div style={{ ...overviewHead, color: "#92400e" }}>
-        <span>החלטות שממתינות לבעלים</span>
-        <span style={{ ...overviewCount, color: "#b45309" }}>{clean.length}</span>
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            style={{
+              ...pill,
+              background: severityPillBgGate,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabelGate}
+          </span>
+          החלטות שממתינות לבעלים
+        </span>
+        <span style={{ ...overviewCount, color: countColor }}>{clean.length}</span>
       </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
       <ul style={{ listStyle: "disc inside", padding: 0, margin: 0, display: "grid", gap: 6 }}>
         {clean.map((g, i) => (
           <li
             key={i}
             style={{
               fontSize: 13,
-              color: "#78350f",
+              color: itemColor,
               lineHeight: 1.45,
             }}
           >
