@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AttentionQueueCard } from "../dashboard/AttentionQueueCard";
 import type {
+  AttentionDomain,
   AttentionItem,
   AttentionStatus,
 } from "../../data/amutaAttention";
@@ -89,5 +90,56 @@ describe("AttentionQueueCard status pill", () => {
       unmount();
     }
     expect(labels.size).toBe(statuses.length);
+  });
+});
+
+describe("AttentionQueueCard domain icon", () => {
+  const DOMAINS: AttentionDomain[] = [
+    "people",
+    "lessons",
+    "tasks",
+    "content",
+    "finance",
+    "automation",
+    "runtime",
+  ];
+
+  it("renders a domain icon for every supported AttentionDomain value", () => {
+    for (const domain of DOMAINS) {
+      const { unmount } = renderCard(makeItem({ domain }));
+      expect(screen.getByTestId(`attention-domain-${domain}`)).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("uses a distinct icon SVG per domain (operator can distinguish at a glance)", () => {
+    // Render each domain card, snapshot its SVG `d` attribute(s), then check
+    // that no two domains produced the same icon path. We do not assert
+    // *which* icon — only that the mapping is one-to-one.
+    const paths = new Map<AttentionDomain, string>();
+    for (const domain of DOMAINS) {
+      const { unmount } = renderCard(makeItem({ domain }));
+      const wrapper = screen.getByTestId(`attention-domain-${domain}`);
+      const svgD = Array.from(wrapper.querySelectorAll("path,line,circle,rect,polyline,polygon"))
+        .map((el) => `${el.tagName}:${el.outerHTML}`)
+        .join("|");
+      paths.set(domain, svgD);
+      unmount();
+    }
+    const uniquePaths = new Set(paths.values());
+    expect(uniquePaths.size).toBe(DOMAINS.length);
+  });
+
+  it("annotates the icon with a Hebrew title and aria-label naming the domain", () => {
+    renderCard(makeItem({ domain: "people" }));
+    const wrapper = screen.getByTestId("attention-domain-people");
+    expect(wrapper.getAttribute("title")).toContain("אנשים");
+    expect(wrapper.getAttribute("aria-label")).toContain("אנשים");
+  });
+
+  it("renders the icon as a subtle supporting element (color-text-secondary)", () => {
+    renderCard(makeItem({ domain: "finance" }));
+    const wrapper = screen.getByTestId("attention-domain-finance");
+    expect(wrapper.getAttribute("style") ?? "").toContain("--color-text-secondary");
   });
 });
