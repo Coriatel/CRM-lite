@@ -201,3 +201,48 @@ describe("AttentionQueueCard urgency-label tooltip", () => {
     }
   });
 });
+
+describe("AttentionQueueCard last-activity indicator", () => {
+  it("renders a relative-time indicator when context.last_call_date exists", () => {
+    const iso = new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10);
+    renderCard(makeItem({ context: { last_call_date: iso } }));
+    const el = screen.getByTestId("attention-last-activity");
+    expect(el).toBeTruthy();
+    // Text contains a Hebrew relative-time string ("לפני ... " or "אתמול"
+    // depending on the unit). Don't pin the exact form; just confirm Hebrew
+    // content was produced rather than an empty span.
+    expect((el.textContent ?? "").trim().length).toBeGreaterThan(0);
+  });
+
+  it("does not render the indicator when context is missing entirely", () => {
+    renderCard(makeItem({ context: undefined }));
+    expect(screen.queryByTestId("attention-last-activity")).toBeNull();
+  });
+
+  it("does not render the indicator when last_call_date is absent", () => {
+    renderCard(makeItem({ context: { why_now: "x" } }));
+    expect(screen.queryByTestId("attention-last-activity")).toBeNull();
+  });
+
+  it("does not render the indicator for an unparseable last_call_date", () => {
+    renderCard(makeItem({ context: { last_call_date: "not-a-date" } }));
+    expect(screen.queryByTestId("attention-last-activity")).toBeNull();
+  });
+
+  it("exposes the raw date in the title attribute for full-context hover", () => {
+    const iso = "2026-04-12";
+    renderCard(makeItem({ context: { last_call_date: iso } }));
+    const el = screen.getByTestId("attention-last-activity");
+    const title = el.getAttribute("title") ?? "";
+    expect(title).toContain(iso);
+    expect(title).toContain("שיחה אחרונה");
+  });
+
+  it("uses a subtle supporting color (color-text-secondary), not urgency or status color", () => {
+    const iso = new Date().toISOString().slice(0, 10);
+    renderCard(makeItem({ context: { last_call_date: iso } }));
+    const el = screen.getByTestId("attention-last-activity");
+    const style = el.getAttribute("style") ?? "";
+    expect(style).toContain("--color-text-secondary");
+  });
+});

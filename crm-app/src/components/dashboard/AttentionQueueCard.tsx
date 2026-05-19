@@ -4,6 +4,7 @@ import {
   Bot,
   CalendarClock,
   CheckSquare,
+  Clock3,
   Coins,
   Flame,
   GraduationCap,
@@ -20,6 +21,7 @@ import type {
   AttentionStatus,
   AttentionUrgency,
 } from "../../data/amutaAttention";
+import { relativeFromNow } from "../../utils/relativeTime";
 
 const URGENCY_LABEL: Record<AttentionUrgency, string> = {
   critical: "דחוף מאוד",
@@ -121,6 +123,14 @@ export function AttentionQueueCard({
   const domainIcon = DOMAIN_ICON[item.domain];
   const DomainIcon = domainIcon.Icon;
   const domainIconSize = dense ? 12 : 14;
+  // At-a-glance "last activity" hint hoisted into the title row. The
+  // QuickContext badge below still carries the raw date for full context;
+  // this is the fast-scan signal. Only renders when last_call_date both
+  // exists and parses to a non-empty relative-time string.
+  const lastActivityRel = relativeFromNow(item.context?.last_call_date);
+  const lastActivityTitle = item.context?.last_call_date
+    ? `שיחה אחרונה: ${item.context.last_call_date}`
+    : "";
 
   return (
     <Tag
@@ -175,6 +185,24 @@ export function AttentionQueueCard({
             )}
           </span>
         </div>
+        {lastActivityRel ? (
+          <span
+            data-testid="attention-last-activity"
+            title={lastActivityTitle}
+            aria-label={`${lastActivityTitle} (${lastActivityRel})`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              color: "var(--color-text-secondary)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Clock3 size={11} aria-hidden />
+            {lastActivityRel}
+          </span>
+        ) : null}
         {statusPill ? (
           <span
             data-testid={statusPill.testId}
