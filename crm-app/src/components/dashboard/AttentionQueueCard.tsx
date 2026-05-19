@@ -1,12 +1,21 @@
 import { Link } from "react-router-dom";
 import {
+  Activity,
+  Bot,
   CalendarClock,
+  CheckSquare,
+  Coins,
   Flame,
+  GraduationCap,
   PhoneCall,
+  PlaySquare,
   Sparkles,
+  UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import type {
   AttentionContext,
+  AttentionDomain,
   AttentionItem,
   AttentionStatus,
   AttentionUrgency,
@@ -36,6 +45,24 @@ interface StatusPillSpec {
   title: string;
   testId: string;
 }
+
+// Subtle domain micro-icon next to the title — helps the operator visually
+// group items by "what kind of work" without reading. Supporting role only:
+// muted color, small size, paired with an accessible label.
+interface DomainIconSpec {
+  Icon: LucideIcon;
+  label: string;
+}
+
+const DOMAIN_ICON: Record<AttentionDomain, DomainIconSpec> = {
+  people: { Icon: UserRound, label: "תחום: אנשים" },
+  lessons: { Icon: GraduationCap, label: "תחום: שיעורים" },
+  tasks: { Icon: CheckSquare, label: "תחום: משימות" },
+  content: { Icon: PlaySquare, label: "תחום: תכנים" },
+  finance: { Icon: Coins, label: "תחום: כספים" },
+  automation: { Icon: Bot, label: "תחום: אוטומציה" },
+  runtime: { Icon: Activity, label: "תחום: מערכת" },
+};
 
 const STATUS_PILL: Partial<Record<AttentionStatus, StatusPillSpec>> = {
   blocked: {
@@ -80,6 +107,9 @@ export function AttentionQueueCard({
   const stripeWidth = dense ? 3 : 4;
   const paddingInlineStart = dense ? 10 : undefined;
   const statusPill = STATUS_PILL[item.status];
+  const domainIcon = DOMAIN_ICON[item.domain];
+  const DomainIcon = domainIcon.Icon;
+  const domainIconSize = dense ? 12 : 14;
 
   return (
     <Tag
@@ -98,18 +128,41 @@ export function AttentionQueueCard({
         }}
       >
         <div
-          style={{ fontSize: titleSize, fontWeight: 600, flex: 1 }}
+          style={{
+            fontSize: titleSize,
+            fontWeight: 600,
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            minWidth: 0,
+          }}
         >
-          {item.href ? (
-            <Link
-              to={item.href}
-              style={{ color: "inherit", textDecoration: "none" }}
-            >
-              {item.title}
-            </Link>
-          ) : (
-            item.title
-          )}
+          <span
+            data-testid={`attention-domain-${item.domain}`}
+            title={domainIcon.label}
+            aria-label={domainIcon.label}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              color: "var(--color-text-secondary)",
+              flexShrink: 0,
+            }}
+          >
+            <DomainIcon size={domainIconSize} aria-hidden />
+          </span>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+            {item.href ? (
+              <Link
+                to={item.href}
+                style={{ color: "inherit", textDecoration: "none" }}
+              >
+                {item.title}
+              </Link>
+            ) : (
+              item.title
+            )}
+          </span>
         </div>
         {statusPill ? (
           <span
