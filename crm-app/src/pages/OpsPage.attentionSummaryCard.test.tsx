@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import {
   AttentionSummaryCard,
   type AttentionSummaryInput,
@@ -114,5 +114,83 @@ describe("<AttentionSummaryCard>", () => {
     expect(screen.getByTestId("attention-summary-total").textContent).toMatch(
       /4 פריטים/,
     );
+  });
+});
+
+describe("<AttentionSummaryCard> — tap-to-expand", () => {
+  it("cells are collapsed by default — no impact/source visible", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    render(<AttentionSummaryCard {...input} />);
+    expect(
+      screen.queryByTestId("attention-summary-owner_required-impact"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("attention-summary-owner_required-source"),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("attention-summary-owner_required-toggle").getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+  });
+
+  it("clicking a cell expands it to reveal impact + nextAction + source", () => {
+    const input = baseInput();
+    input.activeIncidents = ["INC-9 mail down"];
+    render(<AttentionSummaryCard {...input} />);
+    fireEvent.click(screen.getByTestId("attention-summary-owner_required-toggle"));
+    const details = screen.getByTestId(
+      "attention-summary-owner_required-details",
+    );
+    expect(within(details).getByTestId("attention-summary-owner_required-impact").textContent).toMatch(
+      /סלייסים/,
+    );
+    expect(
+      within(details).getByTestId("attention-summary-owner_required-next-action").textContent,
+    ).toMatch(/אירוע/);
+    expect(within(details).getByTestId("attention-summary-owner_required-source").textContent).toMatch(
+      /sessions\.json/,
+    );
+    expect(
+      screen.getByTestId("attention-summary-owner_required-toggle").getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("true");
+  });
+
+  it("clicking an expanded cell collapses it again", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    render(<AttentionSummaryCard {...input} />);
+    const toggle = screen.getByTestId("attention-summary-owner_required-toggle");
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("attention-summary-owner_required-details")).not.toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("attention-summary-owner_required-details")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("multiple cells can be expanded independently", () => {
+    const input = baseInput();
+    input.ownerGates = ["g1"];
+    input.blockers = [{ id: "b1", summary: "x" }];
+    render(<AttentionSummaryCard {...input} />);
+    fireEvent.click(screen.getByTestId("attention-summary-owner_required-toggle"));
+    fireEvent.click(screen.getByTestId("attention-summary-blockers-toggle"));
+    expect(screen.getByTestId("attention-summary-owner_required-details")).toBeTruthy();
+    expect(screen.getByTestId("attention-summary-blockers-details")).toBeTruthy();
+  });
+
+  it("expanded cell suppresses nextAction row when category has no actionable next step", () => {
+    const input = baseInput();
+    // freshness loaded but no stale files → stale category has hasData but nextAction=null
+    input.freshness = { files: {} };
+    render(<AttentionSummaryCard {...input} />);
+    fireEvent.click(screen.getByTestId("attention-summary-stale-toggle"));
+    expect(screen.getByTestId("attention-summary-stale-impact")).toBeTruthy();
+    expect(screen.getByTestId("attention-summary-stale-source")).toBeTruthy();
+    // No next-action row should render when nextAction is null.
+    expect(screen.queryByTestId("attention-summary-stale-next-action")).toBeNull();
   });
 });

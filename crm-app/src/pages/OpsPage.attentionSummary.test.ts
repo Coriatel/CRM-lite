@@ -317,3 +317,75 @@ describe("attentionSummary — totals + hasAnyAttention", () => {
     expect(r.totalAttentionCount).toBe(0);
   });
 });
+
+describe("attentionSummary — drilldown fields", () => {
+  it("every category exposes impact and source on empty input", () => {
+    const r = attentionSummary(emptyInput());
+    for (const c of r.categories) {
+      expect(c.impact.length).toBeGreaterThan(0);
+      expect(c.source.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("source label names the underlying producer files for each category", () => {
+    const r = attentionSummary(emptyInput());
+    expect(findCat(r, "owner_required")?.source).toMatch(/sessions\.json/);
+    expect(findCat(r, "escalate")?.source).toMatch(/runtime_issues\.json/);
+    expect(findCat(r, "autonomous_ready")?.source).toMatch(/queue_routes\.json/);
+    expect(findCat(r, "stale")?.source).toMatch(/freshness\.json/);
+    expect(findCat(r, "blockers")?.source).toMatch(/blockers\.json/);
+  });
+
+  it("nextAction is null for empty owner_required and populated when items exist", () => {
+    expect(findCat(attentionSummary(emptyInput()), "owner_required")?.nextAction).toBeNull();
+    const input = emptyInput();
+    input.activeIncidents = ["INC-9"];
+    expect(findCat(attentionSummary(input), "owner_required")?.nextAction).toMatch(
+      /אירוע/,
+    );
+  });
+
+  it("escalate nextAction reuses classifyRuntimeIssuesForOperator output when issues exist", () => {
+    const input = emptyInput();
+    input.runtimeIssues = {
+      issues: [{ id: "ri-1", severity: "high" }],
+    };
+    const c = findCat(attentionSummary(input), "escalate");
+    // The high-severity branch of classifyRuntimeIssuesForOperator emits a
+    // "פתח את הרשימה לפי סדר חומרה" guidance — assert that text shape rather
+    // than pinning to a brittle exact-string.
+    expect(c?.nextAction).toMatch(/סדר חומרה|חומרה/);
+  });
+
+  it("autonomous nextAction is null when no producer data (avoids false 'run planner' when we don't know)", () => {
+    expect(findCat(attentionSummary(emptyInput()), "autonomous_ready")?.nextAction).toBeNull();
+    const input = emptyInput();
+    input.queueRoutes = {
+      summary: { autonomous: 4, owner: 0, escalate: 0, defer: 0 },
+    };
+    expect(findCat(attentionSummary(input), "autonomous_ready")?.nextAction).toMatch(
+      /planner|dispatcher/,
+    );
+  });
+
+  it("stale nextAction names the oldest stale file", () => {
+    const input = emptyInput();
+    input.freshness = {
+      files: {
+        "queue.json": { mtime: "", age_seconds: 8 * 3600 },
+        "routes.json": { mtime: "", age_seconds: 30 * 3600 },
+      },
+    };
+    const c = findCat(attentionSummary(input), "stale");
+    expect(c?.nextAction).toMatch(/routes/);
+  });
+
+  it("blocker nextAction prefers blocker.needs when present", () => {
+    const input = emptyInput();
+    input.blockers = [
+      { id: "auth", summary: "auth gate", needs: "admin to rotate token" },
+    ];
+    const c = findCat(attentionSummary(input), "blockers");
+    expect(c?.nextAction).toMatch(/admin to rotate token/);
+  });
+});
