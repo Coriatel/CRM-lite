@@ -259,6 +259,27 @@ describe("<AttentionSummaryCard> — jump-to-card navigation", () => {
     ).not.toThrow();
   });
 
+  it("clicking jump shifts focus to the target section with preventScroll", () => {
+    const input = baseInput();
+    input.blockers = [{ id: "b1", summary: "x" }];
+    const target = document.createElement("section");
+    target.id = "ops-card-blockers";
+    target.tabIndex = -1;
+    target.scrollIntoView = vi.fn();
+    const focusSpy = vi.spyOn(target, "focus");
+    document.body.appendChild(target);
+    try {
+      render(<AttentionSummaryCard {...input} />);
+      fireEvent.click(screen.getByTestId("attention-summary-blockers-toggle"));
+      fireEvent.click(screen.getByTestId("attention-summary-blockers-jump"));
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      expect(focusSpy.mock.calls[0]?.[0]).toEqual({ preventScroll: true });
+    } finally {
+      focusSpy.mockRestore();
+      target.remove();
+    }
+  });
+
   it("clicking jump button does not collapse the expanded cell (separate concerns)", () => {
     const input = baseInput();
     input.ownerGates = ["g1"];
