@@ -498,6 +498,82 @@ export function dependenciesSummary(doc: DependenciesDoc | null): {
   };
 }
 
+export type DependenciesOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory:
+    | "collection_errors"
+    | "failing_checks"
+    | "open_only"
+    | "all_resolved";
+  headline: string;
+  meaning: string;
+  nextAction: string;
+  open: number;
+  resolved: number;
+  failingChecks: number;
+  errors: number;
+};
+
+// Pure classifier mirroring the #88/#89 contract — turns the dependencies
+// summary into operator copy (is it safe / what does it mean / what can
+// I do). Returns null only when the card hides itself (no deps + no
+// collection errors).
+export function classifyDependenciesForOperator(
+  summary: ReturnType<typeof dependenciesSummary>,
+): DependenciesOperatorView | null {
+  const { open, resolved, failingChecks, errors, total } = summary;
+  if (total === 0 && errors === 0) return null;
+  let topCategory: DependenciesOperatorView["topCategory"];
+  let severity: DependenciesOperatorView["severity"];
+  let headline: string;
+  let meaning: string;
+  let nextAction: string;
+  if (errors > 0) {
+    topCategory = "collection_errors";
+    severity = "action";
+    headline = `שגיאות באיסוף תלויות (${errors})`;
+    meaning =
+      "המעקב אחרי PR תלוי לא הצליח לקרוא ממקור אחד או יותר. הספירה הנוכחית עלולה להיות לא מלאה.";
+    nextAction =
+      "בדוק את לוג ההפקה של dependencies.json לפי שגיאת ה־_meta הראשונה, ואחר־כך הרץ שוב.";
+  } else if (failingChecks > 0) {
+    topCategory = "failing_checks";
+    severity = "action";
+    headline = `תלויות עם כשל בבדיקות (${failingChecks})`;
+    meaning =
+      "PR אחד או יותר שתלוי עליהם slice הבא נכשל ב־CI. אסור לבסס עליהם merge עד שיתוקנו.";
+    nextAction =
+      "פתח את ה־PR הראשון עם כשל בדיקה, התחל מה־first failing check ותקן אותה לפני שעוברים הלאה.";
+  } else if (open > 0) {
+    topCategory = "open_only";
+    severity = "watch";
+    headline = `תלויות פתוחות במעקב (${open})`;
+    meaning =
+      "יש PR אחד או יותר במצב פתוח שאנחנו מחכים להם. ה־CI שלהם ירוק; אין מה לעשות חוץ ממעקב.";
+    nextAction =
+      "אפשר להמשיך לעבוד; ה־poll יתעדכן ויעדכן את הסטטוס כשהם יתמזגו.";
+  } else {
+    topCategory = "all_resolved";
+    severity = "info";
+    headline = `כל התלויות נסגרו (${resolved})`;
+    meaning =
+      "כל ה־PR שעקבנו אחריהם נסגרו ואין כשלים גלויים. הסליסים שתלויים בהם משוחררים.";
+    nextAction =
+      "אין צורך בפעולה; ניתן להתחיל את ה־slice שהיה תלוי בהם.";
+  }
+  return {
+    severity,
+    topCategory,
+    headline,
+    meaning,
+    nextAction,
+    open,
+    resolved,
+    failingChecks,
+    errors,
+  };
+}
+
 type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
@@ -2286,11 +2362,16 @@ function DependenciesCard({ doc }: { doc: DependenciesDoc | null }) {
   if (!doc) return null;
   const summary = dependenciesSummary(doc);
   const errs = doc._meta?.errors ?? [];
-  if (summary.total === 0 && errs.length === 0) return null;
+  const view = classifyDependenciesForOperator(summary);
+  if (!view) return null;
 
   const headColor = summary.failingChecks > 0 ? "#991b1b" : summary.open > 0 ? "#1d4ed8" : "#737373";
   const bg = summary.failingChecks > 0 ? "#fef2f2" : summary.open > 0 ? "#eff6ff" : "#fafafa";
   const border = summary.failingChecks > 0 ? "#fecaca" : summary.open > 0 ? "#bfdbfe" : "#e5e5e5";
+  const severityPillBgDep =
+    view.severity === "action" ? "#dc2626" : view.severity === "watch" ? "#a16207" : "#525252";
+  const severityLabelDep =
+    view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "ייעוץ";
   const deps = (doc.dependencies ?? []).slice().sort((a, b) => {
     // unresolved first, then by repo + pr_number desc
     if ((a.resolved ?? false) !== (b.resolved ?? false)) return (a.resolved ? 1 : -1);
@@ -2306,12 +2387,34 @@ function DependenciesCard({ doc }: { doc: DependenciesDoc | null }) {
     >
       <div style={{ ...overviewHead, color: headColor }}>
         <span>
+          <span
+            style={{
+              ...pill,
+              background: severityPillBgDep,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabelDep}
+          </span>
           תלויות PR · {summary.open === 0 ? "אין פתוחות" : `${summary.open} פתוח${summary.open === 1 ? "ה" : "ות"}`}
         </span>
         <span style={{ ...overviewCount, color: headColor }}>
           {summary.resolved} נפתרו{summary.failingChecks > 0 ? ` · ${summary.failingChecks} עם כשל בדיקה` : ""}
         </span>
       </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
 
       {errs.length > 0 && (
         <div style={{ ...subLine, color: "#991b1b", marginBottom: 6 }}>
