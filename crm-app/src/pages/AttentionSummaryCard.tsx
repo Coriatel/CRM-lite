@@ -93,6 +93,14 @@ function scrollToAttentionTarget(id: string): boolean {
   const el = document.getElementById(id);
   if (!el) return false;
   el.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Move focus to the target so keyboard / SR users land in the section
+  // instead of being stranded on the now off-screen jump button. The 5
+  // target sections set tabIndex={-1} to be programmatically focusable
+  // without being added to the tab order. preventScroll keeps the smooth
+  // scroll above from being clobbered by the browser's focus-scroll.
+  if (typeof (el as HTMLElement).focus === "function") {
+    (el as HTMLElement).focus({ preventScroll: true });
+  }
   return true;
 }
 

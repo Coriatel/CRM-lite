@@ -2044,6 +2044,7 @@ function StalenessBanner({ stale }: { stale: StaleEntry[] }) {
   return (
     <section
       id="ops-card-staleness"
+      tabIndex={-1}
       aria-label="נתונים מתיישנים"
       style={{
         ...overviewCard,
@@ -2967,6 +2968,7 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
   return (
     <section
       id="ops-card-owner-gates"
+      tabIndex={-1}
       aria-label="החלטות שממתינות לבעלים"
       style={{
         ...overviewCard,
@@ -3321,6 +3323,7 @@ function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
   return (
     <section
       id="ops-card-runtime-issues"
+      tabIndex={-1}
       aria-label="תקלות runtime פתוחות"
       style={{ ...overviewCard, background: bg, borderColor: border }}
     >
@@ -3700,6 +3703,7 @@ export function OperationalQueueCard({
   return (
     <section
       id="ops-card-operational-queue"
+      tabIndex={-1}
       aria-label="תור תפעולי"
       style={{
         ...overviewCard,
@@ -4229,7 +4233,7 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
   const oldest = sorted.find((b) => ageDays(b.since) != null);
   const oldestDays = oldest ? ageDays(oldest.since) : null;
   return (
-    <section id="ops-card-blockers" aria-label="חסמים פעילים" style={overviewCard}>
+    <section id="ops-card-blockers" tabIndex={-1} aria-label="חסמים פעילים" style={overviewCard}>
       <div style={overviewHead}>
         <span>חסמים פעילים</span>
         <span style={overviewCount}>
