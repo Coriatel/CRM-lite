@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SafeSwarmCard, type SafeSwarmDoc } from "./SafeSwarmCard";
+import { AttentionSummaryCard } from "./AttentionSummaryCard";
 
 type ProjectRow = {
   key: string;
@@ -12,7 +13,7 @@ type ProjectRow = {
   owner_gate?: string[];
 };
 
-type Blocker = {
+export type Blocker = {
   id: string;
   lane?: string;
   summary: string;
@@ -66,7 +67,7 @@ type RecentMergesDoc = {
   merges?: RecentMerge[];
 };
 
-type FreshnessDoc = {
+export type FreshnessDoc = {
   ts?: string;
   files?: Record<string, { mtime: string; age_seconds: number }>;
 };
@@ -84,7 +85,7 @@ type ProcessRow = {
   current_state?: string;
 };
 
-type ProcessesDoc = {
+export type ProcessesDoc = {
   _meta?: { last_verified?: string; advisory?: boolean; note?: string };
   long_running_processes?: ProcessRow[];
 };
@@ -562,7 +563,7 @@ type Dependency = {
   last_checked_at?: string;
 };
 
-type DependenciesDoc = {
+export type DependenciesDoc = {
   _meta?: {
     schema_version?: number;
     generated_at?: string;
@@ -697,7 +698,7 @@ type Workflow = {
   notes?: string;
 };
 
-type WorkflowsDoc = {
+export type WorkflowsDoc = {
   _meta?: {
     schema_version?: number;
     generated_at?: string;
@@ -1112,7 +1113,7 @@ type RuntimeIssue = {
   reporter?: string | null;
 };
 
-type RuntimeIssuesDoc = {
+export type RuntimeIssuesDoc = {
   _meta?: { schema_version?: number; last_verified?: string; advisory?: boolean };
   issues?: RuntimeIssue[];
 };
@@ -1657,9 +1658,9 @@ export function severityFromQueue(s: OperationalQueueSeverity): SeverityLevel {
   return "unknown";
 }
 
-type StaleEntry = { name: string; hours: number };
+export type StaleEntry = { name: string; hours: number };
 
-function stalenessEntries(
+export function stalenessEntries(
   f: FreshnessDoc | null,
   thresholdHours: number,
 ): StaleEntry[] {
@@ -1928,6 +1929,20 @@ export function OpsPage() {
       )}
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
+
+      <AttentionSummaryCard
+        ownerGates={ownerGates}
+        activeIncidents={activeIncidents}
+        blockers={blockers}
+        freshness={freshness}
+        runtimeIssues={runtimeIssues}
+        pushIsolation={pushIsolation}
+        processes={processes}
+        dependencies={dependencies}
+        workflows={workflows}
+        orchestratorIntegrity={orchestratorIntegrity}
+        queueRoutes={queueRoutes}
+      />
 
       <OperationalQueueCard
         doc={operationalQueue}
