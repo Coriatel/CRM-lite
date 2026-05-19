@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { UserCog, RefreshCw, AlertOctagon, Clock3, Zap } from "lucide-react";
 import { useAmutaAttention } from "../data/useAmutaAttention";
 import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
+import { AttentionBucketOperatorSummary } from "../components/dashboard/AttentionBucketOperatorSummary";
 import type { AttentionItem } from "../data/amutaAttention";
 
 interface Group {
@@ -12,15 +13,22 @@ interface Group {
   empty: string;
 }
 
-function groupItems(
+function dedupedQueueItems(
   needsElron: AttentionItem[],
   stuck: AttentionItem[],
-): Group[] {
+): AttentionItem[] {
   const dedup = new Map<string, AttentionItem>();
   for (const it of [...needsElron, ...stuck]) {
     if (!dedup.has(it.id)) dedup.set(it.id, it);
   }
-  const all = Array.from(dedup.values());
+  return Array.from(dedup.values());
+}
+
+function groupItems(
+  needsElron: AttentionItem[],
+  stuck: AttentionItem[],
+): Group[] {
+  const all = dedupedQueueItems(needsElron, stuck);
 
   const urgent = all.filter(
     (i) => i.urgency === "critical" || i.urgency === "high",
@@ -61,9 +69,10 @@ function groupItems(
 
 export function ElronQueuePage() {
   const { buckets, source, loading, error, refresh } = useAmutaAttention();
-  const groups =
-    buckets &&
-    groupItems(buckets.needsElron, buckets.stuck);
+  const queueItems = buckets
+    ? dedupedQueueItems(buckets.needsElron, buckets.stuck)
+    : null;
+  const groups = buckets && groupItems(buckets.needsElron, buckets.stuck);
 
   return (
     <main
@@ -136,7 +145,7 @@ export function ElronQueuePage() {
         >
           {error}
         </p>
-      ) : groups === null ? (
+      ) : groups === null || queueItems === null ? (
         <p
           className="card"
           style={{ color: "var(--color-text-secondary)", fontSize: 14 }}
@@ -144,7 +153,17 @@ export function ElronQueuePage() {
           טוען…
         </p>
       ) : (
-        groups.map((g) => <QueueGroup key={g.key} group={g} />)
+        <>
+          {queueItems.length > 0 ? (
+            <AttentionBucketOperatorSummary
+              items={queueItems}
+              testIdPrefix="elron-queue"
+            />
+          ) : null}
+          {groups.map((g) => (
+            <QueueGroup key={g.key} group={g} />
+          ))}
+        </>
       )}
 
       <p
