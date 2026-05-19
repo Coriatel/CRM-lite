@@ -68,6 +68,11 @@ export type AttentionSummaryInput = {
 
 const STALE_HOURS_THRESHOLD = 6;
 
+// Anchor id for the AttentionSummaryCard root <section>. Used by the
+// reciprocal `BackToAttentionSummaryLink` so each destination card can
+// scroll the operator back to the synthesis view without a manual scroll.
+export const ATTENTION_SUMMARY_CARD_ID = "ops-card-attention-summary";
+
 // Each summary bucket has one stable destination card on the same /ops page.
 // IDs are matched by `id=` on the destination <section> — see OpsPage.tsx.
 // Keeping the mapping explicit (vs registry/reflection) so a renamed card
@@ -88,7 +93,7 @@ const ATTENTION_TARGET_LABEL: Record<AttentionCategoryKey, string> = {
   blockers: "חסמים פעילים",
 };
 
-function scrollToAttentionTarget(id: string): boolean {
+export function scrollToAttentionTarget(id: string): boolean {
   if (typeof document === "undefined") return false;
   const el = document.getElementById(id);
   if (!el) return false;
@@ -520,6 +525,8 @@ export function AttentionSummaryCard(props: AttentionSummaryInput) {
   if (!summary.hasAnyData) {
     return (
       <section
+        id={ATTENTION_SUMMARY_CARD_ID}
+        tabIndex={-1}
         aria-label="סיכום קשב"
         data-testid="attention-summary-card"
         style={card}
@@ -536,6 +543,8 @@ export function AttentionSummaryCard(props: AttentionSummaryInput) {
 
   return (
     <section
+      id={ATTENTION_SUMMARY_CARD_ID}
+      tabIndex={-1}
       aria-label="סיכום קשב"
       data-testid="attention-summary-card"
       style={card}
@@ -650,6 +659,36 @@ export function AttentionSummaryCard(props: AttentionSummaryInput) {
         </div>
       )}
     </section>
+  );
+}
+
+// Reciprocal nav: each destination card (owner-gates / runtime-issues /
+// operational-queue / staleness / blockers) renders this small link so the
+// operator can scroll back to the synthesis view after jumping in. Reuses
+// the same scroll+focus behavior as the forward jump from AttentionSummaryCard
+// so keyboard/SR users land on the section root instead of off-screen.
+const backLinkStyle: CSSProperties = {
+  background: "transparent",
+  border: "none",
+  color: "#6b7280",
+  fontSize: 12,
+  cursor: "pointer",
+  padding: "2px 6px",
+  marginBottom: 6,
+  textAlign: "start",
+  display: "inline-block",
+};
+
+export function BackToAttentionSummaryLink() {
+  return (
+    <button
+      type="button"
+      data-testid="back-to-attention-summary"
+      onClick={() => scrollToAttentionTarget(ATTENTION_SUMMARY_CARD_ID)}
+      style={backLinkStyle}
+    >
+      ↑ סיכום קשב
+    </button>
   );
 }
 

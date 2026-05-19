@@ -3,6 +3,8 @@ import { render, screen, within, fireEvent } from "@testing-library/react";
 import {
   AttentionSummaryCard,
   ATTENTION_TARGET_ID,
+  ATTENTION_SUMMARY_CARD_ID,
+  BackToAttentionSummaryLink,
   type AttentionSummaryInput,
 } from "./AttentionSummaryCard";
 
@@ -280,6 +282,16 @@ describe("<AttentionSummaryCard> — jump-to-card navigation", () => {
     }
   });
 
+  it("renders ATTENTION_SUMMARY_CARD_ID on the root section so back-links can anchor to it", () => {
+    const input = baseInput();
+    input.freshness = { files: {} };
+    render(<AttentionSummaryCard {...input} />);
+    expect(screen.getByTestId("attention-summary-card").getAttribute("id")).toBe(
+      ATTENTION_SUMMARY_CARD_ID,
+    );
+    expect(screen.getByTestId("attention-summary-card").getAttribute("tabindex")).toBe("-1");
+  });
+
   it("clicking jump button does not collapse the expanded cell (separate concerns)", () => {
     const input = baseInput();
     input.ownerGates = ["g1"];
@@ -292,5 +304,40 @@ describe("<AttentionSummaryCard> — jump-to-card navigation", () => {
     expect(
       screen.getByTestId("attention-summary-owner_required-toggle").getAttribute("aria-expanded"),
     ).toBe("true");
+  });
+});
+
+describe("<BackToAttentionSummaryLink>", () => {
+  it("renders a back-to-summary button with stable test-id", () => {
+    render(<BackToAttentionSummaryLink />);
+    const btn = screen.getByTestId("back-to-attention-summary");
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toMatch(/סיכום קשב/);
+  });
+
+  it("scrolls and focuses the AttentionSummaryCard root when clicked", () => {
+    const target = document.createElement("section");
+    target.id = ATTENTION_SUMMARY_CARD_ID;
+    target.tabIndex = -1;
+    document.body.appendChild(target);
+    const scrollSpy = vi.fn();
+    target.scrollIntoView = scrollSpy;
+    const focusSpy = vi.spyOn(target, "focus").mockImplementation(() => undefined);
+    try {
+      render(<BackToAttentionSummaryLink />);
+      fireEvent.click(screen.getByTestId("back-to-attention-summary"));
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    } finally {
+      focusSpy.mockRestore();
+      target.remove();
+    }
+  });
+
+  it("is a no-op (no throw) when the AttentionSummaryCard is not mounted", () => {
+    render(<BackToAttentionSummaryLink />);
+    expect(() =>
+      fireEvent.click(screen.getByTestId("back-to-attention-summary")),
+    ).not.toThrow();
   });
 });
