@@ -95,6 +95,107 @@ export function actionableProcesses(doc: ProcessesDoc | null): ProcessRow[] {
   return all.filter((p) => p.verdict && p.verdict !== "RESOLVED_NO_ACTION");
 }
 
+// Hebrew label for each known verdict — translated for the per-row pill so
+// the operator doesn't have to read the producer's English enum.
+export const PROCESS_VERDICT_LABEL_HE: Record<string, string> = {
+  KILL_LIKELY_SAFE: "מועמד לסגירה",
+  NEEDS_ATTACH: "צריך בדיקה",
+  OWNER_DECISION: "החלטת בעלים",
+  IGNORE_OR_DELETE: "ניקוי רקע",
+  KEEP: "להשאיר",
+};
+
+export type ProcessesOperatorView = {
+  severity: "info" | "watch" | "action";
+  topCategory: "kill_candidates" | "needs_attach_or_owner" | "background_only";
+  headline: string;
+  meaning: string;
+  nextAction: string;
+  killCount: number;
+  attachCount: number;
+  ownerDecisionCount: number;
+  ignoreCount: number;
+  keepCount: number;
+  total: number;
+};
+
+// Pure classifier mirroring the #88/#89 contract — turns "N actionable
+// long-running processes" into operator copy (is it safe / what does it
+// mean / what can I do). Card hides itself when actionableProcesses === 0,
+// so the classifier returns null only for that no-data case.
+export function classifyProcessesForOperator(
+  rows: ProcessRow[],
+): ProcessesOperatorView | null {
+  if (rows.length === 0) return null;
+  let killCount = 0;
+  let attachCount = 0;
+  let ownerDecisionCount = 0;
+  let ignoreCount = 0;
+  let keepCount = 0;
+  for (const r of rows) {
+    switch (r.verdict) {
+      case "KILL_LIKELY_SAFE":
+        killCount++;
+        break;
+      case "NEEDS_ATTACH":
+        attachCount++;
+        break;
+      case "OWNER_DECISION":
+        ownerDecisionCount++;
+        break;
+      case "IGNORE_OR_DELETE":
+        ignoreCount++;
+        break;
+      case "KEEP":
+        keepCount++;
+        break;
+    }
+  }
+  let topCategory: ProcessesOperatorView["topCategory"];
+  let severity: ProcessesOperatorView["severity"];
+  let headline: string;
+  let meaning: string;
+  let nextAction: string;
+  if (killCount > 0) {
+    topCategory = "kill_candidates";
+    severity = "action";
+    headline = `תהליכים מועמדים לסגירה (${killCount})`;
+    meaning =
+      "מצאנו תהליך אחד או יותר שכבר לא צריך לרוץ ובטוח לסגור אותו. כל עוד הוא חי, הוא תופס משאבים על השרת.";
+    nextAction =
+      "סקור את הרשימה לפי סדר; אם הפקודה נראית הגיונית לסגירה — בצע kill ל־pid המתאים.";
+  } else if (attachCount + ownerDecisionCount > 0) {
+    topCategory = "needs_attach_or_owner";
+    severity = "watch";
+    headline = `תהליכים שדורשים בדיקה (${attachCount + ownerDecisionCount})`;
+    meaning =
+      "אין תהליך שברור שאפשר לסגור, אבל יש תהליכים שלא ברור אם להמשיך לתת להם לרוץ. הם לא חוסמים עבודה כרגע.";
+    nextAction =
+      "כשנוח — פתח את התהליך, וודא שהוא עדיין מבצע משהו רצוי, ואז סמן KEEP או KILL_LIKELY_SAFE.";
+  } else {
+    topCategory = "background_only";
+    severity = "info";
+    headline = `תהליכים ארוכים ברקע (${rows.length})`;
+    meaning =
+      "יש תהליכים שרצים זמן רב, אבל כולם מסומנים כ־keep או ניקוי רקע. אין מה לעשות מיד.";
+    nextAction =
+      "ניתן לדלג; הרשימה כאן בשביל הסבר־רקע אם תרצה לקצץ ניקוי רקע ידנית.";
+  }
+  return {
+    severity,
+    topCategory,
+    headline,
+    meaning,
+    nextAction,
+    killCount,
+    attachCount,
+    ownerDecisionCount,
+    ignoreCount,
+    keepCount,
+    total: rows.length,
+  };
+}
+
 export type PushIsolationSnapshot = {
   ts?: string;
   head?: string;
@@ -2826,20 +2927,53 @@ const verdictPillFg: Record<string, string> = {
 
 function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
   const rows = actionableProcesses(doc);
-  if (rows.length === 0) return null;
+  const view = classifyProcessesForOperator(rows);
+  if (!view) return null;
+  const isAction = view.severity === "action";
+  const isWatch = view.severity === "watch";
+  const bg = isAction ? "#fef2f2" : isWatch ? "#fffbeb" : "#fafafa";
+  const border = isAction ? "#fecaca" : isWatch ? "#fde68a" : "#e5e5e5";
+  const headColor = isAction ? "#991b1b" : isWatch ? "#92400e" : "#404040";
+  const countColor = isAction ? "#dc2626" : isWatch ? "#b45309" : "#525252";
+  const severityPillBgProc = isAction ? "#dc2626" : isWatch ? "#a16207" : "#525252";
+  const severityLabelProc = isAction ? "דורש פעולה" : isWatch ? "במעקב" : "ייעוץ";
   return (
     <section
       aria-label="תהליכים ארוכי-טווח"
       style={{
         ...overviewCard,
-        background: "#fafafa",
-        borderColor: "#e5e5e5",
+        background: bg,
+        borderColor: border,
       }}
     >
-      <div style={{ ...overviewHead, color: "#404040" }}>
-        <span>תהליכים ארוכי-טווח · ייעוץ</span>
-        <span style={{ ...overviewCount, color: "#525252" }}>{rows.length}</span>
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            style={{
+              ...pill,
+              background: severityPillBgProc,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {severityLabelProc}
+          </span>
+          תהליכים ארוכי-טווח
+        </span>
+        <span style={{ ...overviewCount, color: countColor }}>{rows.length}</span>
       </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
       <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
         {rows.map((p) => (
           <li
@@ -2865,8 +2999,9 @@ function ProcessesCard({ doc }: { doc: ProcessesDoc | null }) {
                     background: verdictPillBg[p.verdict] ?? "#e5e5e5",
                     color: verdictPillFg[p.verdict] ?? "#404040",
                   }}
+                  title={p.verdict}
                 >
-                  {p.verdict}
+                  {PROCESS_VERDICT_LABEL_HE[p.verdict] ?? p.verdict}
                 </span>
               )}
             </div>
