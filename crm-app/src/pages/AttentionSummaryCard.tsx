@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   type Blocker,
   type DependenciesDoc,
@@ -39,6 +39,10 @@ export type AttentionCategory = {
   severity: AttentionSeverity;
   topReason: string | null;
   hasData: boolean;
+  // Drilldown fields — surfaced when the cell is expanded.
+  impact: string;
+  nextAction: string | null;
+  source: string;
 };
 
 export type AttentionSummaryResult = {
@@ -210,6 +214,65 @@ export function attentionSummary(
         : "info";
   const blockerSev: AttentionSeverity = blockerCount > 0 ? "action" : "info";
 
+  // Drilldown derivation. Each category gets an impact line (why it matters),
+  // nextAction (what to do — prefer existing operator-classifier output when
+  // present), and source (which producer file(s) feed it). Defaults gracefully
+  // when the underlying producer is missing.
+  const ownerImpact = "סלייסים שדורשים החלטה לא מתקדמים עד שהבעלים פותר.";
+  const ownerNextAction = !ownerCount
+    ? null
+    : activeIncidents.length > 0
+      ? "פתח את לוח האירועים ופתור את האירוע הראשון."
+      : ownerGates.length > 0
+        ? "פתח את owner_gates ועבור על הגייטים הפתוחים."
+        : "פתח את התור ועבור על פריטי owner.";
+  const ownerSource = "sessions.json (owner_gates + active_incidents) + queue_routes.json";
+
+  const escalateImpact = "תקלת runtime חמורה עלולה לחסום סשנים אחרים או להציג נתונים שגויים.";
+  const escalateNextAction = !hasEscalateData
+    ? null
+    : (issuesView?.nextAction ?? "סקור את routes שהוגדרו ל־escalate ופתח את הראשון שבהם.");
+  const escalateSource = "runtime_issues.json + queue_routes.json";
+
+  const autonomousImpact = "סלייסים מוכנים לביצוע ללא תלות בבעלים. אי־ביצוע = הפסד תפוקה.";
+  const autonomousNextAction = !hasRoutes
+    ? null
+    : routeAutonomous > 0
+      ? "הרץ planner/dispatcher — לא נדרשת החלטת בעלים."
+      : null;
+  const autonomousSource = "queue_routes.json";
+
+  const staleImpact = "תצוגות אחרות עלולות להראות נתונים ישנים, כולל מצב התור והבריאות.";
+  const staleOldest = staleCount > 0 ? shortenName(stale[0].name) : null;
+  const staleNextAction = !hasFreshness
+    ? null
+    : staleCount > 0
+      ? `הרץ מחדש את ה־producer של ${staleOldest} (הוותיק ביותר) או של ${staleCount} הקבצים הוותיקים.`
+      : null;
+  const staleSource = "freshness.json";
+
+  const blockerImpact = "פעילות יומיומית עלולה להיתקע: deploys כושלים, תלויות לא נסגרות, תהליכים תקועים.";
+  let blockerNextAction: string | null = null;
+  if (blockers.length > 0) {
+    blockerNextAction = blockers[0].needs
+      ? `החסם הראשון צריך: ${blockers[0].needs}`
+      : "פתח את החסם הראשון וטפל בו.";
+  } else if (wfAttention.failing.length > 0) {
+    blockerNextAction = "פתח את Workflows ובדוק את ה־workflow הכושל הראשון.";
+  } else if (depSummary.failingChecks > 0) {
+    blockerNextAction = "פתח את ה־PR התלוי הראשון עם כשל בדיקה.";
+  } else if (depSummary.errors > 0) {
+    blockerNextAction = "בדוק את לוג ההפקה של dependencies.json לפי שגיאת ה־_meta הראשונה.";
+  } else if (actionableProcs.length > 0) {
+    blockerNextAction = "בדוק את התהליך הראשון ב־Processes ושנה את ה־verdict אם נפתר.";
+  } else if (integrityRed > 0) {
+    blockerNextAction = "פתח את OrchestratorIntegrityCard והרץ recover על הסיבה הראשונה.";
+  } else if (pushAction > 0) {
+    blockerNextAction = pushView.nextAction;
+  }
+  const blockerSource =
+    "blockers.json + dependencies.json + workflows.json + processes.json + push_isolation.json + orchestrator_integrity.json";
+
   const categories: AttentionCategory[] = [
     {
       key: "owner_required",
@@ -218,6 +281,9 @@ export function attentionSummary(
       severity: ownerSev,
       topReason: ownerReason,
       hasData: true,
+      impact: ownerImpact,
+      nextAction: ownerNextAction,
+      source: ownerSource,
     },
     {
       key: "escalate",
@@ -226,6 +292,9 @@ export function attentionSummary(
       severity: escalateSev,
       topReason: escalateReason,
       hasData: runtimeIssues !== null || queueRoutes !== null,
+      impact: escalateImpact,
+      nextAction: escalateNextAction,
+      source: escalateSource,
     },
     {
       key: "autonomous_ready",
@@ -234,6 +303,9 @@ export function attentionSummary(
       severity: autonomousSev,
       topReason: autonomousReason,
       hasData: queueRoutes !== null,
+      impact: autonomousImpact,
+      nextAction: autonomousNextAction,
+      source: autonomousSource,
     },
     {
       key: "stale",
@@ -242,6 +314,9 @@ export function attentionSummary(
       severity: staleSev,
       topReason: staleReason,
       hasData: freshness !== null,
+      impact: staleImpact,
+      nextAction: staleNextAction,
+      source: staleSource,
     },
     {
       key: "blockers",
@@ -250,6 +325,9 @@ export function attentionSummary(
       severity: blockerSev,
       topReason: blockerReason,
       hasData: true,
+      impact: blockerImpact,
+      nextAction: blockerNextAction,
+      source: blockerSource,
     },
   ];
 
@@ -331,6 +409,40 @@ const cellReason: CSSProperties = {
   opacity: 0.85,
 };
 
+const cellTrigger: CSSProperties = {
+  all: "unset",
+  display: "block",
+  width: "100%",
+  cursor: "pointer",
+  boxSizing: "border-box",
+};
+
+const cellExpanded: CSSProperties = {
+  marginTop: 8,
+  paddingTop: 8,
+  borderTop: "1px dashed currentColor",
+  display: "grid",
+  gap: 4,
+};
+
+const cellExpandedLabel: CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  opacity: 0.6,
+  textTransform: "uppercase" as const,
+};
+
+const cellExpandedValue: CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1.35,
+};
+
+const cellExpandedSource: CSSProperties = {
+  fontSize: 11,
+  fontFamily: "monospace",
+  opacity: 0.7,
+};
+
 const emptyState: CSSProperties = {
   fontSize: 13,
   color: "#52525b",
@@ -340,6 +452,18 @@ const emptyState: CSSProperties = {
 
 export function AttentionSummaryCard(props: AttentionSummaryInput) {
   const summary = attentionSummary(props);
+  const [expanded, setExpanded] = useState<Set<AttentionCategoryKey>>(
+    () => new Set(),
+  );
+
+  function toggle(key: AttentionCategoryKey) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   if (!summary.hasAnyData) {
     return (
@@ -375,27 +499,79 @@ export function AttentionSummaryCard(props: AttentionSummaryInput) {
       <ul style={{ ...grid, listStyle: "none", padding: 0, margin: 0 }}>
         {summary.categories.map((c) => {
           const sev = sevStyle[c.severity];
+          const isExpanded = expanded.has(c.key);
           return (
             <li
               key={c.key}
               data-testid={`attention-summary-${c.key}`}
               style={{ ...cellBase, ...sev }}
             >
-              <div style={cellTop}>
-                <span>{c.label}</span>
-                <span
-                  style={cellCount}
-                  data-testid={`attention-summary-${c.key}-count`}
-                >
-                  {c.hasData ? c.count : "—"}
-                </span>
-              </div>
-              {c.topReason && (
+              <button
+                type="button"
+                aria-expanded={isExpanded}
+                aria-controls={`attention-summary-${c.key}-details`}
+                onClick={() => toggle(c.key)}
+                data-testid={`attention-summary-${c.key}-toggle`}
+                style={cellTrigger}
+              >
+                <div style={cellTop}>
+                  <span>
+                    {c.label}{" "}
+                    <span aria-hidden="true" style={{ fontSize: 10, opacity: 0.6 }}>
+                      {isExpanded ? "▾" : "▸"}
+                    </span>
+                  </span>
+                  <span
+                    style={cellCount}
+                    data-testid={`attention-summary-${c.key}-count`}
+                  >
+                    {c.hasData ? c.count : "—"}
+                  </span>
+                </div>
+                {c.topReason && (
+                  <div
+                    style={cellReason}
+                    data-testid={`attention-summary-${c.key}-reason`}
+                  >
+                    {c.topReason}
+                  </div>
+                )}
+              </button>
+              {isExpanded && (
                 <div
-                  style={cellReason}
-                  data-testid={`attention-summary-${c.key}-reason`}
+                  id={`attention-summary-${c.key}-details`}
+                  data-testid={`attention-summary-${c.key}-details`}
+                  style={cellExpanded}
                 >
-                  {c.topReason}
+                  <div>
+                    <div style={cellExpandedLabel}>השפעה</div>
+                    <div
+                      style={cellExpandedValue}
+                      data-testid={`attention-summary-${c.key}-impact`}
+                    >
+                      {c.impact}
+                    </div>
+                  </div>
+                  {c.nextAction && (
+                    <div>
+                      <div style={cellExpandedLabel}>פעולה הבאה</div>
+                      <div
+                        style={cellExpandedValue}
+                        data-testid={`attention-summary-${c.key}-next-action`}
+                      >
+                        {c.nextAction}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <div style={cellExpandedLabel}>מקור</div>
+                    <div
+                      style={cellExpandedSource}
+                      data-testid={`attention-summary-${c.key}-source`}
+                    >
+                      {c.source}
+                    </div>
+                  </div>
                 </div>
               )}
             </li>
