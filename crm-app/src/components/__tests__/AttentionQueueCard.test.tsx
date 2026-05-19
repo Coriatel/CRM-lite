@@ -6,6 +6,7 @@ import type {
   AttentionDomain,
   AttentionItem,
   AttentionStatus,
+  AttentionUrgency,
 } from "../../data/amutaAttention";
 
 function makeItem(overrides: Partial<AttentionItem> = {}): AttentionItem {
@@ -141,5 +142,62 @@ describe("AttentionQueueCard domain icon", () => {
     renderCard(makeItem({ domain: "finance" }));
     const wrapper = screen.getByTestId("attention-domain-finance");
     expect(wrapper.getAttribute("style") ?? "").toContain("--color-text-secondary");
+  });
+});
+
+describe("AttentionQueueCard urgency-label tooltip", () => {
+  const URGENCIES: AttentionUrgency[] = ["critical", "high", "normal", "low"];
+
+  it("annotates every urgency label with a Hebrew title and matching aria-label", () => {
+    for (const urgency of URGENCIES) {
+      const { unmount } = renderCard(makeItem({ urgency }));
+      const label = screen.getByTestId(`attention-urgency-${urgency}`);
+      const title = label.getAttribute("title");
+      const aria = label.getAttribute("aria-label");
+      expect(title).toBeTruthy();
+      expect(aria).toBe(title);
+      expect(title!.length).toBeGreaterThan(0);
+      unmount();
+    }
+  });
+
+  it("uses a distinct tooltip per urgency level (operator can tell them apart)", () => {
+    const titles = new Set<string>();
+    for (const urgency of URGENCIES) {
+      const { unmount } = renderCard(makeItem({ urgency }));
+      const label = screen.getByTestId(`attention-urgency-${urgency}`);
+      titles.add(label.getAttribute("title") ?? "");
+      unmount();
+    }
+    expect(titles.size).toBe(URGENCIES.length);
+  });
+
+  it("keeps the visible urgency text unchanged by the tooltip addition", () => {
+    const expected: Record<AttentionUrgency, string> = {
+      critical: "דחוף מאוד",
+      high: "דחוף",
+      normal: "רגיל",
+      low: "נמוך",
+    };
+    for (const urgency of URGENCIES) {
+      const { unmount } = renderCard(makeItem({ urgency }));
+      const label = screen.getByTestId(`attention-urgency-${urgency}`);
+      expect(label.textContent).toBe(expected[urgency]);
+      unmount();
+    }
+  });
+
+  it("describes operational meaning, not just restating the label", () => {
+    // Sanity guard against future regressions like setting title=label.
+    // The tooltip is supposed to add information, not echo what's visible.
+    for (const urgency of URGENCIES) {
+      const { unmount } = renderCard(makeItem({ urgency }));
+      const label = screen.getByTestId(`attention-urgency-${urgency}`);
+      const title = label.getAttribute("title") ?? "";
+      const text = label.textContent ?? "";
+      expect(title).not.toBe(text);
+      expect(title.length).toBeGreaterThan(text.length);
+      unmount();
+    }
   });
 });

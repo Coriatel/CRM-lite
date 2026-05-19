@@ -35,6 +35,17 @@ const URGENCY_COLOR: Record<AttentionUrgency, string> = {
   low: "var(--color-text-secondary)",
 };
 
+// Tooltip / accessible label that explains what each urgency level means
+// operationally. Same `title` + `aria-label` pattern as the status pill
+// (#90) and domain icon (#98). Purely descriptive — does not change the
+// label text, color, or rank semantics.
+const URGENCY_TITLE: Record<AttentionUrgency, string> = {
+  critical: "דחיפות קריטית — דרוש מענה מיידי",
+  high: "דחיפות גבוהה — עדיף לטפל היום",
+  normal: "דחיפות רגילה — נכלל בקצב העבודה הרגיל",
+  low: "דחיפות נמוכה — אפשר להמתין",
+};
+
 // Only render a status pill when the status carries operational meaning
 // beyond "this item is in the queue". `open` is the default actionable
 // state and `done` items are filtered out of buckets upstream — a pill
@@ -183,6 +194,9 @@ export function AttentionQueueCard({
           </span>
         ) : null}
         <span
+          data-testid={`attention-urgency-${item.urgency}`}
+          title={URGENCY_TITLE[item.urgency]}
+          aria-label={URGENCY_TITLE[item.urgency]}
           style={{
             fontSize: 11,
             color: URGENCY_COLOR[item.urgency],
