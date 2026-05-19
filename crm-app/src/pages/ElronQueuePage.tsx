@@ -220,20 +220,26 @@ function QueueGroup({ group }: { group: Group }) {
           {group.empty}
         </p>
       ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--spacing-sm)",
-          }}
-        >
-          {group.items.map((it) => (
-            <AttentionQueueCard key={it.id} item={it} />
-          ))}
-        </ul>
+        <>
+          <AttentionBucketOperatorSummary
+            items={group.items}
+            testIdPrefix={`elron-group-${group.key}`}
+          />
+          <ul
+            style={{
+              listStyle: "none",
+              padding: 0,
+              margin: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-sm)",
+            }}
+          >
+            {group.items.map((it) => (
+              <AttentionQueueCard key={it.id} item={it} />
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
