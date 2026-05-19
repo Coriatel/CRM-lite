@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { SafeSwarmCard, type SafeSwarmDoc } from "./SafeSwarmCard";
-import { AttentionSummaryCard } from "./AttentionSummaryCard";
+import { AttentionSummaryCard, BackToAttentionSummaryLink } from "./AttentionSummaryCard";
 
 type ProjectRow = {
   key: string;
@@ -2053,6 +2053,7 @@ function StalenessBanner({ stale }: { stale: StaleEntry[] }) {
         marginBottom: 12,
       }}
     >
+      <BackToAttentionSummaryLink />
       <div style={{ ...overviewHead, color: critical ? "#991b1b" : "#78350f" }}>
         <span>נתונים מתיישנים</span>
         <span
@@ -2976,6 +2977,7 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
         borderColor: border,
       }}
     >
+      <BackToAttentionSummaryLink />
       <div style={{ ...overviewHead, color: headColor }}>
         <span>
           <span
@@ -3327,6 +3329,7 @@ function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
       aria-label="תקלות runtime פתוחות"
       style={{ ...overviewCard, background: bg, borderColor: border }}
     >
+      <BackToAttentionSummaryLink />
       <div style={{ ...overviewHead, color: headColor }}>
         <span>
           <span
@@ -3711,6 +3714,7 @@ export function OperationalQueueCard({
         borderColor: "#ddd6fe",
       }}
     >
+      <BackToAttentionSummaryLink />
       <div style={{ ...overviewHead, color: "#5b21b6" }}>
         <span>
           <span
@@ -4234,6 +4238,7 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
   const oldestDays = oldest ? ageDays(oldest.since) : null;
   return (
     <section id="ops-card-blockers" tabIndex={-1} aria-label="חסמים פעילים" style={overviewCard}>
+      <BackToAttentionSummaryLink />
       <div style={overviewHead}>
         <span>חסמים פעילים</span>
         <span style={overviewCount}>
