@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   summarizeOrchestratorIntegrity,
   classifyIntegrityForOperator,
+  classifyIntegrityReason,
   type OrchestratorIntegrityDoc,
   type OrchestratorIntegritySummary,
 } from "./OpsPage";
@@ -256,5 +257,125 @@ describe("classifyIntegrityForOperator", () => {
     )!;
     expect(v.severity).toBe("action"); // high_severity_issue triggers action
     expect(v.topCategory).toBe("high_severity_issue");
+  });
+});
+
+describe("classifyIntegrityReason", () => {
+  // The integrity writer (build-orchestrator-integrity.py) emits these exact
+  // template strings. If any of these tests breaks, drift on either side of
+  // the contract — the writer's template OR our regex — needs to be
+  // reconciled before /ops drill-down can be trusted again.
+
+  it("registry_missing — no usable registry source", () => {
+    const ex = classifyIntegrityReason(
+      "no usable registry source (canonical unreadable AND derived projection absent)",
+    );
+    expect(ex.family).toBe("registry_missing");
+    expect(ex.severity).toBe("action");
+    expect(ex.source).toContain("agent-registry.json");
+    expect(ex.threshold).toBeUndefined();
+    expect(ex.impact).not.toBe("");
+    expect(ex.nextStep).not.toBe("");
+  });
+
+  it("stale_session — count parsed into threshold", () => {
+    const ex = classifyIntegrityReason("1 stale session(s) in active_sessions");
+    expect(ex.family).toBe("stale_session");
+    expect(ex.severity).toBe("watch");
+    expect(ex.threshold).toEqual({ value: 1, limit: 0, unit: "sessions" });
+    expect(ex.source).toContain("active_sessions");
+  });
+
+  it("orphan_session — count parsed; outranks stale_session in pattern order", () => {
+    // Both patterns can match similar prefixes; orphan must win when the
+    // 'orphan-candidate' substring is present.
+    const ex = classifyIntegrityReason("1 orphan-candidate session(s) (stale + ownerless)");
+    expect(ex.family).toBe("orphan_session");
+    expect(ex.threshold).toEqual({ value: 1, limit: 0, unit: "sessions" });
+  });
+
+  it("canonical_age — extracts both age and ttl", () => {
+    const ex = classifyIntegrityReason("canonical registry age 10205s > ttl 300s");
+    expect(ex.family).toBe("canonical_age");
+    expect(ex.severity).toBe("watch");
+    expect(ex.threshold).toEqual({ value: 10205, limit: 300, unit: "seconds" });
+  });
+
+  it("merger_degraded — action severity, no threshold extracted from free-text detail", () => {
+    const ex = classifyIntegrityReason(
+      "merger pipeline degraded (timer cold age=14400s, spool depth=5, last_error=x)",
+    );
+    expect(ex.family).toBe("merger_degraded");
+    expect(ex.severity).toBe("action");
+    expect(ex.source).toContain("agent-registry-merger.json");
+  });
+
+  it("manifest_stale — extracts manifest age and threshold", () => {
+    const ex = classifyIntegrityReason(
+      "_meta.json manifest age 394113s > threshold 86400s",
+    );
+    expect(ex.family).toBe("manifest_stale");
+    expect(ex.threshold).toEqual({ value: 394113, limit: 86400, unit: "seconds" });
+  });
+
+  it("drift — extracts file count", () => {
+    const ex = classifyIntegrityReason(
+      "8 state/*.json file(s) drifted between _meta manifest and _freshness",
+    );
+    expect(ex.family).toBe("drift");
+    expect(ex.threshold).toEqual({ value: 8, limit: 0, unit: "files" });
+    expect(ex.source).toContain("_freshness.json");
+  });
+
+  it("high_issue_class — extracts issue count, action severity", () => {
+    const ex = classifyIntegrityReason("1 high/critical runtime-issue(s) open");
+    expect(ex.family).toBe("high_issue_class");
+    expect(ex.severity).toBe("action");
+    expect(ex.threshold).toEqual({ value: 1, limit: 0, unit: "issues" });
+    expect(ex.nextStep).toContain("resolved");
+  });
+
+  it("projection_not_synced — CRM default-envelope marker", () => {
+    const ex = classifyIntegrityReason("projection_not_synced");
+    expect(ex.family).toBe("projection_not_synced");
+    expect(ex.severity).toBe("watch");
+    expect(ex.source).toContain("sync-ops-data");
+  });
+
+  it("generated_default — writer default-envelope marker", () => {
+    const ex = classifyIntegrityReason("generated_default=true");
+    expect(ex.family).toBe("generated_default");
+  });
+
+  it("unknown — unrecognized template falls through cleanly", () => {
+    const ex = classifyIntegrityReason("brand-new reason that no regex matches");
+    expect(ex.family).toBe("unknown");
+    expect(ex.severity).toBe("watch");
+    expect(ex.raw).toBe("brand-new reason that no regex matches");
+    expect(ex.nextStep).toContain("classifyIntegrityReason");
+  });
+
+  it("empty/null-ish input returns unknown with empty raw, never throws", () => {
+    const ex = classifyIntegrityReason("");
+    expect(ex.family).toBe("unknown");
+    expect(ex.raw).toBe("");
+  });
+
+  it("classifier covers every reason currently produced by the live integrity writer", () => {
+    // Snapshot of writer output sampled during 2026-05-18 lane-A stabilization.
+    // If a new family is added to the writer without a matching regex here,
+    // the drill-down will fall through to `unknown` — this test surfaces that.
+    const liveSamples = [
+      "1 stale session(s) in active_sessions",
+      "1 orphan-candidate session(s) (stale + ownerless)",
+      "canonical registry age 10205s > ttl 300s",
+      "_meta.json manifest age 394553s > threshold 86400s",
+      "8 state/*.json file(s) drifted between _meta manifest and _freshness",
+      "1 high/critical runtime-issue(s) open",
+    ];
+    for (const s of liveSamples) {
+      const ex = classifyIntegrityReason(s);
+      expect(ex.family, `live sample fell through: ${s}`).not.toBe("unknown");
+    }
   });
 });
