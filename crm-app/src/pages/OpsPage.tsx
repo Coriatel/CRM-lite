@@ -2043,6 +2043,7 @@ function StalenessBanner({ stale }: { stale: StaleEntry[] }) {
   const critical = worst >= 48;
   return (
     <section
+      id="ops-card-staleness"
       aria-label="נתונים מתיישנים"
       style={{
         ...overviewCard,
@@ -2965,6 +2966,7 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
   const severityLabelGate = isAction ? "דורש פעולה" : "במעקב";
   return (
     <section
+      id="ops-card-owner-gates"
       aria-label="החלטות שממתינות לבעלים"
       style={{
         ...overviewCard,
@@ -3318,6 +3320,7 @@ function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
     view.severity === "action" ? "דורש פעולה" : view.severity === "watch" ? "במעקב" : "ייעוץ";
   return (
     <section
+      id="ops-card-runtime-issues"
       aria-label="תקלות runtime פתוחות"
       style={{ ...overviewCard, background: bg, borderColor: border }}
     >
@@ -3696,6 +3699,7 @@ export function OperationalQueueCard({
     view.severity === "action" ? "#dc2626" : view.severity === "watch" ? "#a16207" : "#525252";
   return (
     <section
+      id="ops-card-operational-queue"
       aria-label="תור תפעולי"
       style={{
         ...overviewCard,
@@ -4225,7 +4229,7 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
   const oldest = sorted.find((b) => ageDays(b.since) != null);
   const oldestDays = oldest ? ageDays(oldest.since) : null;
   return (
-    <section aria-label="חסמים פעילים" style={overviewCard}>
+    <section id="ops-card-blockers" aria-label="חסמים פעילים" style={overviewCard}>
       <div style={overviewHead}>
         <span>חסמים פעילים</span>
         <span style={overviewCount}>
