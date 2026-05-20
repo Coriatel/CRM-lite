@@ -356,6 +356,62 @@ export type OrchestratorIntegrityDoc = {
   integrity_status?: { status?: "green" | "yellow" | "red"; reasons?: string[] };
 };
 
+// producer_contract_violations.json — the runtime's self-audit of which state
+// projections have a live producer and which have drifted past their TTL. This is
+// the root-cause layer behind the per-card freshness badges: a card is stale
+// because the projection feeding it has no producer or its writer went quiet.
+export type ProducerViolation = {
+  code?: string;
+  writer?: string;
+  projection?: string;
+  age_seconds?: number;
+  threshold_seconds?: number;
+  severity?: string;
+  detail?: string;
+};
+export type ProducerViolationsDoc = {
+  generated_at?: string;
+  manifest_writers?: number;
+  violation_count?: number;
+  by_severity?: { error?: number; warn?: number; info?: number };
+  by_code?: Record<string, number>;
+  violations?: ProducerViolation[];
+  status?: string;
+};
+
+export type ProducerHealthSummary = {
+  writers: number;
+  total: number;
+  error: number;
+  warn: number;
+  info: number;
+  actionable: ProducerViolation[];
+  withoutProducer: ProducerViolation[];
+};
+
+// Pure summarizer extracted for unit testing. Defensive against the {} default
+// envelope written when the vault projection is absent at build time.
+export function summarizeProducerHealth(
+  doc: ProducerViolationsDoc | null,
+): ProducerHealthSummary | null {
+  if (!doc) return null;
+  const violations = Array.isArray(doc.violations) ? doc.violations : [];
+  const sev = doc.by_severity ?? {};
+  return {
+    writers: doc.manifest_writers ?? 0,
+    total: doc.violation_count ?? violations.length,
+    error: sev.error ?? 0,
+    warn: sev.warn ?? 0,
+    info: sev.info ?? 0,
+    actionable: violations.filter(
+      (v) => v.severity === "error" || v.severity === "warn",
+    ),
+    withoutProducer: violations.filter(
+      (v) => v.code === "PROJECTION_WITHOUT_PRODUCER",
+    ),
+  };
+}
+
 export type OrchestratorIntegritySummary = {
   status: "green" | "yellow" | "red" | "unknown";
   confidence: "high" | "degraded" | "unknown";
@@ -1834,13 +1890,15 @@ export function OpsPage() {
   const [safeSwarm, setSafeSwarm] = useState<SafeSwarmDoc | null>(null);
   const [orchestratorIntegrity, setOrchestratorIntegrity] =
     useState<OrchestratorIntegrityDoc | null>(null);
+  const [producerHealth, setProducerHealth] =
+    useState<ProducerViolationsDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -1864,6 +1922,7 @@ export function OpsPage() {
         fetchJson<ManagementCockpitDoc>("/ops-data/management_cockpit.json"),
         fetchJson<SafeSwarmDoc>("/ops-data/safe_swarm.json"),
         fetchJson<OrchestratorIntegrityDoc>("/ops-data/orchestrator_integrity.json"),
+        fetchJson<ProducerViolationsDoc>("/ops-data/producer_contract_violations.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -1894,6 +1953,7 @@ export function OpsPage() {
       setManagementCockpit(mc ?? null);
       setSafeSwarm(ss ?? null);
       setOrchestratorIntegrity(oi ?? null);
+      setProducerHealth(pcv ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -1969,6 +2029,8 @@ export function OpsPage() {
       <SafeSwarmCard doc={safeSwarm} />
       <CardFreshnessBadge file="orchestrator_integrity.json" freshness={freshness} />
       <OrchestratorIntegrityCard doc={orchestratorIntegrity} />
+      <CardFreshnessBadge file="producer_contract_violations.json" freshness={freshness} />
+      <ProducerHealthCard doc={producerHealth} />
       <CardFreshnessBadge file="health.json" freshness={freshness} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
@@ -3684,6 +3746,86 @@ function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | nu
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}>
             {sum.reasons.map((r, i) => (
               <li key={i}>· {r}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+// Surfaces producer_contract_violations.json — the governance layer behind the
+// freshness badges. Attention-only: hidden when the runtime reports zero
+// violations. Leads with stale/error writers (actionable), folds the longer
+// "projection has no producer" inventory into a details disclosure.
+function ProducerHealthCard({ doc }: { doc: ProducerViolationsDoc | null }) {
+  const sum = summarizeProducerHealth(doc);
+  if (!sum) return null;
+  if (sum.total === 0) return null;
+
+  const isAction = sum.error > 0;
+  const isWatch = !isAction && sum.warn > 0;
+  const headColor = isAction ? "#991b1b" : isWatch ? "#a16207" : "#404040";
+  const bg = isAction ? "#fef2f2" : isWatch ? "#fefce8" : "#fafafa";
+  const border = isAction ? "#fecaca" : isWatch ? "#fde68a" : "#e5e5e5";
+  const pillBg = isAction ? "#dc2626" : isWatch ? "#a16207" : "#525252";
+  const severityLabel = isAction ? "דורש פעולה" : isWatch ? "במעקב" : "מידע";
+
+  const fmtAge = (s?: number) =>
+    s == null ? "" : s < 3600 ? `${Math.floor(s / 60)} דק'` : s < 86400 ? `${Math.floor(s / 3600)} שע'` : `${Math.floor(s / 86400)} ימים`;
+
+  return (
+    <section
+      aria-label="בריאות מפיקי הנתונים"
+      style={{ ...overviewCard, background: bg, borderColor: border }}
+    >
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            style={{ ...pill, background: pillBg, marginInlineEnd: 6, fontSize: 10, padding: "1px 6px" }}
+          >
+            {severityLabel}
+          </span>
+          בריאות מפיקי הנתונים
+        </span>
+        <span style={{ ...overviewCount, color: headColor }}>
+          {sum.writers} מפיקים · {sum.total} ממצאים
+        </span>
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {isAction
+          ? "מפיק נתונים נכשל — פרויקציה אחת או יותר אינה מתעדכנת."
+          : isWatch
+            ? "מפיק נתונים חרג מחלון הרענון הצפוי — ייתכן שהנתונים מתיישנים."
+            : "פרויקציות ללא מפיק רשום — מתעדכנות ידנית או שאינן חיות."}
+      </p>
+      {sum.actionable.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px 0", display: "grid", gap: 4 }}>
+          {sum.actionable.map((v, i) => (
+            <li
+              key={i}
+              style={{ ...blockerItem, borderInlineStartColor: v.severity === "error" ? "#dc2626" : "#f59e0b" }}
+            >
+              <div style={{ fontWeight: 500 }}>
+                <code style={{ fontSize: 12 }}>{(v.projection ?? "").replace(/^state\//, "")}</code>
+                {v.age_seconds != null && <span> · בן {fmtAge(v.age_seconds)}</span>}
+              </div>
+              {v.writer && <div style={subLine}>מפיק: {v.writer}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {sum.withoutProducer.length > 0 && (
+        <details style={{ fontSize: 12, color: "#525252" }}>
+          <summary style={{ cursor: "pointer", color: "#737373", marginBottom: 4 }}>
+            פרויקציות ללא מפיק ({sum.withoutProducer.length})
+          </summary>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}>
+            {sum.withoutProducer.map((v, i) => (
+              <li key={i}>
+                · <code style={{ fontSize: 11 }}>{(v.projection ?? "").replace(/^state\//, "")}</code>
+              </li>
             ))}
           </ul>
         </details>
