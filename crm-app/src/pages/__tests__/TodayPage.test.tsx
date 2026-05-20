@@ -309,6 +309,90 @@ describe("TodayPage", () => {
     expect(await screen.findByLabelText("רענן שיחות")).toBeTruthy();
   });
 
+  it("TopDonorsCard renders donor rows + anonymous disclosure when transactions return data", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/items/transactions")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "t1",
+              amount: "300",
+              date: "2026-04-10T00:00:00Z",
+              contact_id: {
+                id: "donor-1",
+                full_name: "אלישבע גרין",
+              },
+            },
+            {
+              id: "t2",
+              amount: "100",
+              date: "2026-03-01T00:00:00Z",
+              contact_id: {
+                id: "donor-1",
+                full_name: "אלישבע גרין",
+              },
+            },
+            {
+              id: "t3",
+              amount: "150",
+              date: "2026-04-20T00:00:00Z",
+              contact_id: { id: "donor-2", full_name: "יעקב כהן" },
+            },
+            {
+              id: "t4-anon",
+              amount: "999",
+              date: "2026-04-25T00:00:00Z",
+              contact_id: null,
+            },
+          ],
+        });
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderTodayPage();
+    await screen.findByRole("heading", { name: /תורמים מובילים השנה/ });
+    await waitFor(() => {
+      expect(screen.getByText("אלישבע גרין")).toBeTruthy();
+      expect(screen.getByText("יעקב כהן")).toBeTruthy();
+    });
+    const disclosure = await screen.findByTestId(
+      "top-donors-anonymous-disclosure",
+    );
+    expect(disclosure.textContent || "").toMatch(/1 תרומות אנונימיות/);
+  });
+
+  it("TopDonorsCard shows empty-state copy when transactions returns no rows", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      jsonResponse({ data: [] }),
+    );
+    renderTodayPage();
+    await screen.findByRole("heading", { name: /תורמים מובילים השנה/ });
+    await waitFor(() => {
+      expect(screen.getByText("עוד אין תרומות מיוחסות השנה")).toBeTruthy();
+    });
+    expect(
+      screen.queryByTestId("top-donors-anonymous-disclosure"),
+    ).toBeNull();
+  });
+
+  it("TopDonorsCard surfaces an error when transactions fetch rejects", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/items/transactions")) {
+        return jsonResponse({ errors: [{ message: "boom" }] }, 500);
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderTodayPage();
+    await waitFor(() => {
+      expect(screen.getByText("שגיאה בטעינת נתוני תרומות")).toBeTruthy();
+    });
+  });
+
   it("provenance pill switches to error variant when fetch fails", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

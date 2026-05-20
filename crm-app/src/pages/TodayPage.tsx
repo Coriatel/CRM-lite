@@ -13,12 +13,15 @@ import {
   BookHeart,
   AlertOctagon,
   RefreshCw,
+  Award,
 } from "lucide-react";
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
 import { EmptyState } from "../components/EmptyState";
 import type { AttentionItem } from "../data/amutaAttention";
 import { useAmutaAttention } from "../data/useAmutaAttention";
+import { useDonorSummary } from "../data/useDonorSummary";
+import type { DonorSummary, DonorSummaryFeed } from "../data/donorSummary";
 import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
 import { AttentionBucketOperatorSummary } from "../components/dashboard/AttentionBucketOperatorSummary";
 
@@ -122,6 +125,18 @@ export function TodayPage() {
     loading: attentionLoading,
     refresh: refreshAttention,
   } = useAmutaAttention();
+  const {
+    feed: donorFeed,
+    loading: donorFeedLoading,
+    error: donorFeedError,
+    refresh: refreshDonorFeed,
+  } = useDonorSummary();
+  const [donorFeedFetchedAt, setDonorFeedFetchedAt] = useState<Date | null>(
+    null,
+  );
+  useEffect(() => {
+    if (donorFeed) setDonorFeedFetchedAt(new Date());
+  }, [donorFeed]);
 
   useEffect(() => {
     if (attention) setAttentionFetchedAt(new Date());
@@ -316,6 +331,13 @@ export function TodayPage() {
           setAdvancedFilters({ donationType: "recurring" });
           navigate("/people");
         }}
+      />
+      <TopDonorsCard
+        feed={donorFeed}
+        loading={donorFeedLoading}
+        error={donorFeedError}
+        fetchedAt={donorFeedFetchedAt}
+        onRefresh={refreshDonorFeed}
       />
 
       <ShellCard
@@ -833,5 +855,133 @@ function ShellCard({
     <CardFrame icon={icon} title={title}>
       <EmptyState variant="blocked-on-schema" requires={missing} compact />
     </CardFrame>
+  );
+}
+
+const ILS_FORMAT = new Intl.NumberFormat("he-IL", {
+  style: "currency",
+  currency: "ILS",
+  maximumFractionDigits: 0,
+});
+
+function formatDayMonthHe(iso: string): string {
+  // Date.parse handles the trailing 'Z' Directus emits; output is locale-relative.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "short" });
+}
+
+function TopDonorsCard({
+  feed,
+  loading,
+  error,
+  fetchedAt,
+  onRefresh,
+}: {
+  feed: DonorSummaryFeed | null;
+  loading: boolean;
+  error: string | null;
+  fetchedAt: Date | null;
+  onRefresh: () => void;
+}) {
+  const top = feed ? feed.donors.slice(0, 5) : null;
+  return (
+    <CardFrame
+      icon={<Award size={20} />}
+      title="תורמים מובילים השנה"
+      action={
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <ProvenancePill fetchedAt={fetchedAt} hasError={!!error} />
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label="רענן תורמים מובילים"
+            title="רענן"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--color-text-secondary)",
+              cursor: loading ? "wait" : "pointer",
+              padding: 4,
+              fontSize: 13,
+              opacity: loading ? 0.6 : 1,
+            }}
+          >
+            ↻
+          </button>
+        </span>
+      }
+    >
+      {error ? (
+        <p style={{ color: "var(--color-danger)", fontSize: 14, margin: 0 }}>
+          {error}
+        </p>
+      ) : !feed ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          טוען…
+        </p>
+      ) : top!.length === 0 ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          עוד אין תרומות מיוחסות השנה
+        </p>
+      ) : (
+        <ol
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+            display: "grid",
+            gap: 6,
+            fontSize: 14,
+          }}
+        >
+          {top!.map((donor) => (
+            <TopDonorRow key={donor.contact_id} donor={donor} />
+          ))}
+        </ol>
+      )}
+      {feed && feed.anonymous_gift_count > 0 ? (
+        <p
+          data-testid="top-donors-anonymous-disclosure"
+          style={{
+            marginTop: "var(--spacing-sm)",
+            color: "var(--color-text-secondary)",
+            fontSize: 12,
+          }}
+        >
+          {ILS_FORMAT.format(feed.anonymous_gift_sum)} ב-
+          {feed.anonymous_gift_count} תרומות אנונימיות לא מוצגות
+        </p>
+      ) : null}
+    </CardFrame>
+  );
+}
+
+function TopDonorRow({ donor }: { donor: DonorSummary }) {
+  return (
+    <li
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto",
+        gap: 8,
+        alignItems: "baseline",
+      }}
+    >
+      <span>
+        <strong>{donor.full_name || "—"}</strong>{" "}
+        <span style={{ color: "var(--color-text-secondary)", fontSize: 12 }}>
+          · {formatDayMonthHe(donor.last_gift_at)} · {donor.gift_count_lifetime}{" "}
+          תרומות
+        </span>
+      </span>
+      <span style={{ whiteSpace: "nowrap" }}>
+        <strong>{ILS_FORMAT.format(donor.total_year)}</strong>
+        <span style={{ color: "var(--color-text-secondary)", fontSize: 12 }}>
+          {" "}
+          ({ILS_FORMAT.format(donor.total_lifetime)} כל הזמן)
+        </span>
+      </span>
+    </li>
   );
 }
