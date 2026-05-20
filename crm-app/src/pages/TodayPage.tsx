@@ -129,6 +129,7 @@ export function TodayPage() {
     feed: donorFeed,
     loading: donorFeedLoading,
     error: donorFeedError,
+    missingReceiptIds: donorMissingReceiptIds,
     refresh: refreshDonorFeed,
   } = useDonorSummary();
   const [donorFeedFetchedAt, setDonorFeedFetchedAt] = useState<Date | null>(
@@ -337,6 +338,7 @@ export function TodayPage() {
         loading={donorFeedLoading}
         error={donorFeedError}
         fetchedAt={donorFeedFetchedAt}
+        missingReceiptIds={donorMissingReceiptIds}
         onRefresh={refreshDonorFeed}
       />
 
@@ -876,12 +878,14 @@ function TopDonorsCard({
   loading,
   error,
   fetchedAt,
+  missingReceiptIds,
   onRefresh,
 }: {
   feed: DonorSummaryFeed | null;
   loading: boolean;
   error: string | null;
   fetchedAt: Date | null;
+  missingReceiptIds: Set<string> | null;
   onRefresh: () => void;
 }) {
   const top = feed ? feed.donors.slice(0, 5) : null;
@@ -937,7 +941,15 @@ function TopDonorsCard({
           }}
         >
           {top!.map((donor) => (
-            <TopDonorRow key={donor.contact_id} donor={donor} />
+            <TopDonorRow
+              key={donor.contact_id}
+              donor={donor}
+              missingReceipt={
+                missingReceiptIds
+                  ? missingReceiptIds.has(donor.last_gift_transaction_id)
+                  : false
+              }
+            />
           ))}
         </ol>
       )}
@@ -958,7 +970,13 @@ function TopDonorsCard({
   );
 }
 
-function TopDonorRow({ donor }: { donor: DonorSummary }) {
+function TopDonorRow({
+  donor,
+  missingReceipt,
+}: {
+  donor: DonorSummary;
+  missingReceipt: boolean;
+}) {
   return (
     <li
       style={{
@@ -974,6 +992,24 @@ function TopDonorRow({ donor }: { donor: DonorSummary }) {
           · {formatDayMonthHe(donor.last_gift_at)} · {donor.gift_count_lifetime}{" "}
           תרומות
         </span>
+        {missingReceipt ? (
+          <span
+            data-testid={`top-donors-missing-receipt-${donor.contact_id}`}
+            aria-label={`התרומה האחרונה של ${donor.full_name || "תורם"} ללא קבלה`}
+            style={{
+              marginInlineStart: 8,
+              padding: "1px 6px",
+              borderRadius: 4,
+              background: "var(--color-warning-bg, #fdf3e3)",
+              color: "var(--color-warning-fg, #8a5a00)",
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            ללא קבלה
+          </span>
+        ) : null}
       </span>
       <span style={{ whiteSpace: "nowrap" }}>
         <strong>{ILS_FORMAT.format(donor.total_year)}</strong>

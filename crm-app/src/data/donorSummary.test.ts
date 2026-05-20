@@ -81,6 +81,7 @@ describe("aggregateDonorSummary", () => {
     expect(d.gift_count_lifetime).toBe(3);
     expect(d.last_gift_at).toBe("2026-05-15T12:00:00Z");
     expect(d.last_gift_amount).toBe(50);
+    expect(d.last_gift_transaction_id).toBe("3");
   });
 
   it("sorts donors by total_year desc, then total_lifetime desc, then id", () => {

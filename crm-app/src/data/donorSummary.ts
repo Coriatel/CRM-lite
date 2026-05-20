@@ -25,6 +25,7 @@ export interface DonorSummary {
   total_lifetime: number;
   last_gift_at: string;
   last_gift_amount: number;
+  last_gift_transaction_id: string;
   gift_count_lifetime: number;
 }
 
@@ -72,6 +73,7 @@ export function aggregateDonorSummary(
       if (row.date > existing.last_gift_at) {
         existing.last_gift_at = row.date;
         existing.last_gift_amount = amount;
+        existing.last_gift_transaction_id = row.id;
       }
     } else {
       perDonor.set(contactId, {
@@ -81,6 +83,7 @@ export function aggregateDonorSummary(
         total_lifetime: amount,
         last_gift_at: row.date,
         last_gift_amount: amount,
+        last_gift_transaction_id: row.id,
         gift_count_lifetime: 1,
       });
     }
