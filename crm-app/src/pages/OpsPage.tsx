@@ -1785,6 +1785,19 @@ export function ageLevel(days: number | null): AgeLevel {
   return "critical";
 }
 
+// Per-card freshness tier from the _freshness.json mtime ledger (age in seconds of
+// a card's backing projection). <6h fresh, 6–48h aging, >48h stale, missing unknown.
+// Drives a local "this card's source has gone quiet" warning so no card silently
+// renders stale producer output.
+export type CardFreshLevel = "fresh" | "aging" | "stale" | "unknown";
+export function cardFreshLevel(ageSeconds: number | null | undefined): CardFreshLevel {
+  if (ageSeconds == null) return "unknown";
+  const hours = ageSeconds / 3600;
+  if (hours < 6) return "fresh";
+  if (hours < 48) return "aging";
+  return "stale";
+}
+
 const statusColor: Record<string, string> = {
   active: "#22c55e",
   dormant: "#a3a3a3",
@@ -1944,6 +1957,7 @@ export function OpsPage() {
         queueRoutes={queueRoutes}
       />
 
+      <CardFreshnessBadge file="operational_queue.json" freshness={freshness} />
       <OperationalQueueCard
         doc={operationalQueue}
         routes={queueRoutes}
@@ -1951,22 +1965,32 @@ export function OpsPage() {
         receipts={queueReceipts}
       />
       <ManagementCockpitCard doc={managementCockpit} />
+      <CardFreshnessBadge file="safe_swarm.json" freshness={freshness} />
       <SafeSwarmCard doc={safeSwarm} />
+      <CardFreshnessBadge file="orchestrator_integrity.json" freshness={freshness} />
       <OrchestratorIntegrityCard doc={orchestratorIntegrity} />
+      <CardFreshnessBadge file="health.json" freshness={freshness} />
       <HealthOverview health={health} />
       <ActiveSessionsCard doc={activeSessions} />
+      <CardFreshnessBadge file="dependencies.json" freshness={freshness} />
       <DependenciesCard doc={dependencies} />
+      <CardFreshnessBadge file="workflows.json" freshness={freshness} />
       <WorkflowsCard doc={workflows} />
       <LanesOverview lanes={lanes} />
+      <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
       <RecentMergesCard doc={recentMerges} />
+      <CardFreshnessBadge file="blockers.json" freshness={freshness} />
       <BlockersOverview blockers={blockers} />
       <ActiveIncidentsCard incidents={activeIncidents} />
       <OwnerGatesCard gates={ownerGates} />
       <ProcessesCard doc={processes} />
       <PushIsolationCard snap={pushIsolation} />
+      <CardFreshnessBadge file="runtime-continuity.json" freshness={freshness} />
       <RuntimeContinuityMetricsCard doc={runtimeContinuity} />
+      <CardFreshnessBadge file="handoffs_index.json" freshness={freshness} />
       <RuntimeContinuityCard doc={handoffs} />
       <HandoffsCard doc={handoffs} />
+      <CardFreshnessBadge file="runtime-issues.json" freshness={freshness} />
       <RuntimeIssuesCard doc={runtimeIssues} />
 
       {rows.length === 0 && !loadError && (
@@ -4322,6 +4346,52 @@ function DriftBadge({ lastVerified }: { lastVerified: string | null }) {
     >
       {label}
     </span>
+  );
+}
+
+// Local freshness indicator rendered above a producer-backed card. Invisible while
+// the source is fresh (no noise in the healthy case); surfaces an amber/red strip
+// the moment that card's producer goes quiet, so stale data is never shown silently.
+function CardFreshnessBadge({
+  file,
+  freshness,
+}: {
+  file: string;
+  freshness: FreshnessDoc | null;
+}) {
+  const age = freshness?.files?.[file]?.age_seconds;
+  const level = cardFreshLevel(age);
+  if (level === "fresh" || level === "unknown") return null;
+  const c = level === "stale" ? driftPalette.red : driftPalette.amber;
+  const secs = age ?? 0;
+  const label =
+    level === "stale"
+      ? `מקור הנתונים לא עודכן ${Math.floor(secs / 86400)} ימים — ייתכן שאינו עדכני`
+      : `מקור הנתונים עודכן לפני ${Math.floor(secs / 3600)} שע'`;
+  return (
+    <div
+      role="status"
+      aria-label={label}
+      data-testid="card-freshness"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 11,
+        fontWeight: 500,
+        color: c.fg,
+        background: c.bg,
+        border: `1px solid ${c.border}`,
+        borderRadius: 8,
+        padding: "3px 9px",
+        marginBottom: -6,
+      }}
+    >
+      <span aria-hidden>⚠</span>
+      <span>
+        {label} · <code>{file.replace(/\.json$/, "")}</code>
+      </span>
+    </div>
   );
 }
 
