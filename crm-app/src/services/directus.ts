@@ -1107,6 +1107,34 @@ export async function getAttentionItems(
   return json.data;
 }
 
+// ---------- Transactions (donor money ledger, read-only) ----------
+
+export interface DirectusIncomeTransactionRow {
+  id: string;
+  amount: string | number;
+  date: string;
+  contact_id: { id: string; full_name: string } | null;
+}
+
+/**
+ * Read all income transactions joined to contact name. Used by
+ * `donorSummary` aggregation. Read-only; no schema mutation here.
+ */
+export async function getIncomeTransactions(): Promise<
+  DirectusIncomeTransactionRow[]
+> {
+  const qs = buildQuery({
+    fields: "id,amount,date,contact_id.id,contact_id.full_name",
+    "filter[direction][_eq]": "income",
+    sort: "-date",
+    limit: "-1",
+  });
+  const res = await directusFetch(`/items/transactions${qs}`);
+  const json: DirectusResponse<DirectusIncomeTransactionRow[]> =
+    await res.json();
+  return json.data;
+}
+
 /** Contacts with a follow_up_date on or before today that have not been actioned. */
 export async function getFollowUpCandidates(
   limit = 50,
