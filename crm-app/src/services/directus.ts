@@ -1135,6 +1135,27 @@ export async function getIncomeTransactions(): Promise<
   return json.data;
 }
 
+/**
+ * For a given set of transaction ids, return the subset that already has at
+ * least one receipt row in `receipts`. Used by TopDonorsCard to flag donors
+ * whose most-recent gift has no receipt issued yet. Read-only.
+ *
+ * Returns the empty Set when `ids` is empty (skips the network call).
+ */
+export async function getReceiptTransactionIds(
+  ids: string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const qs = buildQuery({
+    fields: "transaction_id",
+    "filter[transaction_id][_in]": ids.join(","),
+    limit: "-1",
+  });
+  const res = await directusFetch(`/items/receipts${qs}`);
+  const json: DirectusResponse<{ transaction_id: string }[]> = await res.json();
+  return new Set(json.data.map((r) => r.transaction_id));
+}
+
 /** Contacts with a follow_up_date on or before today that have not been actioned. */
 export async function getFollowUpCandidates(
   limit = 50,

@@ -393,6 +393,77 @@ describe("TodayPage", () => {
     });
   });
 
+  it("TopDonorsCard flags top-donor rows whose last gift has no matching receipt", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/items/transactions")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "tx-with-receipt",
+              amount: "500",
+              date: "2026-04-20T00:00:00Z",
+              contact_id: { id: "donor-with", full_name: "תורם עם קבלה" },
+            },
+            {
+              id: "tx-without-receipt",
+              amount: "300",
+              date: "2026-04-10T00:00:00Z",
+              contact_id: { id: "donor-without", full_name: "תורם בלי קבלה" },
+            },
+          ],
+        });
+      }
+      if (url.includes("/items/receipts")) {
+        return jsonResponse({ data: [{ transaction_id: "tx-with-receipt" }] });
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderTodayPage();
+    await screen.findByRole("heading", { name: /תורמים מובילים השנה/ });
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("top-donors-missing-receipt-donor-without"),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.queryByTestId("top-donors-missing-receipt-donor-with"),
+    ).toBeNull();
+  });
+
+  it("TopDonorsCard omits the missing-receipt badge when receipts fetch fails", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/items/transactions")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "tx-1",
+              amount: "100",
+              date: "2026-04-10T00:00:00Z",
+              contact_id: { id: "donor-1", full_name: "תורם" },
+            },
+          ],
+        });
+      }
+      if (url.includes("/items/receipts")) {
+        return jsonResponse({ errors: [{ message: "boom" }] }, 500);
+      }
+      return jsonResponse({ data: [] });
+    });
+    renderTodayPage();
+    await screen.findByRole("heading", { name: /תורמים מובילים השנה/ });
+    await waitFor(() => {
+      expect(screen.getByText("תורם")).toBeTruthy();
+    });
+    // Donor row still renders, but no missing-receipt badge for any donor.
+    expect(
+      screen.queryByTestId("top-donors-missing-receipt-donor-1"),
+    ).toBeNull();
+  });
+
   it("provenance pill switches to error variant when fetch fails", async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
