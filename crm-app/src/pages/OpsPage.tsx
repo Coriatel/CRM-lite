@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { SafeSwarmCard, type SafeSwarmDoc } from "./SafeSwarmCard";
 import { AttentionSummaryCard, BackToAttentionSummaryLink } from "./AttentionSummaryCard";
 
@@ -1159,7 +1160,7 @@ export function runtimeContinuityMetrics(
   };
 }
 
-type RuntimeIssue = {
+export type RuntimeIssue = {
   id: string;
   file?: string | null;
   title?: string | null;
@@ -3457,27 +3458,37 @@ function RuntimeIssuesCard({ doc }: { doc: RuntimeIssuesDoc | null }) {
                 paddingTop: 6,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 500 }}>{i.title ?? i.id}</span>
-                <span
-                  style={{
-                    ...pill,
-                    background: severityPillBg[lvl],
-                    color: severityPillFg[lvl],
-                  }}
-                  title={lvl}
-                >
-                  {SEVERITY_LABEL_HE[lvl]}
-                </span>
-              </div>
-              <div style={subLine}>
-                <code style={{ fontSize: 11 }}>{i.id}</code>
-                {i.date ? ` · ${i.date}` : ""}
-                {i.reporter ? ` · ${i.reporter}` : ""}
-              </div>
-              {i.disposition && (
-                <div style={subLine}>תוכנית: {i.disposition}</div>
-              )}
+              <Link
+                to={`/ops/issues/${encodeURIComponent(i.id)}`}
+                data-testid="runtime-issue-link"
+                style={{
+                  display: "block",
+                  color: "inherit",
+                  textDecoration: "none",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 500, textDecoration: "underline" }}>{i.title ?? i.id}</span>
+                  <span
+                    style={{
+                      ...pill,
+                      background: severityPillBg[lvl],
+                      color: severityPillFg[lvl],
+                    }}
+                    title={lvl}
+                  >
+                    {SEVERITY_LABEL_HE[lvl]}
+                  </span>
+                </div>
+                <div style={subLine}>
+                  <code style={{ fontSize: 11 }}>{i.id}</code>
+                  {i.date ? ` · ${i.date}` : ""}
+                  {i.reporter ? ` · ${i.reporter}` : ""}
+                </div>
+                {i.disposition && (
+                  <div style={subLine}>תוכנית: {i.disposition}</div>
+                )}
+              </Link>
             </li>
           );
         })}
