@@ -3103,7 +3103,13 @@ function OwnerGatesCard({ gates }: { gates: string[] }) {
               lineHeight: 1.45,
             }}
           >
-            {g}
+            <Link
+              to={`/ops/gates/${encodeURIComponent(g)}`}
+              data-testid="owner-gate-link"
+              style={{ color: "inherit", textDecoration: "underline" }}
+            >
+              {g}
+            </Link>
           </li>
         ))}
       </ul>
