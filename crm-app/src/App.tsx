@@ -41,6 +41,9 @@ const OpsPage = lazy(() =>
 const OpsIssuePage = lazy(() =>
   import("./pages/OpsIssuePage").then((m) => ({ default: m.OpsIssuePage })),
 );
+const OpsBlockerPage = lazy(() =>
+  import("./pages/OpsBlockerPage").then((m) => ({ default: m.OpsBlockerPage })),
+);
 const RabbiQueuePage = lazy(() =>
   import("./pages/RabbiQueuePage").then((m) => ({
     default: m.RabbiQueuePage,
@@ -150,6 +153,7 @@ function AppContent() {
           <Route path="calls-today" element={<CallsTodayPage />} />
           <Route path="ops" element={<OpsPage />} />
           <Route path="ops/issues/:id" element={<OpsIssuePage />} />
+          <Route path="ops/blockers/:id" element={<OpsBlockerPage />} />
           <Route path="rabbi" element={<RabbiQueuePage />} />
           <Route path="elron" element={<ElronQueuePage />} />
           <Route path="settings" element={<SettingsPage />} />

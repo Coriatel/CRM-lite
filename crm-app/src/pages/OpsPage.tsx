@@ -1814,7 +1814,7 @@ function lastActivity(
   return null;
 }
 
-function ageDays(since?: string, now: Date = new Date()): number | null {
+export function ageDays(since?: string, now: Date = new Date()): number | null {
   if (!since) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(since);
   if (!m) return null;
@@ -4441,12 +4441,26 @@ function BlockersOverview({ blockers }: { blockers: Blocker[] }) {
                 borderRadius: 6,
               }}
             >
-              <div style={{ fontWeight: 500, color: tint?.fg ?? "#171717" }}>{b.summary}</div>
-              <div style={subLine}>
-                {b.lane ? `מסלול ${b.lane}` : ""}
-                {b.since ? ` · מאז ${b.since}` : ""}
-                {d != null ? ` · ${d} ימים` : ""}
-              </div>
+              <Link
+                to={`/ops/blockers/${encodeURIComponent(b.id)}`}
+                data-testid="blocker-link"
+                style={{ display: "block", color: "inherit", textDecoration: "none" }}
+              >
+                <div
+                  style={{
+                    fontWeight: 500,
+                    color: tint?.fg ?? "#171717",
+                    textDecoration: "underline",
+                  }}
+                >
+                  {b.summary}
+                </div>
+                <div style={subLine}>
+                  {b.lane ? `מסלול ${b.lane}` : ""}
+                  {b.since ? ` · מאז ${b.since}` : ""}
+                  {d != null ? ` · ${d} ימים` : ""}
+                </div>
+              </Link>
             </li>
           );
         })}
