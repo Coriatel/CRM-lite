@@ -1,6 +1,13 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { activeOwnerGates, plainifyGate } from "./OpsPage";
+import {
+  bodyLine,
+  chipDisabled,
+  sectionBox,
+  sectionHead,
+  subLine,
+} from "./workflow-page-styles";
 
 // Layer-3 Workflow Page for a single owner gate. Slice 3 of the MN-OS UX
 // runtime — the rule-of-3 measurement slice. Copy-then-vary from
@@ -18,49 +25,6 @@ type LoadState = "loading" | "ready" | "error";
 
 type SessionIndexDoc = {
   owner_gates?: string[];
-};
-
-const sectionBox: CSSProperties = {
-  background: "#fff",
-  border: "1px solid #e5e5e5",
-  borderRadius: 8,
-  padding: "10px 12px",
-  marginBottom: 10,
-};
-
-const sectionHead: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: "#525252",
-  margin: "0 0 6px 0",
-  textTransform: "uppercase",
-  letterSpacing: 0.4,
-};
-
-const bodyLine: CSSProperties = {
-  fontSize: 13,
-  color: "#262626",
-  margin: "0 0 4px 0",
-  lineHeight: 1.5,
-};
-
-const subLine: CSSProperties = {
-  fontSize: 12,
-  color: "#525252",
-  margin: "0 0 2px 0",
-};
-
-const chipDisabled: CSSProperties = {
-  display: "inline-block",
-  background: "#f5f5f5",
-  color: "#737373",
-  border: "1px solid #e5e5e5",
-  borderRadius: 999,
-  padding: "4px 10px",
-  fontSize: 12,
-  marginInlineEnd: 6,
-  marginBottom: 6,
-  cursor: "not-allowed",
 };
 
 // Topic family extraction. Most gates start with a backtick-wrapped project
