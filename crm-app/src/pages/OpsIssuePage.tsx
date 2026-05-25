@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   openRuntimeIssues,
@@ -7,6 +7,13 @@ import {
   type RuntimeIssue,
   type RuntimeIssuesDoc,
 } from "./OpsPage";
+import {
+  bodyLine,
+  chipDisabled,
+  sectionBox,
+  sectionHead,
+  subLine,
+} from "./workflow-page-styles";
 
 // Layer-3 Workflow Page for a single runtime issue. Lane A slice 1 of the
 // MN-OS UX runtime (5-section grammar: situation · next action · assets ·
@@ -15,49 +22,6 @@ import {
 // disabled chips — writes deferred to a later slice.
 
 type LoadState = "loading" | "ready" | "error";
-
-const sectionBox: CSSProperties = {
-  background: "#fff",
-  border: "1px solid #e5e5e5",
-  borderRadius: 8,
-  padding: "10px 12px",
-  marginBottom: 10,
-};
-
-const sectionHead: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: "#525252",
-  margin: "0 0 6px 0",
-  textTransform: "uppercase",
-  letterSpacing: 0.4,
-};
-
-const bodyLine: CSSProperties = {
-  fontSize: 13,
-  color: "#262626",
-  margin: "0 0 4px 0",
-  lineHeight: 1.5,
-};
-
-const subLine: CSSProperties = {
-  fontSize: 12,
-  color: "#525252",
-  margin: "0 0 2px 0",
-};
-
-const chipDisabled: CSSProperties = {
-  display: "inline-block",
-  background: "#f5f5f5",
-  color: "#737373",
-  border: "1px solid #e5e5e5",
-  borderRadius: 999,
-  padding: "4px 10px",
-  fontSize: 12,
-  marginInlineEnd: 6,
-  marginBottom: 6,
-  cursor: "not-allowed",
-};
 
 // Group key for "related context" — issues that share a stable component
 // family. For lock-contention-<hash> rows the family is "lock-contention";
