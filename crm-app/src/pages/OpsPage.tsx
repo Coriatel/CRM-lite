@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { SafeSwarmCard, type SafeSwarmDoc } from "./SafeSwarmCard";
 import { AttentionSummaryCard, BackToAttentionSummaryLink } from "./AttentionSummaryCard";
+import {
+  AttentionSynthesisCard,
+  type AttentionSynthesisDoc,
+} from "../components/ops/AttentionSynthesisCard";
 
 type ProjectRow = {
   key: string;
@@ -1874,6 +1878,8 @@ export function OpsPage() {
   const [processes, setProcesses] = useState<ProcessesDoc | null>(null);
   const [handoffs, setHandoffs] = useState<HandoffsIndexDoc | null>(null);
   const [runtimeIssues, setRuntimeIssues] = useState<RuntimeIssuesDoc | null>(null);
+  const [attentionSynthesis, setAttentionSynthesis] =
+    useState<AttentionSynthesisDoc | null>(null);
   const [meta, setMeta] = useState<MetaDoc | null>(null);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionsDoc | null>(null);
   const [dependencies, setDependencies] = useState<DependenciesDoc | null>(null);
@@ -1899,7 +1905,7 @@ export function OpsPage() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -1924,6 +1930,7 @@ export function OpsPage() {
         fetchJson<SafeSwarmDoc>("/ops-data/safe_swarm.json"),
         fetchJson<OrchestratorIntegrityDoc>("/ops-data/orchestrator_integrity.json"),
         fetchJson<ProducerViolationsDoc>("/ops-data/producer_contract_violations.json"),
+        fetchJson<AttentionSynthesisDoc>("/ops-data/attention_synthesis.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -1955,6 +1962,7 @@ export function OpsPage() {
       setSafeSwarm(ss ?? null);
       setOrchestratorIntegrity(oi ?? null);
       setProducerHealth(pcv ?? null);
+      setAttentionSynthesis(ats ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -2017,6 +2025,9 @@ export function OpsPage() {
         orchestratorIntegrity={orchestratorIntegrity}
         queueRoutes={queueRoutes}
       />
+
+      <CardFreshnessBadge file="attention_synthesis.json" freshness={freshness} />
+      <AttentionSynthesisCard doc={attentionSynthesis} />
 
       <CardFreshnessBadge file="operational_queue.json" freshness={freshness} />
       <OperationalQueueCard
