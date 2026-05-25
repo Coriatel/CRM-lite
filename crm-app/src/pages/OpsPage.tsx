@@ -6,6 +6,7 @@ import {
   AttentionSynthesisCard,
   type AttentionSynthesisDoc,
 } from "../components/ops/AttentionSynthesisCard";
+import { HybridBlockersCard } from "../components/ops/HybridBlockersCard";
 
 type ProjectRow = {
   key: string;
@@ -2028,6 +2029,10 @@ export function OpsPage() {
 
       <CardFreshnessBadge file="attention_synthesis.json" freshness={freshness} />
       <AttentionSynthesisCard doc={attentionSynthesis} />
+
+      <CardFreshnessBadge file="blockers.json" freshness={freshness} />
+      <CardFreshnessBadge file="runtime_governance_debt.json" freshness={freshness} />
+      <HybridBlockersCard doc={attentionSynthesis} />
 
       <CardFreshnessBadge file="operational_queue.json" freshness={freshness} />
       <OperationalQueueCard
