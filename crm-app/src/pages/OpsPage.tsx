@@ -572,6 +572,188 @@ export function classifyIntegrityForOperator(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Per-reason drill-down (explainability layer on top of integrity_status.reasons[]).
+//
+// The integrity writer (build-orchestrator-integrity.py) emits structured
+// reason strings — every entry in integrity_status.reasons[] comes from a
+// known template in writer.build_live_envelope. We pattern-match those
+// templates here and surface the underlying source + threshold + operator
+// impact + next step. Pure regex classification; no projection schema
+// dependency — if the writer adds a new reason family we fall back to
+// `unknown` instead of breaking.
+// ---------------------------------------------------------------------------
+
+export type IntegrityReasonFamily =
+  | "registry_missing"
+  | "stale_session"
+  | "orphan_session"
+  | "canonical_age"
+  | "merger_degraded"
+  | "manifest_stale"
+  | "drift"
+  | "high_issue_class"
+  | "projection_not_synced"
+  | "generated_default"
+  | "unknown";
+
+export type IntegrityReasonExplanation = {
+  family: IntegrityReasonFamily;
+  severity: "info" | "watch" | "action";
+  raw: string;
+  source: string;
+  threshold?: { value: number; limit: number; unit: string };
+  impact: string;
+  nextStep: string;
+};
+
+// Family-level copy. Values are filled in by classifyIntegrityReason when
+// the threshold or count is parseable from the raw string. Keeping copy in
+// one place mirrors INTEGRITY_COPY's pattern so future tweaks stay together.
+const REASON_FAMILY_COPY: Record<
+  IntegrityReasonFamily,
+  { severity: "info" | "watch" | "action"; source: string; impact: string; nextStep: string }
+> = {
+  registry_missing: {
+    severity: "action",
+    source: "state/agent-registry.json (canonical) + state/active_sessions.json (derived)",
+    impact: "אין מקור אמין לרישום סשנים פעילים. /ops לא יכול להציג את מצב המקבילות בצורה מהימנה.",
+    nextStep: "בדוק שמסלול /srv/ops-vault/state/ נגיש לקריאה. אם המצב נמשך — פנה לבעלים.",
+  },
+  stale_session: {
+    severity: "watch",
+    source: "state/active_sessions.json (lifecycle=stale)",
+    impact: "סשן רשום פעיל אך לא דיווח על חיים בזמן הקצוב (heartbeat_ttl_seconds). בדרך כלל לא חוסם, אך מעיד שהסשן נפל או נשכח.",
+    nextStep: "אם לא ידוע על הסשן — בטוח להתעלם, יסגר אוטומטית. אם הסשן אמור להיות חי, בדוק את התהליך.",
+  },
+  orphan_session: {
+    severity: "watch",
+    source: "state/active_sessions.json (stale + ownerless)",
+    impact: "סשן שאיבד הלב ואין לו owned_paths_globs — קשה לקבוע על מה הוא עבד. עלול להחזיק נעילות.",
+    nextStep: "בדוק אם תהליך עדיין רץ; אחרת הוא ינוקה אוטומטית בתוך 7 ימים.",
+  },
+  canonical_age: {
+    severity: "watch",
+    source: "state/active_sessions.json _meta.source_mtime",
+    impact: "הרישום הקנוני לא נכתב מחדש בזמן שהוקצב (heartbeat_ttl_seconds). אם המתווך תקין — בד\"כ לא בעיה; אם גם המתווך לא תקין — הרישום עומד.",
+    nextStep: "בדוק את כרטיס המתווך באותו עמוד. אם merger_healthy=true — אין דחיפות.",
+  },
+  merger_degraded: {
+    severity: "action",
+    source: "state/agent-registry-merger.json (timer telemetry)",
+    impact: "הצינור שכותב לרישום הקנוני לא מדווח על בריאות. רישומים חדשים לא יתעדכנו ב-agent-registry.json.",
+    nextStep: "בדוק את systemd unit mn-os-agent-registry-merger; חפש שגיאות ב-journalctl.",
+  },
+  manifest_stale: {
+    severity: "watch",
+    source: "state/_meta.json _meta.regenerated_at",
+    impact: "המניפסט שמתעד את כל קבצי state/*.json לא רוענן יותר מ-24 שעות. השוואות drift עלולות להיות לא מעודכנות.",
+    nextStep: "הפעל מחדש את mn-os-meta-manifest-writer (או דווח לבעלים אם הוא לא קיים).",
+  },
+  drift: {
+    severity: "watch",
+    source: "state/_freshness.json מול state/_meta.json (delta_seconds > drift_threshold_seconds)",
+    impact: "קבצי state נכתבו אחרי הזמן שהמניפסט מתעד. בד\"כ סימן שהמניפסט עצמו נושן ולא שהקבצים פגומים.",
+    nextStep: "אם manifest_stale פעיל גם כן — תקן אותו קודם; שאר ה-drift יסתדר אוטומטית.",
+  },
+  high_issue_class: {
+    severity: "action",
+    source: "state/runtime-issues.json (לאחר סינון lifecycle — resolved לא נספרים)",
+    impact: "תקלת runtime בחומרה גבוהה או קריטית פתוחה במערכת.",
+    nextStep: "פתח את כרטיס תקלות runtime באותו עמוד וטפל לפי סדר חומרה. אם התקלה כבר טופלה, עדכן Status: resolved בקובץ.",
+  },
+  projection_not_synced: {
+    severity: "watch",
+    source: "crm-app/scripts/sync-ops-data.mjs ברירת מחדל (writer לא רץ)",
+    impact: "ה-build של CRM לא הצליח להעתיק את הפרויקציה החיה; מוצג envelope ריק. /ops עדיין נטען אבל IntegrityCard מבוסס על ברירות מחדל.",
+    nextStep: "בדוק שה-deploy האחרון הצליח ושהפרויקציה זמינה ב-/srv/ops-vault/state/.",
+  },
+  generated_default: {
+    severity: "watch",
+    source: "build-orchestrator-integrity.py --default",
+    impact: "מחולל הפרויקציה רץ במצב default (כל הקלטים חסרים). מבטא חוסר נראות, לא תקלה.",
+    nextStep: "בדוק שמקורות הקלט (agent-registry, active_sessions, _freshness וכו') קיימים ונגישים.",
+  },
+  unknown: {
+    severity: "watch",
+    source: "integrity_status.reasons[]",
+    impact: "סיגנל שלא מותאם למילון ההסברים. ייתכן שמדובר בתבנית חדשה שהוסיף writer לא מוכר.",
+    nextStep: "פתח את הטקסט המקורי בכרטיס; אם זה חוזר — שווה לעדכן את classifyIntegrityReason.",
+  },
+};
+
+// Each pattern is bound to a writer template documented in
+// build-orchestrator-integrity.py. Numeric captures populate the threshold
+// block for direct value/limit comparison in the UI.
+const REASON_PATTERNS: {
+  family: IntegrityReasonFamily;
+  re: RegExp;
+  threshold?: (m: RegExpMatchArray) => IntegrityReasonExplanation["threshold"];
+}[] = [
+  { family: "registry_missing", re: /no usable registry source/i },
+  {
+    family: "orphan_session",
+    re: /(\d+)\s+orphan-candidate session\(s\)/i,
+    threshold: (m) => ({ value: Number(m[1]), limit: 0, unit: "sessions" }),
+  },
+  {
+    family: "stale_session",
+    re: /(\d+)\s+stale session\(s\)/i,
+    threshold: (m) => ({ value: Number(m[1]), limit: 0, unit: "sessions" }),
+  },
+  {
+    family: "canonical_age",
+    re: /canonical registry age\s+(\d+)s\s+>\s+ttl\s+(\d+)s/i,
+    threshold: (m) => ({ value: Number(m[1]), limit: Number(m[2]), unit: "seconds" }),
+  },
+  { family: "merger_degraded", re: /merger pipeline degraded/i },
+  {
+    family: "manifest_stale",
+    re: /_meta\.json manifest age\s+(\d+)s\s+>\s+threshold\s+(\d+)s/i,
+    threshold: (m) => ({ value: Number(m[1]), limit: Number(m[2]), unit: "seconds" }),
+  },
+  {
+    family: "drift",
+    re: /(\d+)\s+state\/\*\.json file\(s\)\s+drifted/i,
+    threshold: (m) => ({ value: Number(m[1]), limit: 0, unit: "files" }),
+  },
+  {
+    family: "high_issue_class",
+    re: /(\d+)\s+high\/critical runtime-issue\(s\)\s+open/i,
+    threshold: (m) => ({ value: Number(m[1]), limit: 0, unit: "issues" }),
+  },
+  { family: "projection_not_synced", re: /^projection_not_synced$/i },
+  { family: "generated_default", re: /^generated_default=true$/i },
+];
+
+export function classifyIntegrityReason(reason: string): IntegrityReasonExplanation {
+  const raw = (reason ?? "").trim();
+  for (const p of REASON_PATTERNS) {
+    const m = raw.match(p.re);
+    if (m) {
+      const copy = REASON_FAMILY_COPY[p.family];
+      return {
+        family: p.family,
+        severity: copy.severity,
+        raw,
+        source: copy.source,
+        threshold: p.threshold ? p.threshold(m) : undefined,
+        impact: copy.impact,
+        nextStep: copy.nextStep,
+      };
+    }
+  }
+  const copy = REASON_FAMILY_COPY.unknown;
+  return {
+    family: "unknown",
+    severity: copy.severity,
+    raw,
+    source: copy.source,
+    impact: copy.impact,
+    nextStep: copy.nextStep,
+  };
+}
+
 type ActiveSession = {
   id: string;
   lane?: string | null;
@@ -3806,14 +3988,72 @@ function OrchestratorIntegrityCard({ doc }: { doc: OrchestratorIntegrityDoc | nu
         )}
       </div>
       {sum.reasons.length > 0 && (
-        <details style={{ fontSize: 12, color: "#525252" }}>
+        <details
+          data-testid="integrity-reasons-drilldown"
+          style={{ fontSize: 12, color: "#525252" }}
+        >
           <summary style={{ cursor: "pointer", color: "#737373", marginBottom: 4 }}>
-            פרטים טכניים ({sum.reasons.length})
+            פרטים לכל אות ({sum.reasons.length})
           </summary>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}>
-            {sum.reasons.map((r, i) => (
-              <li key={i}>· {r}</li>
-            ))}
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+            {sum.reasons.map((r, i) => {
+              const ex = classifyIntegrityReason(r);
+              const sevBg =
+                ex.severity === "action" ? "#dc2626" : ex.severity === "watch" ? "#a16207" : "#525252";
+              const sevLabel =
+                ex.severity === "action" ? "דורש פעולה" : ex.severity === "watch" ? "במעקב" : "ייעוץ";
+              return (
+                <li
+                  key={i}
+                  data-testid="integrity-reason-row"
+                  data-family={ex.family}
+                  style={{
+                    borderInlineStart: `3px solid ${sevBg}`,
+                    paddingInlineStart: 8,
+                    paddingBlock: 4,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600, color: "#262626" }}>{ex.raw}</span>
+                    <span
+                      style={{
+                        ...pill,
+                        background: sevBg,
+                        color: "#fff",
+                        fontSize: 10,
+                        padding: "1px 6px",
+                      }}
+                    >
+                      {sevLabel}
+                    </span>
+                  </div>
+                  <div style={{ color: "#525252", marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600 }}>מקור: </span>
+                    <code style={{ fontSize: 11, color: "#404040" }}>{ex.source}</code>
+                  </div>
+                  {ex.threshold && (
+                    <div style={{ color: "#525252", marginBottom: 2 }}>
+                      <span style={{ fontWeight: 600 }}>סף: </span>
+                      <span>
+                        {ex.threshold.value}
+                        {ex.threshold.unit === "seconds" ? "s" : ` ${ex.threshold.unit}`}
+                        {ex.threshold.limit > 0
+                          ? ` > ${ex.threshold.limit}${ex.threshold.unit === "seconds" ? "s" : ` ${ex.threshold.unit}`}`
+                          : ` > 0 ${ex.threshold.unit}`}
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ color: "#525252", marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600 }}>השפעה: </span>
+                    {ex.impact}
+                  </div>
+                  <div style={{ color: "#525252" }}>
+                    <span style={{ fontWeight: 600 }}>צעד הבא: </span>
+                    {ex.nextStep}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
