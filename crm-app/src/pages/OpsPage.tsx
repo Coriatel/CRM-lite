@@ -1327,12 +1327,19 @@ export type OperationalQueueDoc = {
 
 export type QueueRouteDecision = "autonomous" | "owner" | "escalate" | "defer";
 export type QueueRoute = { decision: QueueRouteDecision; reason: string; since?: string };
+export type ReasoningTier = "low" | "medium" | "high" | "max" | "none";
 export type QueueRoutesDoc = {
   _meta?: {
     schema_version?: number;
     routed_at?: string;
     source_queue?: string;
     item_count?: number;
+    // Added 2026-05-26 — emitted by route-operational-queue.py classifier v0.9.0+
+    // (per /srv/ops-vault/scripts/route-operational-queue.py infer_reasoning_tier).
+    // Surfaces tier mix of currently-routed items; consumed by
+    // RuntimeOrchestrationCard. Optional for backward-compat with older
+    // queue_routes.json snapshots.
+    reasoning_tier_distribution?: Record<ReasoningTier, number>;
   };
   summary?: Record<QueueRouteDecision, number>;
   routes?: Record<string, QueueRoute>;
@@ -2066,6 +2073,7 @@ export function OpsPage() {
         plan={queuePlan}
         receipts={queueReceipts}
       />
+      <RuntimeOrchestrationCard routes={queueRoutes} queue={operationalQueue} />
       <ManagementCockpitCard doc={managementCockpit} />
       <CardFreshnessBadge file="safe_swarm.json" freshness={freshness} />
       <SafeSwarmCard doc={safeSwarm} />
@@ -4080,6 +4088,203 @@ export function OperationalQueueCard({
             </div>
           )}
         </>
+      )}
+    </section>
+  );
+}
+
+// Runtime orchestration — compact health surface for the orchestration brain.
+// Surfaces two signals already derivable from existing projections (no new
+// fetch, no new writer):
+//   1. Reasoning-tier mix of the currently-routed queue (from
+//      queue_routes.json `_meta.reasoning_tier_distribution`)
+//   2. Owner-gate count + kind breakdown (from operational_queue.json items
+//      with `owner_gate=true`, grouped by `owner_gate_kind`)
+//
+// Source: MN-OS Runtime Orchestration campaign 2026-05-26 — Phase 0 audit's
+// token-burn-hotspots.md identified tier-misuse + owner-gate FP-rate as the
+// two highest-ROI signals to surface operationally. This card makes both
+// visible without adding new infrastructure (the data already exists in vault
+// state JSONs; OpsPage already fetches them).
+export type RuntimeOrchestrationView = {
+  severity: "info" | "watch" | "action";
+  headline: string;
+  meaning: string;
+  nextAction: string;
+  tierDist: Record<ReasoningTier, number>;
+  tierTotal: number;
+  ownerGateCount: number;
+  autonomousCount: number;
+  ownerGateByKind: Record<string, number>;
+};
+
+export function classifyRuntimeOrchestrationForOperator(
+  routes: QueueRoutesDoc | null,
+  queue: OperationalQueueDoc | null,
+): RuntimeOrchestrationView | null {
+  if (!routes && !queue) return null;
+  const tierDist: Record<ReasoningTier, number> =
+    routes?._meta?.reasoning_tier_distribution ?? {
+      low: 0,
+      medium: 0,
+      high: 0,
+      max: 0,
+      none: 0,
+    };
+  const tierTotal = (["low", "medium", "high", "max", "none"] as const).reduce(
+    (acc, k) => acc + (tierDist[k] ?? 0),
+    0,
+  );
+  const items = queue?.queue ?? [];
+  const ownerGated = items.filter((i) => i.owner_gate);
+  const ownerGateCount = ownerGated.length;
+  const autonomousCount = routes?.summary?.autonomous ?? 0;
+  const ownerGateByKind: Record<string, number> = {};
+  for (const i of ownerGated) {
+    const k = i.owner_gate_kind ?? "unspecified";
+    ownerGateByKind[k] = (ownerGateByKind[k] ?? 0) + 1;
+  }
+  if (tierTotal === 0 && items.length === 0) {
+    return null;
+  }
+  const noneCount = tierDist.none ?? 0;
+  const heavyTier = (tierDist.high ?? 0) + (tierDist.max ?? 0);
+  // Severity rules — pragmatic: noise floor is "info"; flag mismatches.
+  let severity: RuntimeOrchestrationView["severity"];
+  let headline: string;
+  let meaning: string;
+  let nextAction: string;
+  const ownerShare = items.length > 0 ? ownerGateCount / items.length : 0;
+  if (noneCount > 0 && tierTotal > 0) {
+    // Writer-side gap: at least one item routed without a tier hint.
+    severity = "watch";
+    headline = `פריטים ללא סיווג רמת חשיבה (${noneCount}/${tierTotal})`;
+    meaning =
+      "חלק מהפריטים נכנסו לתור בלי הערכת רמת חשיבה (low/medium/high/max). זה רמז לפער ב־classifier של ה־queue, לא בהכרח לבעיה תפעולית.";
+    nextAction =
+      "סקור את ה־classifier (route-operational-queue.py) להוספת היוריסטיקה לסוג הפריט החסר; אפשר להמשיך לעבוד בינתיים.";
+  } else if (ownerShare > 0.5 && items.length >= 4) {
+    // Many owner gates: bottleneck signal.
+    severity = "watch";
+    headline = `יותר מחצי מהתור מסומן לבעלים (${ownerGateCount}/${items.length})`;
+    meaning =
+      "המסלול האוטונומי מצומצם: רוב הפריטים פתוחים מחכים להחלטת בעלים. עלול להעיד על נוסח לא מובחן (״צריך החלטה״ ללא ציון סוג) או על דרישה לעדכון merge-authority.md.";
+    nextAction =
+      "בדוק את ה־owner_gate_kind של הפריטים: אם רוב product_direction — שפר את נוסח ה־needs ב־blockers.json. אחרת — אם הסיווג מבוסס, ייתכן שצריך החלטת בעלים סדורה.";
+  } else {
+    severity = "info";
+    if (heavyTier > 0) {
+      headline = `תזמורת בריאה: ${tierTotal} פריטים, ${heavyTier} דורשים חשיבה גבוהה`;
+    } else {
+      headline = `תזמורת בריאה: ${tierTotal} פריטים מנותבים`;
+    }
+    meaning =
+      "ה־classifier סיווג את כל הפריטים, חלוקת רמות חשיבה תואמת ציפיות, ויחס בעלים/אוטונומי סביר. עלות־קוגניציה תחת בקרה.";
+    nextAction =
+      "אין פעולה נדרשת. אם חלוקת הרמות נראית מוטה (יותר מדי high), שווה לאמת ש־classifier לא מסווג ביתר־זהירות.";
+  }
+  return {
+    severity,
+    headline,
+    meaning,
+    nextAction,
+    tierDist,
+    tierTotal,
+    ownerGateCount,
+    autonomousCount,
+    ownerGateByKind,
+  };
+}
+
+function RuntimeOrchestrationCard({
+  routes,
+  queue,
+}: {
+  routes: QueueRoutesDoc | null;
+  queue: OperationalQueueDoc | null;
+}) {
+  const view = classifyRuntimeOrchestrationForOperator(routes, queue);
+  if (!view) return null;
+  const isAction = view.severity === "action";
+  const isWatch = view.severity === "watch";
+  const bg = isAction ? "#fef2f2" : isWatch ? "#fffbeb" : "#fafafa";
+  const border = isAction ? "#fecaca" : isWatch ? "#fde68a" : "#e5e5e5";
+  const headColor = isAction ? "#991b1b" : isWatch ? "#92400e" : "#404040";
+  const pillBg = isAction ? "#dc2626" : isWatch ? "#a16207" : "#525252";
+  const pillLabel = isAction ? "דורש פעולה" : isWatch ? "במעקב" : "ייעוץ";
+  const tierLabel: Record<ReasoningTier, string> = {
+    low: "נמוך",
+    medium: "בינוני",
+    high: "גבוה",
+    max: "מקסימלי",
+    none: "ללא סיווג",
+  };
+  const kindLabel: Record<string, string> = {
+    product_direction: "כיוון מוצר",
+    schema_migration: "מיגרציית סכמה",
+    destructive: "פעולה הרסנית",
+    credentials: "סודות/אישורים",
+    budget: "תקציב",
+    prod_regression: "רגרסיית פרודקשן",
+    public_content: "תוכן ציבורי",
+    legal: "משפטי/ציות",
+    conflicting_policy: "מדיניות מתנגשות",
+    unspecified: "לא צוין",
+  };
+  return (
+    <section
+      aria-label="תזמורת ריצה"
+      style={{
+        ...overviewCard,
+        background: bg,
+        borderColor: border,
+      }}
+    >
+      <div style={{ ...overviewHead, color: headColor }}>
+        <span>
+          <span
+            style={{
+              ...pill,
+              background: pillBg,
+              marginInlineEnd: 6,
+              fontSize: 10,
+              padding: "1px 6px",
+            }}
+          >
+            {pillLabel}
+          </span>
+          תזמורת ריצה
+        </span>
+        <span style={{ ...overviewCount, color: headColor }}>{view.tierTotal}</span>
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: headColor, marginBottom: 4 }}>
+        {view.headline}
+      </div>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 6px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה זה אומר: </span>
+        {view.meaning}
+      </p>
+      <p style={{ fontSize: 13, color: "#404040", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+        <span style={{ fontWeight: 600 }}>מה ניתן לעשות: </span>
+        {view.nextAction}
+      </p>
+      {view.tierTotal > 0 && (
+        <div style={{ fontSize: 12, color: "#525252", margin: "0 0 6px 0" }}>
+          <span style={{ fontWeight: 600 }}>חלוקת רמות חשיבה: </span>
+          {(["low", "medium", "high", "max", "none"] as const)
+            .filter((t) => (view.tierDist[t] ?? 0) > 0)
+            .map((t) => `${tierLabel[t]} ${view.tierDist[t]}`)
+            .join(" · ")}
+        </div>
+      )}
+      {view.ownerGateCount > 0 && (
+        <div style={{ fontSize: 12, color: "#525252" }}>
+          <span style={{ fontWeight: 600 }}>בעלים פתוחים ({view.ownerGateCount}): </span>
+          {Object.entries(view.ownerGateByKind)
+            .sort(([, a], [, b]) => b - a)
+            .map(([k, n]) => `${kindLabel[k] ?? k} ${n}`)
+            .join(" · ")}
+        </div>
       )}
     </section>
   );
