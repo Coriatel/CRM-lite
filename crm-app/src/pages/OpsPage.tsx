@@ -1738,13 +1738,22 @@ export const MANUAL_CONFIG_FILES = new Set([
   "services.json",
 ]);
 
+// Validator schemas (*.schema.json) classified by regenerate-state-meta.py as
+// source=schema — hand-maintained alongside the producers that emit against
+// them. They do not have a producer cadence either, so they must also be
+// excluded from staleness alerts. Predicate-based on suffix so new schemas
+// added upstream are covered automatically.
+export function isSchemaFile(name: string): boolean {
+  return name.endsWith(".schema.json");
+}
+
 export function stalenessEntries(
   f: FreshnessDoc | null,
   thresholdHours: number,
 ): StaleEntry[] {
   if (!f?.files) return [];
   return Object.entries(f.files)
-    .filter(([name]) => !MANUAL_CONFIG_FILES.has(name))
+    .filter(([name]) => !MANUAL_CONFIG_FILES.has(name) && !isSchemaFile(name))
     .map(([name, v]) => ({
       name,
       hours: Math.floor((v?.age_seconds ?? 0) / 3600),

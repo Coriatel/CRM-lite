@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MANUAL_CONFIG_FILES, stalenessEntries } from "./OpsPage";
+import { MANUAL_CONFIG_FILES, isSchemaFile, stalenessEntries } from "./OpsPage";
 
 const SEC_PER_HOUR = 3600;
 
@@ -55,6 +55,28 @@ describe("stalenessEntries", () => {
       6,
     );
     expect(out.map((x) => x.name)).toEqual(["writer-x.json"]);
+  });
+
+  it("excludes *.schema.json files regardless of age", () => {
+    const out = stalenessEntries(
+      {
+        files: {
+          "queue_item.schema.json": { age_seconds: 1000 * SEC_PER_HOUR },
+          "management_cockpit.schema.json": { age_seconds: 1000 * SEC_PER_HOUR },
+          "writer-x.json": { age_seconds: 7 * SEC_PER_HOUR },
+        },
+      } as never,
+      6,
+    );
+    expect(out.map((x) => x.name)).toEqual(["writer-x.json"]);
+  });
+
+  it("isSchemaFile recognises validator schemas by suffix", () => {
+    expect(isSchemaFile("queue_item.schema.json")).toBe(true);
+    expect(isSchemaFile("anything.schema.json")).toBe(true);
+    expect(isSchemaFile("queue_item.json")).toBe(false);
+    expect(isSchemaFile("schema.json")).toBe(false);
+    expect(isSchemaFile("")).toBe(false);
   });
 
   it("MANUAL_CONFIG_FILES contract: all 8 known owner-config files are present", () => {
