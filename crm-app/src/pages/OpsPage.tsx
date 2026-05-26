@@ -1722,12 +1722,29 @@ export function severityFromQueue(s: OperationalQueueSeverity): SeverityLevel {
 
 export type StaleEntry = { name: string; hours: number };
 
+// Owner-edited config files with no automated writer, per
+// /srv/ops-vault/scripts/regenerate-state-meta.py MANUAL_CONFIG. These
+// naturally age over time and must NOT be surfaced as "stale" by the
+// freshness banner or attention synthesis — the freshness signal is meaningful
+// only for files emitted by a writer/derived producer.
+export const MANUAL_CONFIG_FILES = new Set([
+  "blockers.json",
+  "cohorts.json",
+  "dependencies.json",
+  "lanes.json",
+  "operational_graph.json",
+  "processes.json",
+  "projects.json",
+  "services.json",
+]);
+
 export function stalenessEntries(
   f: FreshnessDoc | null,
   thresholdHours: number,
 ): StaleEntry[] {
   if (!f?.files) return [];
   return Object.entries(f.files)
+    .filter(([name]) => !MANUAL_CONFIG_FILES.has(name))
     .map(([name, v]) => ({
       name,
       hours: Math.floor((v?.age_seconds ?? 0) / 3600),
