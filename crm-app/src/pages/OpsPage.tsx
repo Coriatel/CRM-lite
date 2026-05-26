@@ -2065,7 +2065,6 @@ export function OpsPage() {
       <ActiveIncidentsCard incidents={activeIncidents} />
       <CardFreshnessBadge file="session_index.json" freshness={freshness} />
       <OwnerGatesCard gates={ownerGates} />
-      <CardFreshnessBadge file="processes.json" freshness={freshness} />
       <ProcessesCard doc={processes} />
       <PushIsolationCard snap={pushIsolation} />
       <CardFreshnessBadge file="runtime-continuity.json" freshness={freshness} />
