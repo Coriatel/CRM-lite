@@ -2030,7 +2030,6 @@ export function OpsPage() {
       <CardFreshnessBadge file="attention_synthesis.json" freshness={freshness} />
       <AttentionSynthesisCard doc={attentionSynthesis} />
 
-      <CardFreshnessBadge file="blockers.json" freshness={freshness} />
       <CardFreshnessBadge file="runtime_governance_debt.json" freshness={freshness} />
       <HybridBlockersCard doc={attentionSynthesis} />
 
@@ -2052,14 +2051,12 @@ export function OpsPage() {
       <HealthOverview health={health} />
       <CardFreshnessBadge file="active_sessions.json" freshness={freshness} />
       <ActiveSessionsCard doc={activeSessions} />
-      <CardFreshnessBadge file="dependencies.json" freshness={freshness} />
       <DependenciesCard doc={dependencies} />
       <CardFreshnessBadge file="workflows.json" freshness={freshness} />
       <WorkflowsCard doc={workflows} />
       <LanesOverview lanes={lanes} />
       <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
       <RecentMergesCard doc={recentMerges} />
-      <CardFreshnessBadge file="blockers.json" freshness={freshness} />
       <BlockersOverview blockers={blockers} />
       <CardFreshnessBadge file="session_index.json" freshness={freshness} />
       <ActiveIncidentsCard incidents={activeIncidents} />
