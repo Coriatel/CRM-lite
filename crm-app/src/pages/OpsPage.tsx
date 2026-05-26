@@ -2050,6 +2050,7 @@ export function OpsPage() {
       <ProducerHealthCard doc={producerHealth} />
       <CardFreshnessBadge file="health.json" freshness={freshness} />
       <HealthOverview health={health} />
+      <CardFreshnessBadge file="active_sessions.json" freshness={freshness} />
       <ActiveSessionsCard doc={activeSessions} />
       <CardFreshnessBadge file="dependencies.json" freshness={freshness} />
       <DependenciesCard doc={dependencies} />
@@ -2060,9 +2061,13 @@ export function OpsPage() {
       <RecentMergesCard doc={recentMerges} />
       <CardFreshnessBadge file="blockers.json" freshness={freshness} />
       <BlockersOverview blockers={blockers} />
+      <CardFreshnessBadge file="session_index.json" freshness={freshness} />
       <ActiveIncidentsCard incidents={activeIncidents} />
+      <CardFreshnessBadge file="session_index.json" freshness={freshness} />
       <OwnerGatesCard gates={ownerGates} />
+      <CardFreshnessBadge file="processes.json" freshness={freshness} />
       <ProcessesCard doc={processes} />
+      <CardFreshnessBadge file="push-isolation-latest.json" freshness={freshness} />
       <PushIsolationCard snap={pushIsolation} />
       <CardFreshnessBadge file="runtime-continuity.json" freshness={freshness} />
       <RuntimeContinuityMetricsCard doc={runtimeContinuity} />
