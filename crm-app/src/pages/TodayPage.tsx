@@ -482,9 +482,9 @@ function AttentionCard({
           borderRadius: 999,
           padding: "2px 8px",
         }}
-        title="מקור נתונים זמני — מוקאפ"
+        title={source === "empty" ? "אין נתונים עדיין" : `מקור נתונים: ${source}`}
       >
-        {source === "mock" ? "מוקאפ" : source}
+        {source === "empty" ? "אין נתונים עדיין" : source}
       </span>
     ) : undefined;
 

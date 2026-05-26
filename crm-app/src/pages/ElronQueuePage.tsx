@@ -133,7 +133,7 @@ export function ElronQueuePage() {
         מה הכי חשוב לאלרון לטפל בו עכשיו.{" "}
         {source && source !== "directus" ? (
           <span style={{ fontSize: 12 }}>
-            (מקור: {source === "mock" ? "מוקאפ" : source})
+            (מקור: {source === "empty" ? "אין נתונים עדיין" : source})
           </span>
         ) : null}
       </p>

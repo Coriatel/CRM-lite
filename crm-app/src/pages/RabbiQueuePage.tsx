@@ -76,7 +76,7 @@ export function RabbiQueuePage() {
         אנשים ופניות שמחכים להחלטה או לתשובה של הרב היום.{" "}
         {source && source !== "directus" ? (
           <span style={{ fontSize: 12 }}>
-            (מקור: {source === "mock" ? "מוקאפ" : source})
+            (מקור: {source === "empty" ? "אין נתונים עדיין" : source})
           </span>
         ) : null}
       </p>
