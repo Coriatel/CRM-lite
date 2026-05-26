@@ -39,7 +39,7 @@ export interface AttentionItem {
 
 export interface AttentionPayload {
   ts: string;
-  source: "mock" | "projection" | "directus";
+  source: "empty" | "projection" | "directus";
   items: AttentionItem[];
 }
 
@@ -76,65 +76,16 @@ export function bucketAttention(items: AttentionItem[]): AttentionBuckets {
   return { needsElron, needsRav, stuck };
 }
 
-const MOCK_PAYLOAD: AttentionPayload = {
-  ts: "2026-05-16T06:00:00Z",
-  source: "mock",
-  items: [
-    {
-      id: "att-001",
-      title: "אישור תקציב חודשי לעמותה",
-      owner: "elron",
-      urgency: "high",
-      status: "waiting",
-      domain: "finance",
-      next_action: "לעבור על טבלת תקציב מאי ולאשר",
-      href: "/dashboard",
-    },
-    {
-      id: "att-002",
-      title: "תשובה לשאלת הלכה ממשתתף",
-      owner: "rav",
-      urgency: "normal",
-      status: "open",
-      domain: "people",
-      next_action: "להחזיר טלפון לאליהו כהן",
-      href: "/people",
-    },
-    {
-      id: "att-003",
-      title: "שיעור 'תיקון המידות' תקוע בעיבוד",
-      owner: "system",
-      urgency: "high",
-      status: "blocked",
-      domain: "content",
-      next_action: "בלוק בצינור Windmill",
-      href: "/ops",
-    },
-    {
-      id: "att-004",
-      title: "הרשמה לקבוצת לימוד חדשה",
-      owner: "rav",
-      urgency: "critical",
-      status: "waiting",
-      domain: "lessons",
-      next_action: "להחליט על פתיחת מחזור חדש",
-      href: "/today",
-    },
-    {
-      id: "att-005",
-      title: "אוטומציה של תזכורות שבועיות נכשלה אתמול",
-      owner: "elron",
-      urgency: "normal",
-      status: "stale",
-      domain: "automation",
-      next_action: "לבדוק לוג n8n של אתמול",
-      href: "/ops",
-    },
-  ],
-};
-
+// Final fallback when Directus items and the projection are both empty.
+// Returns an honest empty payload — never fabricated rows. The UI renders
+// the existing empty state ("אין כרגע משימות פתוחות") via bucketAttention +
+// classifyAttentionBucketForOperator.
 export async function loadAmutaAttention(): Promise<AttentionPayload> {
-  return MOCK_PAYLOAD;
+  return {
+    ts: new Date().toISOString(),
+    source: "empty",
+    items: [],
+  };
 }
 
 // Operator-facing classifier for a single attention bucket (e.g. needsElron,
