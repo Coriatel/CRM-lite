@@ -52,6 +52,236 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// UX12 (Global Next Action — Lane A, MN-OS UX Runtime).
+// Sticky single-dominant-move row at the top of /today. Reads
+// /ops-data/global_next_action.json produced by the
+// mn-os-global-next-action-writer timer (~60s cadence). The selection rule
+// is deterministic and re-implementable from operational_queue.json alone:
+// see /srv/ops-vault/scripts/mn-os-writers/build-global-next-action.py.
+//
+// Anti-scope (binding per UX activation plan §15):
+//   - no LLM at render time
+//   - no client-side prediction / scoring beyond what the writer emitted
+//   - operator must always be able to audit WHY this surfaced
+//     (rationale chip + alternatives panel)
+//   - calm: ≤4 visible elements above the fold (label, source pill,
+//     rationale toggle, tap target)
+type GlobalNextActionItem = {
+  id: string;
+  label: string;
+  rationale: string;
+  downstream_impact: string;
+  route: string;
+  computed_priority: number;
+  type: string;
+  severity: string;
+  lane?: string | null;
+  owner_gate: boolean;
+};
+
+type GlobalNextActionDoc = {
+  _meta?: {
+    writer?: string;
+    computed_at?: string;
+    queue_item_count?: number;
+  };
+  next_action: GlobalNextActionItem | null;
+  alternatives?: GlobalNextActionItem[];
+  empty_reason?: string;
+};
+
+function GlobalNextActionRow() {
+  const [doc, setDoc] = useState<GlobalNextActionDoc | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [showWhy, setShowWhy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/ops-data/global_next_action.json", {
+          cache: "no-store",
+        });
+        if (!r.ok) {
+          if (!cancelled) setState("error");
+          return;
+        }
+        const j = (await r.json()) as GlobalNextActionDoc;
+        if (cancelled) return;
+        setDoc(j);
+        setState("ready");
+      } catch {
+        if (!cancelled) setState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Honest empty: do not invent a next-action when the producer says there
+  // is none. Per UX activation plan §10.7, a noisy surface that fabricates
+  // urgency is worse than a calm empty.
+  if (state === "loading") return null;
+  if (state === "error") {
+    return (
+      <section
+        data-testid="global-next-action-row"
+        aria-label="המהלך התפעולי הבא"
+        style={rowFrame}
+      >
+        <div data-testid="global-next-action-empty" style={rowEmptyText}>
+          אין נתוני המלצה תפעולית כעת.
+        </div>
+      </section>
+    );
+  }
+  const next = doc?.next_action ?? null;
+  if (!next) {
+    return (
+      <section
+        data-testid="global-next-action-row"
+        aria-label="המהלך התפעולי הבא"
+        style={rowFrame}
+      >
+        <div data-testid="global-next-action-empty" style={rowEmptyText}>
+          {doc?.empty_reason
+            ? `אין מהלך תפעולי דומיננטי כעת (${doc.empty_reason}).`
+            : "אין מהלך תפעולי דומיננטי כעת."}
+        </div>
+      </section>
+    );
+  }
+
+  const alts = (doc?.alternatives ?? []).slice(0, 3);
+
+  return (
+    <section
+      data-testid="global-next-action-row"
+      aria-label="המהלך התפעולי הבא"
+      style={rowFrame}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: "#525252",
+          letterSpacing: 0.4,
+          textTransform: "uppercase",
+          marginBottom: 4,
+        }}
+      >
+        המהלך הבא
+      </div>
+      <Link
+        to={next.route}
+        data-testid="global-next-action-link"
+        style={{
+          display: "block",
+          color: "#171717",
+          textDecoration: "none",
+        }}
+      >
+        <div
+          data-testid="global-next-action-label"
+          style={{
+            fontSize: 16,
+            fontWeight: 600,
+            lineHeight: 1.4,
+            textDecoration: "underline",
+          }}
+        >
+          {next.label}
+        </div>
+      </Link>
+      <button
+        type="button"
+        data-testid="global-next-action-why-toggle"
+        onClick={() => setShowWhy((v) => !v)}
+        aria-expanded={showWhy}
+        style={{
+          marginTop: 6,
+          background: "transparent",
+          border: "none",
+          color: "#2563eb",
+          padding: 0,
+          fontSize: 12,
+          cursor: "pointer",
+          textDecoration: "underline",
+        }}
+      >
+        {showWhy ? "הסתר נימוק" : "למה זה הופיע?"}
+      </button>
+      {showWhy && (
+        <div
+          data-testid="global-next-action-rationale"
+          style={{
+            marginTop: 6,
+            fontSize: 12,
+            color: "#404040",
+            lineHeight: 1.5,
+          }}
+        >
+          <div>
+            <strong>נימוק: </strong>
+            {next.rationale}
+          </div>
+          {next.downstream_impact && (
+            <div style={{ marginTop: 2 }}>
+              <strong>מקור: </strong>
+              <code style={{ fontSize: 11 }}>{next.downstream_impact}</code>
+            </div>
+          )}
+          {alts.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#737373",
+                  marginBottom: 2,
+                }}
+              >
+                חלופות (לפי דירוג):
+              </div>
+              <ul
+                data-testid="global-next-action-alternatives"
+                style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}
+              >
+                {alts.map((a) => (
+                  <li key={a.id} style={{ fontSize: 12 }}>
+                    <Link
+                      to={a.route}
+                      data-testid="global-next-action-alternative-link"
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {a.label}
+                    </Link>
+                    <span style={{ color: "#737373" }}>
+                      {" "}· {a.computed_priority}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+const rowFrame = {
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  borderRadius: 8,
+  padding: "10px 12px",
+  marginBottom: "var(--spacing-md)",
+} as const;
+
+const rowEmptyText = {
+  fontSize: 13,
+  color: "#737373",
+} as const;
+
 function formatRelativeHebrew(d: Date, now: number = Date.now()): string {
   const diffSec = Math.max(0, Math.floor((now - d.getTime()) / 1000));
   if (diffSec < 60) return "עכשיו";
@@ -224,6 +454,8 @@ export function TodayPage() {
       >
         תצוגה ראשונית. רוב הקלפים ממתינים לחיבור נתונים.
       </p>
+
+      <GlobalNextActionRow />
 
       <AttentionSectionHeader
         loading={attentionLoading}
