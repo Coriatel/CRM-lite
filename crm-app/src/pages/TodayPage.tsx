@@ -236,14 +236,17 @@ function GlobalNextActionRow() {
         onClick={() => setShowWhy((v) => !v)}
         aria-expanded={showWhy}
         style={{
-          marginTop: 6,
+          marginTop: 4,
           background: "transparent",
           border: "none",
           color: "#2563eb",
-          padding: 0,
+          padding: "10px 4px",
+          marginInlineStart: -4,
           fontSize: 12,
           cursor: "pointer",
           textDecoration: "underline",
+          minHeight: 44,
+          textAlign: "start",
         }}
       >
         {showWhy ? "הסתר נימוק" : "למה זה הופיע?"}
@@ -281,19 +284,37 @@ function GlobalNextActionRow() {
               </div>
               <ul
                 data-testid="global-next-action-alternatives"
-                style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 2 }}
+                style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 0 }}
               >
                 {alts.map((a) => (
-                  <li key={a.id} style={{ fontSize: 12 }}>
+                  <li
+                    key={a.id}
+                    style={{
+                      fontSize: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      minHeight: 44,
+                      paddingBlock: 6,
+                    }}
+                  >
                     <Link
                       to={a.route}
                       data-testid="global-next-action-alternative-link"
-                      style={{ color: "#2563eb", textDecoration: "none" }}
+                      style={{
+                        color: "#2563eb",
+                        textDecoration: "none",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        minHeight: 44,
+                        paddingInline: 4,
+                        marginInlineStart: -4,
+                      }}
                     >
                       {a.label}
                     </Link>
                     <span style={{ color: "#737373" }}>
-                      {" "}· {a.computed_priority}
+                      · {a.computed_priority}
                     </span>
                   </li>
                 ))}
