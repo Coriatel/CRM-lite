@@ -8,6 +8,7 @@ import type {
   AttentionSynthItem,
   AttentionSynthesisDoc,
 } from "./AttentionSynthesisCard";
+import { opsCardStyle, opsCardHeadStyle, opsCardBadge } from "./cardStyles";
 
 const OWNER_SOURCE = "blockers";
 const RUNTIME_SOURCES = new Set(["governance-debt", "runtime-issues"]);
@@ -33,30 +34,9 @@ export function partitionHybridBlockers(
   };
 }
 
-const cardStyle: React.CSSProperties = {
-  border: "1px solid #e5e5e5",
-  borderRadius: 10,
-  padding: 12,
-  marginBottom: 12,
-  background: "var(--color-card, #fff)",
-};
-
-const headStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: 8,
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-const badge: React.CSSProperties = {
-  color: "#fff",
-  fontSize: 11,
-  padding: "2px 8px",
-  borderRadius: 999,
-  whiteSpace: "nowrap",
-};
+const cardStyle = opsCardStyle;
+const headStyle = opsCardHeadStyle;
+const badge = opsCardBadge;
 
 const ltr: React.CSSProperties = { direction: "ltr", unicodeBidi: "isolate" };
 
