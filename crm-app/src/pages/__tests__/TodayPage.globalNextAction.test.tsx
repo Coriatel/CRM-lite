@@ -197,6 +197,31 @@ describe("TodayPage — Global Next Action row (UX12)", () => {
     );
   });
 
+  // Mobile tap-target floor (44px per iOS HIG / 48 per Material). The
+  // why-toggle and alternative links were previously sub-20px tap areas,
+  // forcing pixel-accurate finger taps on phone. These regression tests
+  // lock the inline `min-height` style so a "while we're here" cleanup
+  // can't silently shrink them again.
+  it("renders the why-toggle button with a 44px minimum tap area", async () => {
+    fetchMock(FULL_DOC);
+    renderTodayPage();
+    const btn = await screen.findByTestId("global-next-action-why-toggle");
+    expect(btn.style.minHeight).toBe("44px");
+  });
+
+  it("renders alternative-link list items with a 44px minimum tap area", async () => {
+    fetchMock(FULL_DOC);
+    renderTodayPage();
+    const btn = await screen.findByTestId("global-next-action-why-toggle");
+    fireEvent.click(btn);
+    const altLinks = await screen.findAllByTestId(
+      "global-next-action-alternative-link",
+    );
+    for (const link of altLinks) {
+      expect(link.style.minHeight).toBe("44px");
+    }
+  });
+
   it("does not render the stale badge when _meta.computed_at is fresh", async () => {
     const FRESH_DOC = {
       ...FULL_DOC,
