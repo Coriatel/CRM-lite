@@ -170,4 +170,46 @@ describe("TodayPage — Global Next Action row (UX12)", () => {
     );
     expect(screen.queryByTestId("global-next-action-label")).toBeNull();
   });
+
+  // Writer cadence is 60s (mn-os-global-next-action-writer.timer). When the
+  // producer goes silent the file persists; surfacing the action without a
+  // staleness indicator would fabricate confidence in a recommendation that
+  // may already be obsolete. STALE_THRESHOLD_MS (10 min, shared with the
+  // attention header) is the operator-trust ceiling.
+  it("surfaces a stale-data badge when _meta.computed_at is older than the threshold", async () => {
+    const STALE_DOC = {
+      ...FULL_DOC,
+      _meta: {
+        ...FULL_DOC._meta,
+        // 15 minutes ago — beyond the 10-minute STALE_THRESHOLD_MS.
+        computed_at: new Date(Date.now() - 15 * 60_000).toISOString(),
+      },
+    };
+    fetchMock(STALE_DOC);
+    renderTodayPage();
+    await waitFor(() =>
+      expect(screen.getByTestId("global-next-action-stale")).toBeTruthy(),
+    );
+    // Action label still renders — operator can audit, just with the stale
+    // signal visible.
+    expect(screen.getByTestId("global-next-action-label").textContent).toBe(
+      "owner: scheduled compaction window",
+    );
+  });
+
+  it("does not render the stale badge when _meta.computed_at is fresh", async () => {
+    const FRESH_DOC = {
+      ...FULL_DOC,
+      _meta: {
+        ...FULL_DOC._meta,
+        computed_at: new Date(Date.now() - 30_000).toISOString(),
+      },
+    };
+    fetchMock(FRESH_DOC);
+    renderTodayPage();
+    await waitFor(() =>
+      expect(screen.getByTestId("global-next-action-label")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("global-next-action-stale")).toBeNull();
+  });
 });
