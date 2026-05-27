@@ -37,6 +37,7 @@ const files = [
   "orchestrator_integrity.json",
   "producer_contract_violations.json",
   "owner-gates.json",
+  "inbound_messages.json",
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
