@@ -58,6 +58,23 @@ const badge: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+// Soft variant — outlined chip with colored text on near-white background.
+// Used for per-row urgency tags where the saturated `badge` variant repeats
+// N× per card and creates visual noise. The summary header still uses the
+// saturated badge so a single aggregate count remains a dominant signal.
+function softBadge(tone: string): React.CSSProperties {
+  return {
+    color: tone,
+    background: "#fff",
+    border: `1px solid ${tone}`,
+    fontSize: 11,
+    padding: "1px 7px",
+    borderRadius: 999,
+    whiteSpace: "nowrap",
+    fontWeight: 500,
+  };
+}
+
 function urgencyColor(band?: string): string {
   if (band === "today") return "#dc2626";
   if (band === "this_week") return "#a16207";
@@ -122,11 +139,19 @@ export function AttentionSynthesisCard({ doc }: { doc: AttentionSynthesisDoc | n
               }}
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ ...badge, background: urgencyColor(it.urgency_band) }}>
+                <span
+                  data-testid="attention-row-urgency"
+                  style={softBadge(urgencyColor(it.urgency_band))}
+                >
                   {urgencyLabel(it.urgency_band)}
                 </span>
                 {it.gate_role === "owner" && (
-                  <span style={{ ...badge, background: "#7c3aed" }}>אונר</span>
+                  <span
+                    data-testid="attention-row-owner-gate"
+                    style={softBadge("#7c3aed")}
+                  >
+                    אונר
+                  </span>
                 )}
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{it.title}</span>
               </div>
