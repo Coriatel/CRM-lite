@@ -18,6 +18,7 @@ import {
 import { getContacts } from "../services/directus";
 import { useCallsToday } from "../hooks/useCallsToday";
 import { EmptyState } from "../components/EmptyState";
+import { StaleChip } from "../components/runtime/StaleChip";
 import type { AttentionItem } from "../data/amutaAttention";
 import { useAmutaAttention } from "../data/useAmutaAttention";
 import { useDonorSummary } from "../data/useDonorSummary";
@@ -155,17 +156,7 @@ function GlobalNextActionRow() {
 
   const alts = (doc?.alternatives ?? []).slice(0, 3);
 
-  const computedAt = doc?._meta?.computed_at
-    ? new Date(doc._meta.computed_at)
-    : null;
-  const staleMinutes =
-    computedAt && !Number.isNaN(computedAt.getTime())
-      ? Math.floor((Date.now() - computedAt.getTime()) / 60_000)
-      : 0;
-  const isStale =
-    computedAt !== null &&
-    !Number.isNaN(computedAt.getTime()) &&
-    Date.now() - computedAt.getTime() >= STALE_THRESHOLD_MS;
+  const computedAt = doc?._meta?.computed_at ?? null;
 
   return (
     <section
@@ -191,23 +182,12 @@ function GlobalNextActionRow() {
         >
           המהלך הבא
         </span>
-        {isStale && (
-          <span
-            data-testid="global-next-action-stale"
-            title={`עודכן: ${computedAt!.toISOString()}`}
-            aria-label={`מידע מלפני ${staleMinutes} דקות`}
-            style={{
-              fontSize: 11,
-              color: "#737373",
-              border: "1px solid #d4d4d4",
-              borderRadius: 999,
-              padding: "1px 8px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            מידע מלפני {staleMinutes} דק׳
-          </span>
-        )}
+        <StaleChip
+          fetchedAt={computedAt}
+          thresholdMs={STALE_THRESHOLD_MS}
+          variant="quiet"
+          testId="global-next-action-stale"
+        />
       </div>
       <Link
         to={next.route}
@@ -646,11 +626,7 @@ function AttentionSectionHeader({
   fetchedAt: Date | null;
   onRefresh: () => void;
 }) {
-  const staleMinutes =
-    fetchedAt && !loading
-      ? Math.floor((Date.now() - fetchedAt.getTime()) / 60_000)
-      : 0;
-  const isStale = staleMinutes >= STALE_THRESHOLD_MS / 60_000;
+  const staleFetchedAt = loading ? null : fetchedAt;
 
   return (
     <div
@@ -672,22 +648,12 @@ function AttentionSectionHeader({
         >
           מוקדי תשומת לב
         </h2>
-        {isStale && (
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border)",
-              borderRadius: 999,
-              padding: "2px 8px",
-              whiteSpace: "nowrap",
-            }}
-            title={`עודכן: ${fetchedAt!.toISOString()}`}
-            aria-label={`מידע מלפני ${staleMinutes} דקות`}
-          >
-            מידע מלפני {staleMinutes} דק׳
-          </span>
-        )}
+        <StaleChip
+          fetchedAt={staleFetchedAt}
+          thresholdMs={STALE_THRESHOLD_MS}
+          variant="quiet"
+          testId="attention-section-stale"
+        />
       </div>
       <button
         type="button"
