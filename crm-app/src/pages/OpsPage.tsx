@@ -924,10 +924,11 @@ type MetaDoc = {
   _meta?: { schema_version?: number; regenerated_at?: string };
 };
 
-type Workflow = {
+export type Workflow = {
   workflow_key: string;
   name?: string;
   source_system?: string;
+  source_path?: string;
   enabled?: boolean | string;
   owner?: string;
   criticality?: string;
@@ -935,10 +936,17 @@ type Workflow = {
   health?: string;
   trigger_type?: string;
   trigger_detail?: string;
+  upstream?: string;
+  downstream?: string;
+  artifacts?: string;
+  logs?: string;
   last_run_at?: string;
   last_success_at?: string;
   last_failure_at?: string;
   last_checked_at?: string;
+  documentation?: string;
+  risk?: string;
+  safe_to_test?: string;
   notes?: string;
 };
 
@@ -2943,44 +2951,58 @@ function WorkflowsCard({ doc }: { doc: WorkflowsDoc | null }) {
           paddingInlineStart: 8,
         }}
       >
-        <div style={{ fontWeight: 500 }}>
-          <span
-            style={{
-              ...pill,
-              background: pillBg,
-              marginInlineEnd: 6,
-              fontSize: 10,
-              padding: "1px 6px",
-            }}
-          >
-            {h || "—"}
-          </span>
-          {isProdCrit && (
+        <Link
+          to={`/ops/workflows/${encodeURIComponent(w.workflow_key)}`}
+          data-testid="workflow-link"
+          style={{ display: "block", color: "inherit", textDecoration: "none" }}
+        >
+          <div style={{ fontWeight: 500 }}>
             <span
               style={{
                 ...pill,
-                background: "#7c2d12",
+                background: pillBg,
                 marginInlineEnd: 6,
                 fontSize: 10,
                 padding: "1px 6px",
               }}
             >
-              prod-critical
+              {h || "—"}
             </span>
+            {isProdCrit && (
+              <span
+                style={{
+                  ...pill,
+                  background: "#7c2d12",
+                  marginInlineEnd: 6,
+                  fontSize: 10,
+                  padding: "1px 6px",
+                }}
+              >
+                prod-critical
+              </span>
+            )}
+            <span
+              style={{
+                direction: "ltr",
+                unicodeBidi: "isolate",
+                textDecoration: "underline",
+              }}
+            >
+              {w.workflow_key}
+            </span>
+          </div>
+          <div style={subLine}>
+            {w.name ?? ""}
+            {w.source_system ? ` · ${w.source_system}` : ""}
+            {w.owner ? ` · ${w.owner}` : ""}
+          </div>
+          {w.last_failure_at && kind === "failing" && (
+            <div style={subLine}>כשל אחרון: {relativeTimeHe(w.last_failure_at)}</div>
           )}
-          <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>{w.workflow_key}</span>
-        </div>
-        <div style={subLine}>
-          {w.name ?? ""}
-          {w.source_system ? ` · ${w.source_system}` : ""}
-          {w.owner ? ` · ${w.owner}` : ""}
-        </div>
-        {w.last_failure_at && kind === "failing" && (
-          <div style={subLine}>כשל אחרון: {relativeTimeHe(w.last_failure_at)}</div>
-        )}
-        {w.last_run_at && (
-          <div style={subLine}>הרצה אחרונה: {relativeTimeHe(w.last_run_at)}</div>
-        )}
+          {w.last_run_at && (
+            <div style={subLine}>הרצה אחרונה: {relativeTimeHe(w.last_run_at)}</div>
+          )}
+        </Link>
       </li>
     );
   };
