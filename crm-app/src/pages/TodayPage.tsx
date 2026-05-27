@@ -155,6 +155,18 @@ function GlobalNextActionRow() {
 
   const alts = (doc?.alternatives ?? []).slice(0, 3);
 
+  const computedAt = doc?._meta?.computed_at
+    ? new Date(doc._meta.computed_at)
+    : null;
+  const staleMinutes =
+    computedAt && !Number.isNaN(computedAt.getTime())
+      ? Math.floor((Date.now() - computedAt.getTime()) / 60_000)
+      : 0;
+  const isStale =
+    computedAt !== null &&
+    !Number.isNaN(computedAt.getTime()) &&
+    Date.now() - computedAt.getTime() >= STALE_THRESHOLD_MS;
+
   return (
     <section
       data-testid="global-next-action-row"
@@ -163,14 +175,39 @@ function GlobalNextActionRow() {
     >
       <div
         style={{
-          fontSize: 11,
-          color: "#525252",
-          letterSpacing: 0.4,
-          textTransform: "uppercase",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
           marginBottom: 4,
         }}
       >
-        המהלך הבא
+        <span
+          style={{
+            fontSize: 11,
+            color: "#525252",
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+          }}
+        >
+          המהלך הבא
+        </span>
+        {isStale && (
+          <span
+            data-testid="global-next-action-stale"
+            title={`עודכן: ${computedAt!.toISOString()}`}
+            aria-label={`מידע מלפני ${staleMinutes} דקות`}
+            style={{
+              fontSize: 11,
+              color: "#737373",
+              border: "1px solid #d4d4d4",
+              borderRadius: 999,
+              padding: "1px 8px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            מידע מלפני {staleMinutes} דק׳
+          </span>
+        )}
       </div>
       <Link
         to={next.route}
