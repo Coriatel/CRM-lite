@@ -1,16 +1,22 @@
 # Patch target: /etc/caddy/Caddyfile
-# NOT INSTALLED. See api/deploy/README.md for the apply procedure.
+# INSTALLED 2026-05-28 (this exact form is in production).
 #
 # Inside the existing `crmphone.merkazneshama.co.il { ... }` block, add the
-# `handle_path /api/queue-actions*` directive *before* the catch-all
+# `handle /api/queue-actions*` directive *before* the catch-all
 # `handle { reverse_proxy 127.0.0.1:8090 ... }` block, so it matches first.
+#
+# NOTE — use `handle`, not `handle_path`. `handle_path` strips the matched
+# prefix before proxying; the sidecar's Express routes are mounted at the
+# full `/api/queue-actions` path, so the request must arrive with the prefix
+# intact. (Earlier draft of this patch used `handle_path` and produced 404s
+# from Express; fixed in the same install session.)
 #
 # After applying, run: sudo caddy validate --config /etc/caddy/Caddyfile
 # then:                sudo systemctl reload caddy
 
 # --- begin patch (insert before the existing `handle { reverse_proxy 127.0.0.1:8090 ... }`) ---
 
-	handle_path /api/queue-actions* {
+	handle /api/queue-actions* {
 		reverse_proxy 127.0.0.1:8211 {
 			lb_try_duration 3s
 			lb_try_interval 200ms
