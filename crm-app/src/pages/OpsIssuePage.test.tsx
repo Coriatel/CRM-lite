@@ -176,13 +176,13 @@ describe("<OpsIssuePage>", () => {
     );
   });
 
-  it("surfaces resolution actions as disabled chips in v0", async () => {
+  it("surfaces resolution actions as active controls (ack/snooze/dismiss)", async () => {
     renderAt("/ops/issues/lock-contention-aaaa");
     await waitFor(() => {
-      const resolution = screen.getByTestId("section-resolution");
-      expect(resolution.textContent).toMatch(/סמן כמטופל/);
-      expect(resolution.textContent).toMatch(/קריאה-בלבד/);
+      expect(screen.getByTestId("action-ack")).toBeTruthy();
     });
+    expect(screen.getByTestId("action-snooze-open")).toBeTruthy();
+    expect(screen.getByTestId("action-dismiss-open")).toBeTruthy();
   });
 
   it("renders the error fallback when the projection fails to load", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   openRuntimeIssues,
@@ -9,11 +9,11 @@ import {
 } from "./OpsPage";
 import {
   bodyLine,
-  chipDisabled,
   sectionBox,
   sectionHead,
   subLine,
 } from "./workflow-page-styles";
+import { useQueueAction } from "../hooks/useQueueAction";
 
 // Layer-3 Workflow Page for a single runtime issue. Lane A slice 1 of the
 // MN-OS UX runtime (5-section grammar: situation · next action · assets ·
@@ -67,6 +67,12 @@ export function OpsIssuePage() {
   const id = rawId ? decodeURIComponent(rawId) : "";
   const [doc, setDoc] = useState<RuntimeIssuesDoc | null>(null);
   const [state, setState] = useState<LoadState>("loading");
+
+  const refetch = useCallback(async () => {
+    const d = await fetchIssues();
+    setDoc(d);
+    setState(d == null ? "error" : "ready");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,7 +133,7 @@ export function OpsIssuePage() {
       )}
 
       {state === "ready" && issue && (
-        <IssueWorkflow issue={issue} doc={doc} />
+        <IssueWorkflow issue={issue} doc={doc} onRefetch={refetch} />
       )}
     </main>
   );
@@ -136,9 +142,11 @@ export function OpsIssuePage() {
 function IssueWorkflow({
   issue,
   doc,
+  onRefetch,
 }: {
   issue: RuntimeIssue;
   doc: RuntimeIssuesDoc | null;
+  onRefetch: () => Promise<void>;
 }) {
   const lvl = parseSeverity(issue.severity);
   const related = relatedIssues(doc, issue);
@@ -229,21 +237,261 @@ function IssueWorkflow({
         )}
       </section>
 
-      <section data-testid="section-resolution" style={sectionBox}>
-        <h2 style={sectionHead}>פעולות סיום</h2>
-        <p style={subLine}>קריאה-בלבד בגרסה זו. כתיבה תוטמע בסליס הבא.</p>
-        <div>
-          <span style={chipDisabled} title="בקרוב">
-            סמן כמטופל
-          </span>
-          <span style={chipDisabled} title="בקרוב">
-            סמן כישן
-          </span>
-          <span style={chipDisabled} title="בקרוב">
-            קישור runbook
-          </span>
-        </div>
-      </section>
+      <ResolutionActions issue={issue} onRefetch={onRefetch} />
     </>
+  );
+}
+
+const chipBase: React.CSSProperties = {
+  display: "inline-block",
+  minHeight: 44,
+  lineHeight: "44px",
+  padding: "0 14px",
+  borderRadius: 999,
+  fontSize: 13,
+  marginInlineEnd: 6,
+  marginBottom: 6,
+  border: "1px solid #d4d4d4",
+  background: "#fff",
+  color: "#262626",
+  cursor: "pointer",
+};
+
+const chipActive: React.CSSProperties = {
+  ...chipBase,
+  background: "#2563eb",
+  color: "#fff",
+  borderColor: "#2563eb",
+};
+
+const chipBusy: React.CSSProperties = {
+  ...chipBase,
+  background: "#f5f5f5",
+  color: "#737373",
+  cursor: "wait",
+};
+
+const inputBox: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  minHeight: 44,
+  padding: "8px 10px",
+  fontSize: 14,
+  border: "1px solid #d4d4d4",
+  borderRadius: 6,
+  marginTop: 6,
+  fontFamily: "inherit",
+};
+
+type Mode = "idle" | "snooze" | "dismiss";
+
+function queueItemIdFor(issue: RuntimeIssue): string {
+  return `runtime_issue:${issue.id}`;
+}
+
+function isoZPlusDays(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+export function ResolutionActions({
+  issue,
+  onRefetch,
+}: {
+  issue: RuntimeIssue;
+  onRefetch: () => Promise<void>;
+}) {
+  const { status, error, submit, reset } = useQueueAction();
+  const [mode, setMode] = useState<Mode>("idle");
+  const [until, setUntil] = useState<string>(isoZPlusDays(1));
+  const [reason, setReason] = useState<string>("");
+  const submitting = status === "submitting";
+
+  const onAck = async () => {
+    if (submitting) return;
+    const r = await submit({
+      action: "ack",
+      queue_item_id: queueItemIdFor(issue),
+    });
+    if (r?.accepted) {
+      await onRefetch();
+    }
+  };
+
+  const onSnooze = async () => {
+    if (submitting || !until) return;
+    const r = await submit({
+      action: "snooze",
+      queue_item_id: queueItemIdFor(issue),
+      fields: { until },
+    });
+    if (r?.accepted) {
+      setMode("idle");
+      await onRefetch();
+    }
+  };
+
+  const onDismiss = async () => {
+    const trimmed = reason.trim();
+    if (submitting || !trimmed) return;
+    const r = await submit({
+      action: "dismiss",
+      queue_item_id: queueItemIdFor(issue),
+      fields: { reason: trimmed.slice(0, 256) },
+    });
+    if (r?.accepted) {
+      setMode("idle");
+      setReason("");
+      await onRefetch();
+    }
+  };
+
+  const success = status === "success";
+
+  return (
+    <section data-testid="section-resolution" style={sectionBox}>
+      <h2 style={sectionHead}>פעולות סיום</h2>
+
+      {mode === "idle" && (
+        <div>
+          <button
+            type="button"
+            data-testid="action-ack"
+            disabled={submitting}
+            onClick={onAck}
+            style={submitting ? chipBusy : chipBase}
+          >
+            סמן כמטופל
+          </button>
+          <button
+            type="button"
+            data-testid="action-snooze-open"
+            disabled={submitting}
+            onClick={() => {
+              reset();
+              setMode("snooze");
+            }}
+            style={chipBase}
+          >
+            סמן כישן
+          </button>
+          <button
+            type="button"
+            data-testid="action-dismiss-open"
+            disabled={submitting}
+            onClick={() => {
+              reset();
+              setMode("dismiss");
+            }}
+            style={chipBase}
+          >
+            סגור (סיבה)
+          </button>
+        </div>
+      )}
+
+      {mode === "snooze" && (
+        <div data-testid="snooze-picker">
+          <p style={subLine}>דחה את הפריט עד מועד עתידי (UTC):</p>
+          <div>
+            {[1, 3, 7].map((n) => (
+              <button
+                key={n}
+                type="button"
+                data-testid={`snooze-preset-${n}d`}
+                onClick={() => setUntil(isoZPlusDays(n))}
+                style={chipBase}
+              >
+                +{n}d
+              </button>
+            ))}
+          </div>
+          <input
+            data-testid="snooze-until-input"
+            type="text"
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+            style={inputBox}
+            aria-label="עד מתי"
+          />
+          <div style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              data-testid="snooze-submit"
+              disabled={submitting || !until}
+              onClick={onSnooze}
+              style={submitting ? chipBusy : chipActive}
+            >
+              שלח דחייה
+            </button>
+            <button
+              type="button"
+              data-testid="snooze-cancel"
+              disabled={submitting}
+              onClick={() => setMode("idle")}
+              style={chipBase}
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === "dismiss" && (
+        <div data-testid="dismiss-form">
+          <p style={subLine}>סיבת סגירה (עד 256 תווים):</p>
+          <textarea
+            data-testid="dismiss-reason-input"
+            value={reason}
+            onChange={(e) => setReason(e.target.value.slice(0, 256))}
+            maxLength={256}
+            rows={2}
+            style={{ ...inputBox, minHeight: 64, resize: "vertical" }}
+            aria-label="סיבת סגירה"
+          />
+          <div style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              data-testid="dismiss-submit"
+              disabled={submitting || !reason.trim()}
+              onClick={onDismiss}
+              style={submitting ? chipBusy : chipActive}
+            >
+              שלח סגירה
+            </button>
+            <button
+              type="button"
+              data-testid="dismiss-cancel"
+              disabled={submitting}
+              onClick={() => {
+                setMode("idle");
+                setReason("");
+              }}
+              style={chipBase}
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      )}
+
+      {submitting && (
+        <p data-testid="action-submitting" style={subLine}>
+          שולח…
+        </p>
+      )}
+      {success && (
+        <p data-testid="action-success" style={{ ...subLine, color: "#15803d" }}>
+          נשלח · ממתין לעדכון
+        </p>
+      )}
+      {status === "error" && error && (
+        <p data-testid="action-error" role="alert" style={{ ...subLine, color: "#b91c1c" }}>
+          השליחה נכשלה: {error}
+        </p>
+      )}
+    </section>
   );
 }
