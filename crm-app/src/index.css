@@ -1,5 +1,6 @@
 /* Design tokens — see ./design/tokens.css */
 @import './design/tokens.css';
+@import './design/mn-os-tokens.css';
 
 * {
   margin: 0;
