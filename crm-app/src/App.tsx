@@ -29,6 +29,9 @@ const ImportPage = lazy(() =>
 const PeopleHubPage = lazy(() =>
   import("./pages/PeopleHubPage").then((m) => ({ default: m.PeopleHubPage })),
 );
+const PersonPage = lazy(() =>
+  import("./pages/PersonPage").then((m) => ({ default: m.PersonPage })),
+);
 const TodayPage = lazy(() =>
   import("./pages/TodayPage").then((m) => ({ default: m.TodayPage })),
 );
@@ -179,6 +182,7 @@ function AppContent() {
               />
             }
           />
+          <Route path="people/:id" element={<PersonPage />} />
         </Route>
         <Route
           path="call/:contactId"
