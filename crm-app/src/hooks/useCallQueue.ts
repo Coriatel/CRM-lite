@@ -129,6 +129,16 @@ export function useCallQueueActions() {
     });
   };
 
+  // Move a pending queue item to a different day (YYYY-MM-DD). Used by the
+  // Rabbi agenda to push work forward without completing or skipping it.
+  const reschedule = async (
+    id: string,
+    scheduledDate: string,
+  ): Promise<void> => {
+    if (IS_DEMO_MODE) return;
+    await patchQueueItem(id, { scheduled_date: scheduledDate });
+  };
+
   const generateDailyQueue = async (): Promise<number> => {
     if (IS_DEMO_MODE) return 0;
 
@@ -165,5 +175,5 @@ export function useCallQueueActions() {
     return newItems.length;
   };
 
-  return { addToQueue, markCompleted, skip, generateDailyQueue };
+  return { addToQueue, markCompleted, skip, reschedule, generateDailyQueue };
 }

@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { CalendarDays, Phone, RefreshCw } from "lucide-react";
+import { CalendarDays, Phone, RefreshCw, CalendarClock } from "lucide-react";
 import {
   getContactsByIds,
   DirectusCallQueueItem,
   DirectusContact,
 } from "../services/directus";
 import { useRabbiSchedule } from "../hooks/useRabbiSchedule";
-import type { DayKey } from "../utils/scheduleWindow";
+import { useCallQueueActions } from "../hooks/useCallQueue";
+import { addDays, type DayKey } from "../utils/scheduleWindow";
 
 const AGENDA_DAYS = 7;
 const SOFT_CAP = 200;
@@ -40,7 +41,23 @@ export function SchedulePage() {
     string,
     DirectusContact
   > | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const { reschedule } = useCallQueueActions();
   const navigate = useNavigate();
+
+  async function handleSnooze(id: string) {
+    if (!schedule) return;
+    setPendingId(id);
+    setActionError(null);
+    try {
+      await reschedule(id, addDays(schedule.todayStr, 1));
+      refresh();
+    } catch {
+      setActionError("נכשלה דחיית המשימה");
+      setPendingId(null);
+    }
+  }
 
   useEffect(() => {
     if (!schedule) {
@@ -136,7 +153,7 @@ export function SchedulePage() {
         </div>
       </header>
 
-      {error && (
+      {(error || actionError) && (
         <p
           role="alert"
           style={{
@@ -145,7 +162,7 @@ export function SchedulePage() {
             marginBottom: "var(--spacing-md)",
           }}
         >
-          {error}
+          {error || actionError}
         </p>
       )}
 
@@ -171,7 +188,9 @@ export function SchedulePage() {
               tone="danger"
               items={schedule!.overdue}
               contactsById={contactsById}
+              pendingId={pendingId}
               onCall={(id) => navigate(`/call/${id}`)}
+              onSnooze={handleSnooze}
             />
           )}
           {schedule!.days.map((d) => (
@@ -181,7 +200,11 @@ export function SchedulePage() {
               muted={d.items.length === 0}
               items={d.items}
               contactsById={contactsById}
+              pendingId={pendingId}
               onCall={(id) => navigate(`/call/${id}`)}
+              // No snooze on "today" — those are handled on the calls page;
+              // snoozing today to tomorrow from the agenda is the planning move.
+              onSnooze={handleSnooze}
             />
           ))}
         </>
@@ -196,14 +219,18 @@ function DaySection({
   muted,
   items,
   contactsById,
+  pendingId,
   onCall,
+  onSnooze,
 }: {
   title: string;
   tone?: "danger";
   muted?: boolean;
   items: DirectusCallQueueItem[];
   contactsById: Map<string, DirectusContact> | null;
+  pendingId: string | null;
   onCall: (contactId: string) => void;
+  onSnooze: (queueId: string) => void;
 }) {
   return (
     <section style={{ marginBottom: "var(--spacing-lg)" }}>
@@ -231,7 +258,9 @@ function DaySection({
             key={q.id}
             queue={q}
             contact={contactsById?.get(q.contact_id)}
+            disabled={pendingId === q.id}
             onCall={() => onCall(q.contact_id)}
+            onSnooze={() => onSnooze(q.id)}
           />
         ))
       )}
@@ -242,11 +271,15 @@ function DaySection({
 function ScheduleRow({
   queue,
   contact,
+  disabled,
   onCall,
+  onSnooze,
 }: {
   queue: DirectusCallQueueItem;
   contact?: DirectusContact;
+  disabled: boolean;
   onCall: () => void;
+  onSnooze: () => void;
 }) {
   const name = contact?.full_name || "(ללא שם)";
   const phone = contact?.phone_e164 || contact?.phone2;
@@ -309,27 +342,43 @@ function ScheduleRow({
           </div>
         )}
       </div>
-      <button
-        onClick={onCall}
-        aria-label="התקשר"
-        title="התקשר"
-        className="icon-button"
-        style={{
-          background: "transparent",
-          border: "1px solid var(--color-primary)",
-          color: "var(--color-primary)",
-          width: 36,
-          height: 36,
-          borderRadius: 8,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-      >
-        <Phone size={18} />
-      </button>
+      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <button
+          onClick={onSnooze}
+          disabled={disabled}
+          aria-label="דחה למחר"
+          title="דחה למחר"
+          className="icon-button"
+          style={iconBtn("#6b7280")}
+        >
+          <CalendarClock size={18} />
+        </button>
+        <button
+          onClick={onCall}
+          disabled={disabled}
+          aria-label="התקשר"
+          title="התקשר"
+          className="icon-button"
+          style={iconBtn("var(--color-primary)")}
+        >
+          <Phone size={18} />
+        </button>
+      </div>
     </div>
   );
+}
+
+function iconBtn(color: string): React.CSSProperties {
+  return {
+    background: "transparent",
+    border: `1px solid ${color}`,
+    color,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  };
 }

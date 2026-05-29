@@ -34,6 +34,12 @@ export function agendaDayStrs(count: number, at: Date = new Date()): string[] {
   return out;
 }
 
+// Add `n` calendar days to a YYYY-MM-DD string (UTC date math, no TZ drift).
+export function addDays(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
 export type DayKey = "overdue" | "today" | "tomorrow" | "upcoming";
 
 // Classify a day string relative to today (both YYYY-MM-DD).

@@ -5,7 +5,17 @@ import {
   relativeDayKey,
   bucketByDay,
   assembleSchedule,
+  addDays,
 } from "./scheduleWindow";
+
+describe("addDays", () => {
+  it("adds days and rolls over month/year boundaries", () => {
+    expect(addDays("2026-05-29", 1)).toBe("2026-05-30");
+    expect(addDays("2026-05-31", 1)).toBe("2026-06-01");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addDays("2026-05-29", 0)).toBe("2026-05-29");
+  });
+});
 
 describe("israelDateStr", () => {
   it("returns the local Israel calendar date as YYYY-MM-DD", () => {
