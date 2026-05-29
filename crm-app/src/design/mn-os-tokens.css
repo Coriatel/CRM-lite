@@ -1,0 +1,38 @@
+/*
+ * MN-OS Phase 2 token bridge — operational semantics, not generic SaaS theme.
+ * This is intentionally small for the first reversible /today slice.
+ * Do not introduce full-edge severity rails on standard cards.
+ * Do not add red urgency to rabbi surfaces.
+ * Do not introduce generic rounded SaaS cards (radius > 12px).
+ * Do not change the 12° canonical angle.
+ */
+:root {
+  --mn-surface-root: #f7f3ea;
+  --mn-surface-guidance: #fffdf7;
+  --mn-surface-calm: #f1f5f7;
+  --mn-surface-sheet: #fffaf0;
+  --mn-text-strong: #183446;
+  --mn-text-body: #334155;
+  --mn-text-muted: #64748b;
+  --mn-border-fold: #dfd7c6;
+  --mn-brand-teal: #0b7285;
+  --mn-brand-teal-soft: #d8f0ef;
+  --mn-soul-accent: #c9892b;
+  --mn-warning: #d97706;
+  --mn-critical: #b91c1c;
+  --mn-success: #15803d;
+  --mn-angle: 12deg;
+  --mn-radius-card: 10px;
+  --mn-shadow-card: 0 3px 8px rgba(11, 57, 84, 0.08);
+  --mn-shadow-sheet: 0 -8px 18px rgba(11, 57, 84, 0.13);
+  --mn-space-1: 4px;
+  --mn-space-2: 8px;
+  --mn-space-3: 12px;
+  --mn-space-4: 16px;
+  --mn-space-5: 24px;
+  --mn-motion-quick: 140ms;
+  --mn-motion-fold: 220ms;
+  --mn-motion-workflow: 280ms;
+  --mn-ease-calm-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --mn-ease-fold: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
