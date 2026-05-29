@@ -7,6 +7,7 @@ import {
   TodayWorkflowCard,
   TodayWorkflowSheet,
 } from "../components/today/TodayWorkflowCard";
+import { LessonRunsCard } from "../components/today/LessonRunsCard";
 
 function todayLabel(): string {
   return new Intl.DateTimeFormat("he-IL", {
@@ -90,6 +91,10 @@ export function TodayPage() {
             אין כרגע מוקד תשומת לב פתוח. היום נשאר שקט עד שה-runtime יעלה פריט אמיתי.
           </div>
         )}
+      </TodaySection>
+
+      <TodaySection title="תכנים">
+        <LessonRunsCard />
       </TodaySection>
 
       <TodayWorkflowSheet item={openItem} onClose={() => setOpenItem(null)} />
