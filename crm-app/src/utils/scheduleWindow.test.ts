@@ -4,6 +4,7 @@ import {
   agendaDayStrs,
   relativeDayKey,
   bucketByDay,
+  assembleSchedule,
 } from "./scheduleWindow";
 
 describe("israelDateStr", () => {
@@ -71,5 +72,37 @@ describe("bucketByDay", () => {
     ].map((i) => i.id);
     expect(allBucketed).not.toContain("d");
     expect(allBucketed).not.toContain("e");
+  });
+});
+
+describe("assembleSchedule", () => {
+  const at = new Date("2026-05-29T10:00:00Z");
+  const upcoming = [
+    { id: "u1", scheduled_date: "2026-05-29" }, // today
+    { id: "u2", scheduled_date: "2026-05-30" }, // tomorrow
+    { id: "u3", scheduled_date: "2026-06-01" }, // upcoming
+  ];
+  const overdueItems = [{ id: "o1", scheduled_date: "2026-05-20" }];
+
+  it("returns todayStr, the passed overdue list, and labelled day buckets", () => {
+    const s = assembleSchedule(upcoming, overdueItems, 4, at);
+    expect(s.todayStr).toBe("2026-05-29");
+    expect(s.overdue.map((i) => i.id)).toEqual(["o1"]);
+    expect(s.days.map((d) => d.dateStr)).toEqual([
+      "2026-05-29",
+      "2026-05-30",
+      "2026-05-31",
+      "2026-06-01",
+    ]);
+    expect(s.days.map((d) => d.key)).toEqual([
+      "today",
+      "tomorrow",
+      "upcoming",
+      "upcoming",
+    ]);
+    expect(s.days[0].items.map((i) => i.id)).toEqual(["u1"]);
+    expect(s.days[1].items.map((i) => i.id)).toEqual(["u2"]);
+    expect(s.days[2].items).toEqual([]);
+    expect(s.days[3].items.map((i) => i.id)).toEqual(["u3"]);
   });
 });

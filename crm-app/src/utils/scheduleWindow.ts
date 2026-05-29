@@ -72,3 +72,35 @@ export function bucketByDay<T extends { scheduled_date?: string | null }>(
   }
   return { overdue, byDay };
 }
+
+export interface ScheduleDay<T> {
+  dateStr: string;
+  key: DayKey;
+  items: T[];
+}
+
+export interface AssembledSchedule<T> {
+  todayStr: string;
+  overdue: T[];
+  days: ScheduleDay<T>[];
+}
+
+// Compose the agenda: an overdue bucket (passed in from a separate fetch) plus
+// one labelled bucket per day in the forward window. `upcoming` is expected to
+// already be scoped to [today, today+daysCount); items are placed by date.
+export function assembleSchedule<T extends { scheduled_date?: string | null }>(
+  upcoming: T[],
+  overdueItems: T[],
+  daysCount: number,
+  at: Date = new Date(),
+): AssembledSchedule<T> {
+  const todayStr = israelDateStr(at);
+  const dayStrs = agendaDayStrs(daysCount, at);
+  const { byDay } = bucketByDay(upcoming, dayStrs, todayStr);
+  const days: ScheduleDay<T>[] = dayStrs.map((dateStr) => ({
+    dateStr,
+    key: relativeDayKey(dateStr, todayStr),
+    items: byDay[dateStr],
+  }));
+  return { todayStr, overdue: overdueItems, days };
+}
