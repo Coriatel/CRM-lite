@@ -48,6 +48,13 @@ const lazyImports: Array<[string, LazyImporter]> = [
       })),
   ],
   [
+    "PersonPage",
+    () =>
+      import("../pages/PersonPage").then((m) => ({
+        default: m.PersonPage,
+      })),
+  ],
+  [
     "TodayPage",
     () => import("../pages/TodayPage").then((m) => ({ default: m.TodayPage })),
   ],
