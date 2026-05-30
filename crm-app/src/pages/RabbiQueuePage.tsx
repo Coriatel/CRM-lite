@@ -10,6 +10,7 @@ import {
 import { useAmutaAttention } from "../data/useAmutaAttention";
 import { AttentionQueueCard } from "../components/dashboard/AttentionQueueCard";
 import { AttentionBucketOperatorSummary } from "../components/dashboard/AttentionBucketOperatorSummary";
+import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
 const DISABLED_HINT = "יופעל אחרי אישור attention_items";
 
@@ -80,6 +81,8 @@ export function RabbiQueuePage() {
           </span>
         ) : null}
       </p>
+
+      <RabbiDayCard />
 
       {error ? (
         <p
