@@ -55,6 +55,20 @@ describe("RabbiDayCard", () => {
     expect(screen.getByTestId("rabbi-day-empty")).toBeTruthy();
   });
 
+  it("renders its own heading by default (standalone /rabbi)", () => {
+    useDailyAgenda.mockReturnValue({ agenda: agenda(), loading: false, error: null, refresh: () => {} });
+    render(<RabbiDayCard />);
+    expect(screen.getByTestId("rabbi-day-header")).toBeTruthy();
+  });
+
+  it("suppresses its own heading when hideHeading (embedded in TodaySection on /today)", () => {
+    useDailyAgenda.mockReturnValue({ agenda: agenda(), loading: false, error: null, refresh: () => {} });
+    render(<RabbiDayCard hideHeading />);
+    expect(screen.queryByTestId("rabbi-day-header")).toBeNull();
+    // card body still renders
+    expect(screen.getByTestId("rabbi-day-count-overdue")).toBeTruthy();
+  });
+
   it("renders counts and most-urgent items (overdue first, capped at 5)", () => {
     const a = agenda({
       overdue: [aitem("o1", "overdue", "2026-05-27"), aitem("o2", "overdue", "2026-05-28")],

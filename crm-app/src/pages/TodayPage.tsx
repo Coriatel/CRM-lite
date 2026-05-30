@@ -99,7 +99,7 @@ export function TodayPage() {
       </TodaySection>
 
       <TodaySection title="סדר היום של הרב">
-        <RabbiDayCard />
+        <RabbiDayCard hideHeading />
       </TodaySection>
 
       <TodayWorkflowSheet item={openItem} onClose={() => setOpenItem(null)} />

@@ -91,7 +91,12 @@ function ItemRow({ item }: { item: AgendaItem }) {
   );
 }
 
-export function RabbiDayCard() {
+/**
+ * @param hideHeading suppress the card's own title row when an outer container
+ *   (e.g. TodaySection on /today) already supplies the "סדר היום של הרב" heading,
+ *   avoiding a duplicate. /rabbi renders the card standalone with the full header.
+ */
+export function RabbiDayCard({ hideHeading = false }: { hideHeading?: boolean } = {}) {
   const { agenda, loading, error, refresh } = useDailyAgenda();
 
   const urgent = agenda
@@ -100,7 +105,8 @@ export function RabbiDayCard() {
 
   return (
     <section className="card" data-testid="rabbi-day-card" style={{ marginBottom: "var(--spacing-md)" }}>
-      <header style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      {!hideHeading && (
+      <header data-testid="rabbi-day-header" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <CalendarClock size={20} style={{ color: "var(--color-primary)" }} />
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, flex: 1 }}>
           סדר היום של הרב
@@ -130,6 +136,7 @@ export function RabbiDayCard() {
           />
         </button>
       </header>
+      )}
 
       {error ? (
         <p data-testid="rabbi-day-error" style={{ color: "var(--color-danger)", fontSize: 14, margin: 0 }}>
