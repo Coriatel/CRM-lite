@@ -5,6 +5,7 @@ import {
   BarChart3,
   X,
   Activity,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ interface MoreSheetItem {
 }
 
 const ITEMS: MoreSheetItem[] = [
+  { path: "/schedule", label: "לוח זמנים", icon: CalendarDays },
   { path: "/dashboard", label: "לוח בקרה", icon: BarChart3 },
   { path: "/ops", label: "מערכת — Ops", icon: Activity },
   { path: "/settings", label: "הגדרות", icon: Settings },
