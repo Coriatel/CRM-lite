@@ -8,6 +8,7 @@ import {
   TodayWorkflowSheet,
 } from "../components/today/TodayWorkflowCard";
 import { LessonRunsCard } from "../components/today/LessonRunsCard";
+import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
 function todayLabel(): string {
   return new Intl.DateTimeFormat("he-IL", {
@@ -95,6 +96,10 @@ export function TodayPage() {
 
       <TodaySection title="תכנים">
         <LessonRunsCard />
+      </TodaySection>
+
+      <TodaySection title="סדר היום של הרב">
+        <RabbiDayCard />
       </TodaySection>
 
       <TodayWorkflowSheet item={openItem} onClose={() => setOpenItem(null)} />
