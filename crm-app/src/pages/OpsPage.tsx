@@ -73,6 +73,93 @@ type RecentMergesDoc = {
   merges?: RecentMerge[];
 };
 
+type Campaign = {
+  id: string;
+  owner_user?: string;
+  status?: string;
+  last_terminal_state?: string | null;
+  last_written_at?: string | null;
+  lane_field?: string | null;
+  handoff_dir?: string | null;
+  current_handoff?: string | null;
+};
+
+type CampaignsDoc = {
+  _meta?: { ts?: string; error?: string };
+  campaigns?: Campaign[];
+};
+
+type OwnerGateRow = {
+  gate_id: string;
+  gate_kind?: string;
+  summary?: string;
+  status?: string;
+  reason?: string;
+  matched_decision?: string | null;
+};
+
+type OwnerGateStatusDoc = {
+  _meta?: { generated_at?: string; error?: string };
+  summary?: {
+    open_gates?: number;
+    pre_decided_skip?: number;
+    must_reconfirm?: number;
+    new_escalate?: number;
+    ledger_entries?: number;
+  };
+  gates?: OwnerGateRow[];
+};
+
+type OwnerGateDecision = {
+  id: string;
+  gate_id?: string;
+  gate_match?: string;
+  decision?: string;
+  scope?: string;
+  decided_at?: string;
+  decided_by?: string;
+};
+
+type OwnerGateDecisionsDoc = {
+  _meta?: { error?: string };
+  decisions?: OwnerGateDecision[];
+};
+
+export type AutomationRow = {
+  id: string;
+  name?: string;
+  platform?: string;
+  trigger_type?: string;
+  trigger_detail?: string;
+  cadence?: string;
+  owner?: string;
+  enabled?: boolean | string;
+  runtime_state?: string;
+  health_status?: string;
+  last_run_at?: string | null;
+  last_success_at?: string | null;
+  last_failure_at?: string | null;
+  inputs?: string[];
+  outputs?: string[];
+  projections_written?: string[];
+  dependencies?: string[];
+  failure_mode?: string;
+  rollback_recovery?: string;
+  evidence?: string[];
+  notes?: string;
+  source_path?: string;
+};
+
+export type AutomationInventoryDoc = {
+  _meta?: {
+    generated_at?: string;
+    platform_counts?: Record<string, number>;
+    health_counts?: Record<string, number>;
+    error?: string;
+  };
+  automations?: AutomationRow[];
+};
+
 export type FreshnessDoc = {
   ts?: string;
   files?: Record<string, { mtime: string; age_seconds: number }>;
@@ -1481,7 +1568,8 @@ export type OperationalQueueType =
   | "stale_projection"
   | "verifier_failure"
   | "handoff_ready"
-  | "blocked_session";
+  | "blocked_session"
+  | "unanswered_lead";
 
 export type OperationalQueueItem = {
   id: string;
@@ -2123,13 +2211,17 @@ export function OpsPage() {
     useState<OrchestratorIntegrityDoc | null>(null);
   const [producerHealth, setProducerHealth] =
     useState<ProducerViolationsDoc | null>(null);
+  const [campaigns, setCampaigns] = useState<CampaignsDoc | null>(null);
+  const [gateStatus, setGateStatus] = useState<OwnerGateStatusDoc | null>(null);
+  const [gateDecisions, setGateDecisions] = useState<OwnerGateDecisionsDoc | null>(null);
+  const [automations, setAutomations] = useState<AutomationInventoryDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -2155,6 +2247,10 @@ export function OpsPage() {
         fetchJson<OrchestratorIntegrityDoc>("/ops-data/orchestrator_integrity.json"),
         fetchJson<ProducerViolationsDoc>("/ops-data/producer_contract_violations.json"),
         fetchJson<AttentionSynthesisDoc>("/ops-data/attention_synthesis.json"),
+        fetchJson<CampaignsDoc>("/ops-data/campaigns.json"),
+        fetchJson<OwnerGateStatusDoc>("/ops-data/owner_gate_status.json"),
+        fetchJson<OwnerGateDecisionsDoc>("/ops-data/owner_gate_decisions.json"),
+        fetchJson<AutomationInventoryDoc>("/ops-data/automation_runtime_inventory.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -2187,6 +2283,10 @@ export function OpsPage() {
       setOrchestratorIntegrity(oi ?? null);
       setProducerHealth(pcv ?? null);
       setAttentionSynthesis(ats ?? null);
+      setCampaigns(cmp ?? null);
+      setGateStatus(gst ?? null);
+      setGateDecisions(gdc ?? null);
+      setAutomations(autoInv ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -2278,7 +2378,12 @@ export function OpsPage() {
       <DependenciesCard doc={dependencies} />
       <CardFreshnessBadge file="workflows.json" freshness={freshness} />
       <WorkflowsCard doc={workflows} />
+      <CardFreshnessBadge file="automation_runtime_inventory.json" freshness={freshness} />
+      <AutomationInventoryCard doc={automations} />
       <LanesOverview lanes={lanes} />
+      <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
+      <CampaignsCard doc={campaigns} />
+      <ActionLauncherCard doc={campaigns} />
       <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
       <RecentMergesCard doc={recentMerges} />
       <BlockersOverview blockers={blockers} />
@@ -2286,6 +2391,8 @@ export function OpsPage() {
       <ActiveIncidentsCard incidents={activeIncidents} />
       <CardFreshnessBadge file="session_index.json" freshness={freshness} />
       <OwnerGatesCard gates={ownerGates} />
+      <CardFreshnessBadge file="owner_gate_status.json" freshness={freshness} />
+      <OwnerGateQueueCard statusDoc={gateStatus} decisionsDoc={gateDecisions} />
       <ProcessesCard doc={processes} />
       <PushIsolationCard snap={pushIsolation} />
       <CardFreshnessBadge file="runtime-continuity.json" freshness={freshness} />
@@ -2441,6 +2548,531 @@ function RecentMergesCard({ doc }: { doc: RecentMergesDoc | null }) {
               <div style={{ fontSize: 11, color: "#737373", marginTop: 2 }}>
                 {relativeTimeHe(m.mergedAt)} · {m.login}
               </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export function campaignStatusColor(status: string | undefined): string {
+  switch ((status ?? "").toUpperCase()) {
+    case "ACTIVE":
+      return "#16a34a";
+    case "BLOCKED":
+      return "#dc2626";
+    case "SHIPPED":
+      return "#2563eb";
+    case "ABANDONED":
+      return "#737373";
+    default:
+      return "#737373";
+  }
+}
+
+export type CampaignsSummary = {
+  total: number;
+  counts: Record<string, number>;
+  active: Campaign[];
+  shown: Campaign[];
+  overflow: number;
+};
+
+// Pure: roll up campaigns.json into status counts + the ACTIVE list (recency-sorted, capped).
+export function summarizeCampaigns(
+  doc: CampaignsDoc | null,
+  cap = 20,
+): CampaignsSummary {
+  const all = doc?.campaigns ?? [];
+  const counts = all.reduce<Record<string, number>>((acc, c) => {
+    const k = (c.status ?? "UNKNOWN").toUpperCase();
+    acc[k] = (acc[k] ?? 0) + 1;
+    return acc;
+  }, {});
+  const active = all
+    .filter((c) => (c.status ?? "").toUpperCase() === "ACTIVE")
+    .sort((a, b) => (b.last_written_at ?? "").localeCompare(a.last_written_at ?? ""));
+  const shown = active.slice(0, cap);
+  return { total: all.length, counts, active, shown, overflow: active.length - shown.length };
+}
+
+// Surface state/campaigns.json (derived from ~/work/handoffs/<campaign>/CURRENT.md).
+// Read-only: shows active campaigns sorted by recency + a status roll-up. No controls.
+function CampaignsCard({ doc }: { doc: CampaignsDoc | null }) {
+  if (doc === null) return null;
+  const { total, counts, active, shown, overflow } = summarizeCampaigns(doc);
+  return (
+    <section aria-label="קמפיינים" style={overviewCard}>
+      <div style={overviewHead}>
+        <span>קמפיינים</span>
+        <span style={overviewCount}>{total}</span>
+      </div>
+      {total === 0 ? (
+        <div style={emptyInline}>
+          {doc._meta?.error ? `שגיאת fetch: ${doc._meta.error.substring(0, 80)}` : "אין קמפיינים"}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {["ACTIVE", "BLOCKED", "SHIPPED", "ABANDONED"].map((s) =>
+              counts[s] ? (
+                <span key={s} style={{ ...pill, background: campaignStatusColor(s) }}>
+                  {s} {counts[s]}
+                </span>
+              ) : null,
+            )}
+          </div>
+          <div style={sectionLabel}>פעילים ({active.length})</div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+            {shown.map((c) => (
+              <li key={c.id} style={{ fontSize: 13, color: "#404040" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      color: "#171717",
+                      direction: "ltr",
+                      unicodeBidi: "isolate",
+                      overflowWrap: "anywhere",
+                      minWidth: 0,
+                    }}
+                  >
+                    {c.id}
+                  </span>
+                  <span style={{ ...pill, background: campaignStatusColor(c.status) }}>
+                    {(c.status ?? "?").toUpperCase()}
+                  </span>
+                </div>
+                {c.last_terminal_state ? (
+                  <div style={subLine}>{c.last_terminal_state}</div>
+                ) : null}
+                <div style={{ fontSize: 11, color: "#737373", marginTop: 2 }}>
+                  {c.owner_user ?? "—"}
+                  {c.lane_field ? (
+                    <>
+                      {" · "}
+                      <span style={{ direction: "ltr", unicodeBidi: "isolate", overflowWrap: "anywhere" }}>
+                        {c.lane_field}
+                      </span>
+                    </>
+                  ) : null}
+                  {c.last_written_at ? ` · ${relativeTimeHe(c.last_written_at)}` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {overflow > 0 ? (
+            <div style={{ ...subLine, marginTop: 6 }}>+{overflow} פעילים נוספים</div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+export function ownerGateStatusColor(status: string | undefined): string {
+  switch ((status ?? "").toUpperCase()) {
+    case "NEW_ESCALATE":
+      return "#dc2626";
+    case "MUST_RECONFIRM":
+      return "#a16207";
+    case "PRE_DECIDED_SKIP":
+      return "#16a34a";
+    default:
+      return "#737373";
+  }
+}
+
+export type OwnerGateView = {
+  open: number;
+  newEscalate: number;
+  mustReconfirm: number;
+  preDecidedSkip: number;
+  gates: OwnerGateRow[];
+  recentDecisions: OwnerGateDecision[];
+};
+
+// Pure: roll up the dedicated owner-gate projections (status + append-only decision ledger).
+// Distinct from session_index.owner_gates: this carries decision-memory reconciliation status.
+export function summarizeOwnerGates(
+  statusDoc: OwnerGateStatusDoc | null,
+  decisionsDoc: OwnerGateDecisionsDoc | null,
+  cap = 5,
+): OwnerGateView {
+  const s = statusDoc?.summary ?? {};
+  const gates = statusDoc?.gates ?? [];
+  const recentDecisions = [...(decisionsDoc?.decisions ?? [])]
+    .sort((a, b) => (b.decided_at ?? "").localeCompare(a.decided_at ?? ""))
+    .slice(0, cap);
+  return {
+    open: s.open_gates ?? gates.length,
+    newEscalate: s.new_escalate ?? 0,
+    mustReconfirm: s.must_reconfirm ?? 0,
+    preDecidedSkip: s.pre_decided_skip ?? 0,
+    gates,
+    recentDecisions,
+  };
+}
+
+// Read-only owner-gate decision queue + history. No accept/reject controls (act-plane is
+// owner-gated per C6); decisions are made by the owner out-of-band and land in the ledger.
+function OwnerGateQueueCard({
+  statusDoc,
+  decisionsDoc,
+}: {
+  statusDoc: OwnerGateStatusDoc | null;
+  decisionsDoc: OwnerGateDecisionsDoc | null;
+}) {
+  if (statusDoc === null && decisionsDoc === null) return null;
+  const { open, newEscalate, mustReconfirm, preDecidedSkip, gates, recentDecisions } =
+    summarizeOwnerGates(statusDoc, decisionsDoc);
+  return (
+    <section aria-label="תור החלטות בעלים" style={overviewCard}>
+      <div style={overviewHead}>
+        <span>תור החלטות בעלים</span>
+        <span style={overviewCount}>{open}</span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        {newEscalate ? (
+          <span style={{ ...pill, background: "#dc2626" }}>חדש {newEscalate}</span>
+        ) : null}
+        {mustReconfirm ? (
+          <span style={{ ...pill, background: "#a16207" }}>אישור מחדש {mustReconfirm}</span>
+        ) : null}
+        {preDecidedSkip ? (
+          <span style={{ ...pill, background: "#16a34a" }}>הוכרע {preDecidedSkip}</span>
+        ) : null}
+      </div>
+      {gates.length === 0 ? (
+        <div style={emptyInline}>
+          {statusDoc?._meta?.error
+            ? `שגיאת fetch: ${statusDoc._meta.error.substring(0, 80)}`
+            : "אין שערים פתוחים"}
+        </div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+          {gates.map((g) => (
+            <li key={g.gate_id} style={{ fontSize: 13, color: "#404040" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ ...pill, background: ownerGateStatusColor(g.status) }}>
+                  {(g.status ?? "?").replace(/_/g, " ")}
+                </span>
+                {g.gate_kind ? (
+                  <span style={{ ...pill, background: "#737373" }}>{g.gate_kind}</span>
+                ) : null}
+              </div>
+              <div style={{ color: "#171717", marginTop: 2 }}>{g.summary ?? g.gate_id}</div>
+              {g.reason ? <div style={subLine}>{g.reason}</div> : null}
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#737373",
+                  marginTop: 2,
+                  direction: "ltr",
+                  unicodeBidi: "isolate",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {g.gate_id}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {recentDecisions.length > 0 ? (
+        <>
+          <div style={sectionLabel}>היסטוריית החלטות</div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+            {recentDecisions.map((d) => (
+              <li key={d.id} style={{ fontSize: 12, color: "#525252" }}>
+                <span
+                  style={{
+                    ...pill,
+                    background: (d.decision ?? "").toLowerCase() === "approved" ? "#16a34a" : "#dc2626",
+                    marginInlineEnd: 6,
+                  }}
+                >
+                  {d.decision ?? "?"}
+                </span>
+                <span style={{ color: "#404040" }}>{d.gate_match ?? d.gate_id}</span>
+                {d.decided_at ? (
+                  <span style={{ color: "#737373" }}> · {relativeTimeHe(d.decided_at)}</span>
+                ) : null}
+                {d.scope ? <div style={{ ...subLine, marginTop: 1 }}>{d.scope}</div> : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+export const AUTOMATION_HEALTH_LABEL_HE: Record<string, string> = {
+  healthy: "תקין",
+  unknown: "לא ידוע",
+  disabled: "מושבת",
+  deprecated: "מיושן",
+  stale: "ללא דיווח טרי",
+  stale_or_unhit: "ישן / לא נורה",
+  degraded: "ירוד",
+  broken_suspected: "חשש לתקלה",
+  broken_confirmed: "שבור (מאומת)",
+  failing: "נכשל",
+};
+
+export function automationHealthColor(health: string | undefined): string {
+  switch ((health ?? "").toLowerCase()) {
+    case "failing":
+    case "broken_confirmed":
+    case "broken_suspected":
+      return "#dc2626";
+    case "degraded":
+    case "stale":
+    case "stale_or_unhit":
+      return "#a16207";
+    case "healthy":
+      return "#16a34a";
+    default:
+      return "#737373"; // unknown / disabled / deprecated
+  }
+}
+
+// Statuses that warrant operator attention, in descending severity (sort order).
+const AUTOMATION_ATTENTION_ORDER = [
+  "failing",
+  "broken_confirmed",
+  "broken_suspected",
+  "degraded",
+  "stale",
+  "stale_or_unhit",
+];
+
+export type AutomationsSummary = {
+  total: number;
+  platformCounts: Record<string, number>;
+  healthCounts: Record<string, number>;
+  attention: AutomationRow[];
+  attentionTotal: number;
+};
+
+// Pure: roll up automation_runtime_inventory.json. Surfaces the attention set
+// (failing/degraded/stale, severity-sorted) + platform/health rollups from _meta
+// (falls back to recomputing from rows if _meta counts are absent).
+export function summarizeAutomations(
+  doc: AutomationInventoryDoc | null,
+  cap = 15,
+): AutomationsSummary {
+  const all = doc?.automations ?? [];
+  const platformCounts =
+    doc?._meta?.platform_counts ??
+    all.reduce<Record<string, number>>((acc, a) => {
+      const k = a.platform ?? "unknown";
+      acc[k] = (acc[k] ?? 0) + 1;
+      return acc;
+    }, {});
+  const healthCounts =
+    doc?._meta?.health_counts ??
+    all.reduce<Record<string, number>>((acc, a) => {
+      const k = a.health_status ?? "unknown";
+      acc[k] = (acc[k] ?? 0) + 1;
+      return acc;
+    }, {});
+  const rank = (h: string | undefined) => {
+    const i = AUTOMATION_ATTENTION_ORDER.indexOf((h ?? "").toLowerCase());
+    return i === -1 ? 99 : i;
+  };
+  const attentionAll = all
+    .filter((a) => AUTOMATION_ATTENTION_ORDER.includes((a.health_status ?? "").toLowerCase()))
+    .sort((x, y) => rank(x.health_status) - rank(y.health_status));
+  return {
+    total: all.length,
+    platformCounts,
+    healthCounts,
+    attention: attentionAll.slice(0, cap),
+    attentionTotal: attentionAll.length,
+  };
+}
+
+// Read-only automation inventory across all platforms. Rows link to the
+// /ops/automations/:id drilldown. No mutation controls (act-plane owner-gated).
+function AutomationInventoryCard({ doc }: { doc: AutomationInventoryDoc | null }) {
+  if (doc === null) return null;
+  const { total, platformCounts, healthCounts, attention, attentionTotal } =
+    summarizeAutomations(doc);
+  const healthy = healthCounts.healthy ?? 0;
+  return (
+    <section aria-label="אוטומציות" style={overviewCard}>
+      <div style={overviewHead}>
+        <span>אוטומציות</span>
+        <span style={overviewCount}>{total}</span>
+      </div>
+      {total === 0 ? (
+        <div style={emptyInline}>
+          {doc._meta?.error ? `שגיאת fetch: ${doc._meta.error.substring(0, 80)}` : "אין אוטומציות"}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+            {Object.entries(platformCounts)
+              .sort((a, b) => b[1] - a[1])
+              .map(([p, n]) => (
+                <span key={p} style={{ ...pill, background: "#525252" }}>
+                  {p} {n}
+                </span>
+              ))}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+            <span style={{ ...pill, background: "#16a34a" }}>תקין {healthy}</span>
+            {AUTOMATION_ATTENTION_ORDER.map((h) =>
+              healthCounts[h] ? (
+                <span key={h} style={{ ...pill, background: automationHealthColor(h) }}>
+                  {AUTOMATION_HEALTH_LABEL_HE[h] ?? h} {healthCounts[h]}
+                </span>
+              ) : null,
+            )}
+          </div>
+          <div style={sectionLabel}>דורש תשומת לב ({attentionTotal})</div>
+          {attention.length === 0 ? (
+            <div style={emptyInline}>אין אוטומציות שדורשות פעולה</div>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+              {attention.map((a) => (
+                <li key={a.id} style={{ fontSize: 13, color: "#404040", overflowWrap: "anywhere" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                    <Link
+                      to={`/ops/automations/${encodeURIComponent(a.id)}`}
+                      style={{ color: "#1d4ed8", textDecoration: "none", fontWeight: 600, overflowWrap: "anywhere", minWidth: 0 }}
+                    >
+                      {a.name ?? a.id}
+                    </Link>
+                    <span style={{ ...pill, background: automationHealthColor(a.health_status) }}>
+                      {AUTOMATION_HEALTH_LABEL_HE[(a.health_status ?? "").toLowerCase()] ??
+                        a.health_status ??
+                        "?"}
+                    </span>
+                    <span style={{ ...pill, background: "#737373" }}>{a.platform ?? "?"}</span>
+                  </div>
+                  {a.last_failure_at ? (
+                    <div style={subLine}>כשל אחרון: {relativeTimeHe(a.last_failure_at)}</div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {attentionTotal > attention.length ? (
+            <div style={{ ...subLine, marginTop: 6 }}>
+              +{attentionTotal - attention.length} נוספות דורשות תשומת לב
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+// Pure: build a copy-paste-ready Claude continuation prompt for a campaign.
+// Observability-safe — produces TEXT only; it does not launch or execute anything.
+export function buildResumePrompt(c: Campaign, reasoning = "high"): string {
+  const handoff = c.handoff_dir
+    ? `${c.handoff_dir}/${c.current_handoff ?? "CURRENT.md"}`
+    : "(no handoff recorded)";
+  return [
+    `Resume MN-OS campaign: ${c.id}`,
+    c.lane_field ? `Lane: ${c.lane_field}` : null,
+    `Owner: ${c.owner_user ?? "—"}`,
+    `Status: ${c.status ?? "?"}${c.last_terminal_state ? ` (${c.last_terminal_state})` : ""}`,
+    `Handoff: ${handoff}`,
+    "",
+    "Run session-orient, read the handoff, then continue phase-by-phase.",
+    `Reasoning level: ${reasoning}.`,
+    "Default: CONTINUE. Stop only for a true owner gate (billing, destructive/irreversible action, secret exposure, production data loss, no rollback path, or unresolved product ambiguity).",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+}
+
+// Read-only action launcher: turns an active campaign into a ready-to-paste Claude
+// continuation prompt (copy button + preview). No execution, no act-plane.
+function ActionLauncherCard({ doc }: { doc: CampaignsDoc | null }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  if (doc === null) return null;
+  const { active } = summarizeCampaigns(doc, 10);
+  const copy = (c: Campaign) => {
+    const text = buildResumePrompt(c);
+    const done = () => {
+      setCopiedId(c.id);
+      window.setTimeout(() => setCopiedId(null), 1500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => undefined);
+    }
+  };
+  return (
+    <section aria-label="משגר פעולות" style={overviewCard}>
+      <div style={overviewHead}>
+        <span>משגר פעולות</span>
+        <span style={overviewCount}>{active.length}</span>
+      </div>
+      <div style={{ ...subLine, marginBottom: 8 }}>
+        העתק פקודת המשך מוכנה ל-Claude עבור קמפיין פעיל. קריאה-בלבד — לא מריץ דבר.
+      </div>
+      {active.length === 0 ? (
+        <div style={emptyInline}>אין קמפיינים פעילים</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
+          {active.map((c) => (
+            <li key={c.id} style={{ fontSize: 13, color: "#404040" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: "#171717",
+                    direction: "ltr",
+                    unicodeBidi: "isolate",
+                    overflowWrap: "anywhere",
+                    minWidth: 0,
+                  }}
+                >
+                  {c.id}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copy(c)}
+                  style={{
+                    fontSize: 12,
+                    padding: "6px 12px",
+                    minHeight: 32,
+                    borderRadius: 6,
+                    border: "1px solid #1d4ed8",
+                    background: copiedId === c.id ? "#1d4ed8" : "#fff",
+                    color: copiedId === c.id ? "#fff" : "#1d4ed8",
+                    cursor: "pointer",
+                  }}
+                >
+                  {copiedId === c.id ? "הועתק ✓" : "העתק פקודה"}
+                </button>
+              </div>
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ ...subLine, cursor: "pointer" }}>תצוגה מקדימה</summary>
+                <pre
+                  style={{
+                    direction: "ltr",
+                    unicodeBidi: "isolate",
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                    fontSize: 11,
+                    background: "#f5f5f5",
+                    padding: 8,
+                    borderRadius: 6,
+                    margin: "4px 0 0 0",
+                    color: "#404040",
+                  }}
+                >
+                  {buildResumePrompt(c)}
+                </pre>
+              </details>
             </li>
           ))}
         </ul>
@@ -3769,6 +4401,7 @@ const queueTypeLabel: Record<OperationalQueueType, string> = {
   verifier_failure: "verifier כשל",
   handoff_ready: "handoff מוכן",
   blocked_session: "session חסומה",
+  unanswered_lead: "ליד ללא מענה",
 };
 
 // Pill colors per router decision. AUTO=green (safe to spawn), ESCALATE=amber,

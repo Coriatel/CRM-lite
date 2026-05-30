@@ -53,6 +53,11 @@ const OpsBlockerPage = lazy(() =>
 const OpsGatePage = lazy(() =>
   import("./pages/OpsGatePage").then((m) => ({ default: m.OpsGatePage })),
 );
+const OpsAutomationPage = lazy(() =>
+  import("./pages/OpsAutomationPage").then((m) => ({
+    default: m.OpsAutomationPage,
+  })),
+);
 const OpsWorkflowPage = lazy(() =>
   import("./pages/OpsWorkflowPage").then((m) => ({
     default: m.OpsWorkflowPage,
@@ -174,6 +179,7 @@ function AppContent() {
             path="ops/workflows/:workflow_key"
             element={<OpsWorkflowPage />}
           />
+          <Route path="ops/automations/:id" element={<OpsAutomationPage />} />
           <Route path="rabbi" element={<RabbiQueuePage />} />
           <Route path="elron" element={<ElronQueuePage />} />
           <Route path="settings" element={<SettingsPage />} />
