@@ -8,12 +8,14 @@
  * first-class `AgendaItemKind`s so dedicated collections slot in later
  * without reshaping consumers.
  *
- * `buildDailyAgenda` is pure for unit testing; a `fetchDailyAgenda` wrapper
- * over `services/directus.ts` lands in the next slice.
+ * `buildDailyAgenda` is pure for unit testing; `fetchDailyAgenda` wraps it over
+ * the Directus reader in `services/directus.ts`.
  *
  * Bucketing is by calendar date in UTC, matching the convention in
  * `donorSummary.ts`. Israel-local timezone refinement is a tracked follow-up.
  */
+
+import { getContacts, type DirectusContact } from "../services/directus";
 
 export type AgendaItemKind = "follow_up" | "care_followup" | "meeting" | "reminder";
 
@@ -108,4 +110,42 @@ export function buildDailyAgenda(
     generated_at: now.toISOString(),
     source: "substrate-derived",
   };
+}
+
+/** today + n calendar days, as YYYY-MM-DD (UTC). */
+function addDaysUtc(now: Date, days: number): string {
+  return new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** A `contacts` row with a follow_up_date → a follow_up agenda item. */
+export function contactFollowUpToItem(c: DirectusContact): AgendaSourceItem {
+  return {
+    id: `follow_up:${c.id}`,
+    kind: "follow_up",
+    title: c.full_name?.trim() || "Follow up",
+    due: c.follow_up_date ?? null,
+    contact_id: c.id,
+    contact_name: c.full_name ?? null,
+    status: c.call_status ?? null,
+  };
+}
+
+/**
+ * Build the Rabbi daily agenda from live data. v1 source = `contacts` rows
+ * with a `follow_up_date` within [past .. today+upcomingDays]. Meetings /
+ * reminders / care_followup_due join here as their readers land.
+ */
+export async function fetchDailyAgenda(
+  now: Date = new Date(),
+  opts: BuildDailyAgendaOptions = {},
+): Promise<DailyAgenda> {
+  const upcomingDays = opts.upcomingDays ?? 7;
+  const contacts = await getContacts({
+    followUpBefore: addDaysUtc(now, upcomingDays),
+    limit: 500,
+  });
+  const items = contacts
+    .filter((c) => c.follow_up_date)
+    .map(contactFollowUpToItem);
+  return buildDailyAgenda(items, now, { upcomingDays });
 }
