@@ -67,7 +67,7 @@ for coll, required in (
     check(f"{coll} has required fields", required.issubset(have))
 
 code, rels = get("/relations")
-rel = {(r["collection"], r["field"]): r["schema"].get("on_delete")
+rel = {(r["collection"], r["field"]): (r.get("schema") or {}).get("on_delete")
        for r in rels["data"]} if code == 200 else {}
 for coll in ("meetings", "reminders"):
     check(f"{coll}.contact_id ON DELETE SET NULL", rel.get((coll, "contact_id")) == "SET NULL")
