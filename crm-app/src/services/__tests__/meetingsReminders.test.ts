@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getMeetings, getReminders } from "../directus";
+import {
+  getMeetings,
+  getReminders,
+  createMeeting,
+  createReminder,
+} from "../directus";
 
 // URL-shape tests: confirm the meetings/reminders readers compose the agenda
 // filters correctly — owner-scoped (Q2: owner_id = $CURRENT_USER by default),
@@ -60,5 +65,41 @@ describe("getReminders", () => {
     expect(u).toContain("filter%5Bstatus%5D%5B_eq%5D=pending");
     expect(u).toContain("filter%5Bdue_at%5D%5B_lte%5D=2026-06-05");
     expect(u).toContain("sort=due_at");
+  });
+});
+
+describe("createMeeting / createReminder", () => {
+  let bodies: string[] = [];
+  beforeEach(() => {
+    bodies = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_i, init) => {
+      if (init?.body) bodies.push(init.body as string);
+      return jsonResponse({ data: { id: "new" } });
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("POSTs a meeting with owner_id and defaults status to scheduled", async () => {
+    await createMeeting({
+      title: "פגישה",
+      starts_at: "2026-05-31T10:00:00.000Z",
+      owner_id: "u1",
+    });
+    const b = JSON.parse(bodies[0]);
+    expect(b.title).toBe("פגישה");
+    expect(b.owner_id).toBe("u1");
+    expect(b.status).toBe("scheduled");
+  });
+
+  it("POSTs a reminder with owner_id and defaults status to pending", async () => {
+    await createReminder({
+      title: "לזכור",
+      due_at: "2026-05-31T10:00:00.000Z",
+      owner_id: "u1",
+    });
+    const b = JSON.parse(bodies[0]);
+    expect(b.title).toBe("לזכור");
+    expect(b.owner_id).toBe("u1");
+    expect(b.status).toBe("pending");
   });
 });

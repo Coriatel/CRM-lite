@@ -433,6 +433,42 @@ export async function getReminders(filters: {
   return json.data;
 }
 
+// owner_id is set by the caller from the authenticated user (AppUser.uid), so
+// created rows match the agenda's owner-scoped `owner_id = $CURRENT_USER` read.
+export async function createMeeting(data: {
+  title: string;
+  starts_at: string;
+  ends_at?: string | null;
+  location?: string | null;
+  status?: MeetingStatus;
+  contact_id?: string | null;
+  owner_id?: string | null;
+  notes?: string | null;
+}): Promise<DirectusMeeting> {
+  const res = await directusFetch("/items/meetings", {
+    method: "POST",
+    body: JSON.stringify({ ...data, status: data.status || "scheduled" }),
+  });
+  const json: DirectusResponse<DirectusMeeting> = await res.json();
+  return json.data;
+}
+
+export async function createReminder(data: {
+  title: string;
+  due_at: string;
+  status?: ReminderStatus;
+  contact_id?: string | null;
+  owner_id?: string | null;
+  notes?: string | null;
+}): Promise<DirectusReminder> {
+  const res = await directusFetch("/items/reminders", {
+    method: "POST",
+    body: JSON.stringify({ ...data, status: data.status || "pending" }),
+  });
+  const json: DirectusResponse<DirectusReminder> = await res.json();
+  return json.data;
+}
+
 // ---------- Tags ----------
 
 export interface DirectusTag {
