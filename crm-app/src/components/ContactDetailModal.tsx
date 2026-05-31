@@ -14,6 +14,7 @@ import {
 import { Contact, LifecycleStage, Note, ProjectContact } from "../types";
 import { StatusBadge } from "./StatusBadge";
 import { StagePicker } from "./StagePicker";
+import { CareTimeline } from "./care/CareTimeline";
 import {
   getInteractions,
   updateContact as patchContact,
@@ -422,6 +423,8 @@ export function ContactDetailModal({
               </div>
             ))}
           </div>
+
+          <CareTimeline contactId={contact.id} contactName={contact.fullName} />
         </div>
 
         <div className="modal-footer">

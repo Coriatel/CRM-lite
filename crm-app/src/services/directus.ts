@@ -297,6 +297,71 @@ export async function createInteraction(data: {
   return json.data;
 }
 
+// ---------- Care reports (A3 — pastoral-care log) ----------
+
+export type CareInteractionType = "call" | "meeting" | "message" | "other";
+export type CareFollowupStatus = "none" | "pending" | "done";
+export type CareSentiment = "positive" | "neutral" | "concern";
+
+export interface DirectusCareReport {
+  id: string;
+  contact_id: string;
+  author_id?: string | null;
+  cohort_id?: string | null;
+  interaction_type: CareInteractionType;
+  interaction_at: string;
+  summary: string;
+  followup_due?: string | null;
+  followup_status: CareFollowupStatus;
+  sentiment?: CareSentiment | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+const CARE_REPORT_FIELDS =
+  "id,contact_id,author_id,cohort_id,interaction_type,interaction_at,summary,followup_due,followup_status,sentiment,created_at,updated_at";
+
+export async function getCareReports(filters: {
+  contactId?: string;
+  followupDueBefore?: string;
+}): Promise<DirectusCareReport[]> {
+  const params: Record<string, string> = {
+    fields: CARE_REPORT_FIELDS,
+    sort: "-interaction_at",
+    limit: "100",
+  };
+  if (filters.contactId) {
+    params["filter[contact_id][_eq]"] = filters.contactId;
+  }
+  if (filters.followupDueBefore) {
+    params["filter[followup_status][_eq]"] = "pending";
+    params["filter[followup_due][_lte]"] = filters.followupDueBefore;
+  }
+  const res = await directusFetch(`/items/care_reports${buildQuery(params)}`);
+  const json: DirectusResponse<DirectusCareReport[]> = await res.json();
+  return json.data;
+}
+
+export async function createCareReport(data: {
+  contact_id: string;
+  interaction_type: CareInteractionType;
+  interaction_at: string;
+  summary: string;
+  followup_due?: string | null;
+  followup_status?: CareFollowupStatus;
+  sentiment?: CareSentiment | null;
+}): Promise<DirectusCareReport> {
+  const res = await directusFetch("/items/care_reports", {
+    method: "POST",
+    body: JSON.stringify({
+      ...data,
+      followup_status: data.followup_status || "none",
+    }),
+  });
+  const json: DirectusResponse<DirectusCareReport> = await res.json();
+  return json.data;
+}
+
 // ---------- Tags ----------
 
 export interface DirectusTag {
