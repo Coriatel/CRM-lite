@@ -8,6 +8,8 @@ import {
   updateReminder,
   type DirectusMeeting,
   type DirectusReminder,
+  type MeetingStatus,
+  type ReminderStatus,
 } from "../../services/directus";
 
 /**
@@ -33,6 +35,47 @@ function fmtDateTime(iso: string | null | undefined): string {
     minute: "2-digit",
   }).format(d);
   return `${weekday} ${dm} ${hm}`;
+}
+
+// Status display only — derived from the row's existing `status` field. No
+// schema change, no scope/private work. tone drives the chip colour.
+type StatusTone = "open" | "done" | "cancelled";
+
+const MEETING_STATUS: Record<MeetingStatus, { label: string; tone: StatusTone }> = {
+  scheduled: { label: "מתוכנן", tone: "open" },
+  done: { label: "בוצע", tone: "done" },
+  cancelled: { label: "בוטל", tone: "cancelled" },
+};
+const REMINDER_STATUS: Record<ReminderStatus, { label: string; tone: StatusTone }> = {
+  pending: { label: "פתוח", tone: "open" },
+  done: { label: "בוצע", tone: "done" },
+  dismissed: { label: "בוטל", tone: "cancelled" },
+};
+
+const TONE_STYLE: Record<StatusTone, React.CSSProperties> = {
+  open: { color: "var(--color-primary)", borderColor: "var(--color-primary)" },
+  done: { color: "var(--color-success, #16a34a)", borderColor: "var(--color-success, #16a34a)" },
+  cancelled: { color: "var(--color-text-secondary)", borderColor: "var(--color-border)" },
+};
+
+function StatusChip({ label, tone }: { label: string; tone: StatusTone }) {
+  return (
+    <span
+      data-testid="rabbi-sched-status-badge"
+      style={{
+        fontSize: 11,
+        lineHeight: 1,
+        padding: "2px 6px",
+        borderRadius: 999,
+        border: "1px solid",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
+        ...TONE_STYLE[tone],
+      }}
+    >
+      {label}
+    </span>
+  );
 }
 
 function MarkDoneButton({
@@ -205,8 +248,11 @@ export function RabbiScheduleManager() {
               {meetings.map((m) => (
                 <li key={m.id} data-testid="rabbi-sched-meeting-row" style={rowStyle()}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {m.title}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {m.title}
+                      </span>
+                      <StatusChip {...MEETING_STATUS[m.status]} />
                     </div>
                     <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
                       {fmtDateTime(m.starts_at)}
@@ -234,8 +280,11 @@ export function RabbiScheduleManager() {
               {reminders.map((r) => (
                 <li key={r.id} data-testid="rabbi-sched-reminder-row" style={rowStyle()}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {r.title}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.title}
+                      </span>
+                      <StatusChip {...REMINDER_STATUS[r.status]} />
                     </div>
                     <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
                       {fmtDateTime(r.due_at)}

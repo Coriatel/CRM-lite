@@ -90,6 +90,38 @@ describe("RabbiScheduleManager", () => {
     expect(screen.getByTestId("rabbi-sched-reminder-row").textContent).toContain("להתקשר לרב");
   });
 
+  it("renders a Hebrew status badge on the meeting row from the row's status", () => {
+    useRabbiScheduleItems.mockReturnValue({
+      meetings: [meeting({ status: "scheduled" })], reminders: [], loading: false, error: null, refresh: () => {},
+    });
+    render(<RabbiScheduleManager />);
+    const row = screen.getByTestId("rabbi-sched-meeting-row");
+    const badge = row.querySelector('[data-testid="rabbi-sched-status-badge"]');
+    expect(badge?.textContent).toBe("מתוכנן");
+  });
+
+  it("renders a Hebrew status badge on the reminder row from the row's status", () => {
+    useRabbiScheduleItems.mockReturnValue({
+      meetings: [], reminders: [reminder({ status: "pending" })], loading: false, error: null, refresh: () => {},
+    });
+    render(<RabbiScheduleManager />);
+    const row = screen.getByTestId("rabbi-sched-reminder-row");
+    const badge = row.querySelector('[data-testid="rabbi-sched-status-badge"]');
+    expect(badge?.textContent).toBe("פתוח");
+  });
+
+  it("maps done/cancelled statuses to their Hebrew labels", () => {
+    useRabbiScheduleItems.mockReturnValue({
+      meetings: [meeting({ id: "m2", status: "done" }), meeting({ id: "m3", status: "cancelled" })],
+      reminders: [reminder({ id: "r2", status: "dismissed" })],
+      loading: false, error: null, refresh: () => {},
+    });
+    render(<RabbiScheduleManager />);
+    const labels = screen.getAllByTestId("rabbi-sched-status-badge").map((b) => b.textContent);
+    expect(labels).toContain("בוצע");
+    expect(labels).toContain("בוטל");
+  });
+
   it("never renders pastoral notes (readers omit notes; rows have none)", () => {
     // notes is not even on the row types — assert no leak path by construction
     useRabbiScheduleItems.mockReturnValue({
