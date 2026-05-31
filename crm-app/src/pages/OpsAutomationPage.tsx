@@ -172,7 +172,14 @@ function AutomationDetail({ a, doc }: { a: AutomationRow; doc: AutomationInvento
         </p>
         <p style={subLine}><strong>פלטפורמה: </strong>{a.platform ?? "—"}</p>
         {a.runtime_state ? <p style={subLine}><strong>מצב ריצה: </strong>{a.runtime_state}</p> : null}
+        {a.enabled != null ? (
+          <p style={subLine}>
+            <strong>מופעל: </strong>
+            {a.enabled === false || a.enabled === "false" ? "לא (מושבת)" : "כן"}
+          </p>
+        ) : null}
         {a.owner ? <p style={subLine}><strong>בעלים: </strong>{a.owner}</p> : null}
+        {a.last_run_at ? <p style={subLine}><strong>ריצה אחרונה: </strong>{a.last_run_at}</p> : null}
         {a.last_success_at ? <p style={subLine}><strong>הצלחה אחרונה: </strong>{a.last_success_at}</p> : null}
         {a.last_failure_at ? <p style={subLine}><strong>כשל אחרון: </strong>{a.last_failure_at}</p> : null}
       </section>

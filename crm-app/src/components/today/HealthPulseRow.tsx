@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 // Operational health pulse for /today. Read-only roll-up of four purpose-built feeds —
 // service health (health.json), automation health (automation_runtime_inventory.json
@@ -15,6 +16,7 @@ export interface PulseChip {
   label: string;
   value: string;
   tone: PulseTone;
+  to?: string;
 }
 
 interface HealthDoc {
@@ -63,6 +65,7 @@ export function summarizeHealthPulse(i: HealthPulseInputs): PulseChip[] {
     label: "אוטומציות",
     value: failing + degraded > 0 ? `${failing + degraded} לטיפול` : "תקין",
     tone: failing > 0 ? "bad" : degraded > 0 ? "warn" : "ok",
+    to: "/ops",
   });
 
   // Producers
@@ -149,24 +152,35 @@ export function HealthPulseRow() {
         aria-label="דופק תפעולי"
         dir="rtl"
       >
-        {chips.map((c) => (
-          <div
-            key={c.key}
-            data-testid={`pulse-${c.key}`}
-            style={{
-              flex: "1 1 auto",
-              minWidth: 70,
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: "1px solid #e5e5e5",
-              borderInlineStart: `3px solid ${TONE_COLOR[c.tone]}`,
-              background: "#fff",
-            }}
-          >
-            <div style={{ fontSize: 12, color: "#737373" }}>{c.label}</div>
-            <strong style={{ fontSize: 14 }}>{c.value}</strong>
-          </div>
-        ))}
+        {chips.map((c) => {
+          const style: React.CSSProperties = {
+            flex: "1 1 auto",
+            minWidth: 70,
+            padding: "8px 10px",
+            borderRadius: 8,
+            border: "1px solid #e5e5e5",
+            borderInlineStart: `3px solid ${TONE_COLOR[c.tone]}`,
+            background: "#fff",
+            display: "block",
+            textDecoration: "none",
+            color: "inherit",
+          };
+          const inner = (
+            <>
+              <div style={{ fontSize: 12, color: "#737373" }}>{c.label}</div>
+              <strong style={{ fontSize: 14 }}>{c.value}</strong>
+            </>
+          );
+          return c.to ? (
+            <Link key={c.key} to={c.to} data-testid={`pulse-${c.key}`} style={style}>
+              {inner}
+            </Link>
+          ) : (
+            <div key={c.key} data-testid={`pulse-${c.key}`} style={style}>
+              {inner}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
