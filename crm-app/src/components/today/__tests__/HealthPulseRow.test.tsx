@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { summarizeHealthPulse, HealthPulseRow } from "../HealthPulseRow";
 
 afterEach(() => {
@@ -43,9 +44,15 @@ describe("HealthPulseRow", () => {
         Promise.resolve(new Response(JSON.stringify({ violation_count: 0, endpoints: [], files: {} }), { status: 200 })),
       ),
     );
-    render(<HealthPulseRow />);
+    render(
+      <MemoryRouter>
+        <HealthPulseRow />
+      </MemoryRouter>,
+    );
     await waitFor(() => expect(screen.getByTestId("today-health-pulse")).toBeTruthy());
     expect(screen.getByTestId("pulse-services")).toBeTruthy();
     expect(screen.getByTestId("pulse-feeds")).toBeTruthy();
+    // P3.3: automations chip drills into /ops
+    expect(screen.getByTestId("pulse-automations").getAttribute("href")).toBe("/ops");
   });
 });
