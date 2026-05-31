@@ -63,6 +63,11 @@ const OpsQueueItemPage = lazy(() =>
     default: m.OpsQueueItemPage,
   })),
 );
+const OpsCampaignPage = lazy(() =>
+  import("./pages/OpsCampaignPage").then((m) => ({
+    default: m.OpsCampaignPage,
+  })),
+);
 const OpsWorkflowPage = lazy(() =>
   import("./pages/OpsWorkflowPage").then((m) => ({
     default: m.OpsWorkflowPage,
@@ -181,6 +186,7 @@ function AppContent() {
           <Route path="ops/blockers/:id" element={<OpsBlockerPage />} />
           <Route path="ops/gates/:id" element={<OpsGatePage />} />
           <Route path="ops/queue/:id" element={<OpsQueueItemPage />} />
+          <Route path="ops/campaign/:id" element={<OpsCampaignPage />} />
           <Route
             path="ops/workflows/:workflow_key"
             element={<OpsWorkflowPage />}
