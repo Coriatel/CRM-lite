@@ -7,7 +7,9 @@ import {
   operationalQueueGroups,
   parseReceipts,
   plannedReceiptItemIds,
+  resolveQueueCampaign,
   severityFromQueue,
+  type CampaignsDoc,
   type OperationalQueueDoc,
   type OperationalQueueGroups,
   type OperationalQueueItem,
@@ -36,6 +38,7 @@ function makeItem(over: Partial<OperationalQueueItem>): OperationalQueueItem {
     reversibility: over.reversibility ?? "reversible",
     operational_priority: over.operational_priority ?? 50,
     summary: over.summary ?? "x",
+    campaign_id: over.campaign_id ?? null,
   };
 }
 
@@ -321,5 +324,38 @@ describe("classifyOperationalQueueForOperator", () => {
     // true/false). Skip — covered by `empty` and the others.
     const v = classifyOperationalQueueForOperator({ groups: groups(1, 0) });
     expect(v.topCategory).toBe("actionable_ready"); // sanity, not queue_quiet
+  });
+});
+
+describe("resolveQueueCampaign", () => {
+  const doc: CampaignsDoc = {
+    campaigns: [
+      { id: "crm-lite-a4", owner_user: "devuserp", status: "SHIPPED" },
+      { id: "mayenotecha", owner_user: "devuserr", status: "ACTIVE" },
+    ],
+  };
+
+  it("returns null when the row carries no campaign_id", () => {
+    expect(resolveQueueCampaign(makeItem({}), doc)).toBeNull();
+    expect(resolveQueueCampaign(makeItem({ campaign_id: null }), doc)).toBeNull();
+  });
+
+  it("resolves the matched campaign with owner_user/status from the feed", () => {
+    const c = resolveQueueCampaign(makeItem({ campaign_id: "crm-lite-a4" }), doc);
+    expect(c).toEqual({ id: "crm-lite-a4", owner_user: "devuserp", status: "SHIPPED" });
+  });
+
+  it("returns a bare {id} when campaign_id is authored on the row but absent from the feed", () => {
+    // The id is still authored truth; no owner/status is fabricated.
+    expect(resolveQueueCampaign(makeItem({ campaign_id: "ghost" }), doc)).toEqual({ id: "ghost" });
+  });
+
+  it("is null-safe for a null / undefined campaigns doc", () => {
+    expect(resolveQueueCampaign(makeItem({ campaign_id: "crm-lite-a4" }), null)).toEqual({
+      id: "crm-lite-a4",
+    });
+    expect(resolveQueueCampaign(makeItem({ campaign_id: "crm-lite-a4" }), undefined)).toEqual({
+      id: "crm-lite-a4",
+    });
   });
 });
