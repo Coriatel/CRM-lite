@@ -20,6 +20,7 @@ const files = [
   "recent_merges.json",
   "processes.json",
   "runtime-issues.json",
+  "automation_runtime_inventory.json",
   "attention_synthesis.json",
   "active_sessions.json",
   "dependencies.json",
