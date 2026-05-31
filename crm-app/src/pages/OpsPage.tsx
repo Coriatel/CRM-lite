@@ -4463,7 +4463,13 @@ function OperationalQueueRow({
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 500 }}>{item.summary}</span>
+        <Link
+          to={`/ops/queue/${encodeURIComponent(item.id)}`}
+          data-testid="ops-queue-row-link"
+          style={{ fontWeight: 500, color: "#5b21b6", textDecoration: "none" }}
+        >
+          {item.summary}
+        </Link>
         <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
           {item.owner_gate && (
             <span

@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import {
   OperationalQueueCard,
   OWNER_COLLAPSE_THRESHOLD,
   type OperationalQueueDoc,
   type OperationalQueueItem,
 } from "./OpsPage";
+
+const render = (ui: React.ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 function makeItem(over: Partial<OperationalQueueItem> & { id: string }): OperationalQueueItem {
   return {

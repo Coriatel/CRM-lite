@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import {
   OperationalQueueCard,
   type OperationalQueueDoc,
@@ -7,6 +8,8 @@ import {
   type QueueReceipt,
   type QueueReceiptDoc,
 } from "./OpsPage";
+
+const render = (ui: React.ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 function makeItem(over: Partial<OperationalQueueItem> & { id: string }): OperationalQueueItem {
   return {
