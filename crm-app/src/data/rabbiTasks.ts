@@ -93,11 +93,11 @@ export const DUE_BUCKET_LABEL: Record<DueBucket, string> = {
   none: "ללא תאריך",
 };
 
-/** Classify a task's due date relative to `now` (date-only comparison, UTC). */
+/** Classify a task's due date relative to `now` (date-only comparison, local time). */
 export function dueBucket(dueAt: string | null, now: Date = new Date()): DueBucket {
   if (!dueAt) return "none";
   const day = dueAt.slice(0, 10);
-  const today = now.toISOString().slice(0, 10);
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   if (day < today) return "overdue";
   if (day === today) return "today";
   const diffDays = (Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000;
