@@ -11,6 +11,7 @@ import { LessonRunsCard } from "../components/today/LessonRunsCard";
 import { TodayBlockersCard } from "../components/today/TodayBlockersCard";
 import { TodayOwnerGatesCard } from "../components/today/TodayOwnerGatesCard";
 import { TodayFailedAutomationsCard } from "../components/today/TodayFailedAutomationsCard";
+import { TodayBlockedCampaignsCard } from "../components/today/TodayBlockedCampaignsCard";
 import { HealthPulseRow } from "../components/today/HealthPulseRow";
 import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
@@ -105,6 +106,8 @@ export function TodayPage() {
       <TodayBlockersCard />
 
       <TodayFailedAutomationsCard />
+
+      <TodayBlockedCampaignsCard />
 
       <TodaySection title="תכנים">
         <LessonRunsCard />

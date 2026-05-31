@@ -73,7 +73,7 @@ type RecentMergesDoc = {
   merges?: RecentMerge[];
 };
 
-type Campaign = {
+export type Campaign = {
   id: string;
   owner_user?: string;
   status?: string;
@@ -84,7 +84,7 @@ type Campaign = {
   current_handoff?: string | null;
 };
 
-type CampaignsDoc = {
+export type CampaignsDoc = {
   _meta?: { ts?: string; error?: string };
   campaigns?: Campaign[];
 };
@@ -2575,11 +2575,13 @@ export type CampaignsSummary = {
   total: number;
   counts: Record<string, number>;
   active: Campaign[];
+  blocked: Campaign[];
   shown: Campaign[];
   overflow: number;
 };
 
-// Pure: roll up campaigns.json into status counts + the ACTIVE list (recency-sorted, capped).
+// Pure: roll up campaigns.json into status counts + the ACTIVE list (recency-sorted, capped)
+// and the BLOCKED list (recency-sorted). Single source for "what is active / blocked".
 export function summarizeCampaigns(
   doc: CampaignsDoc | null,
   cap = 20,
@@ -2590,11 +2592,16 @@ export function summarizeCampaigns(
     acc[k] = (acc[k] ?? 0) + 1;
     return acc;
   }, {});
+  const byRecency = (a: Campaign, b: Campaign) =>
+    (b.last_written_at ?? "").localeCompare(a.last_written_at ?? "");
   const active = all
     .filter((c) => (c.status ?? "").toUpperCase() === "ACTIVE")
-    .sort((a, b) => (b.last_written_at ?? "").localeCompare(a.last_written_at ?? ""));
+    .sort(byRecency);
+  const blocked = all
+    .filter((c) => (c.status ?? "").toUpperCase() === "BLOCKED")
+    .sort(byRecency);
   const shown = active.slice(0, cap);
-  return { total: all.length, counts, active, shown, overflow: active.length - shown.length };
+  return { total: all.length, counts, active, blocked, shown, overflow: active.length - shown.length };
 }
 
 // Surface state/campaigns.json (derived from ~/work/handoffs/<campaign>/CURRENT.md).
