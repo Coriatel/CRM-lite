@@ -8,6 +8,7 @@ import {
   TodayWorkflowSheet,
 } from "../components/today/TodayWorkflowCard";
 import { LessonRunsCard } from "../components/today/LessonRunsCard";
+import { TodayBlockersCard } from "../components/today/TodayBlockersCard";
 import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
 function todayLabel(): string {
@@ -93,6 +94,8 @@ export function TodayPage() {
           </div>
         )}
       </TodaySection>
+
+      <TodayBlockersCard />
 
       <TodaySection title="תכנים">
         <LessonRunsCard />
