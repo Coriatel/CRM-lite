@@ -6,6 +6,10 @@ import {
   X,
   Activity,
   CalendarDays,
+  Users,
+  Phone,
+  BookOpen,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -30,6 +34,10 @@ const ITEMS: MoreSheetItem[] = [
   { path: "/schedule", label: "לוח זמנים", icon: CalendarDays },
   { path: "/dashboard", label: "לוח בקרה", icon: BarChart3 },
   { path: "/ops", label: "מערכת — Ops", icon: Activity },
+  { path: "/people", label: "אנשים", icon: Users },
+  { path: "/calls-today", label: "שיחות היום", icon: Phone },
+  { path: "/rabbi", label: "תור הרב", icon: BookOpen },
+  { path: "/elron", label: "תור אלרון", icon: UserCog },
   { path: "/settings", label: "הגדרות", icon: Settings },
 ];
 

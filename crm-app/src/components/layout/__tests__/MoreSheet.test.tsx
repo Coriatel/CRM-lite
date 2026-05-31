@@ -37,6 +37,19 @@ describe("MoreSheet", () => {
     expect(screen.getByRole("button", { name: /Ops/ })).toBeTruthy();
   });
 
+  it("exposes the previously-hidden built pages", () => {
+    renderSheet(true, vi.fn());
+    for (const name of [/אנשים/, /שיחות היום/, /תור הרב/, /תור אלרון/]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+  });
+
+  it("navigates to a previously-hidden page", () => {
+    renderSheet(true, vi.fn());
+    fireEvent.click(screen.getByRole("button", { name: /אנשים/ }));
+    expect(screen.getByTestId("probe").textContent).toBe("/people");
+  });
+
   it("clicking an item navigates and closes the sheet", () => {
     const onClose = vi.fn();
     renderSheet(true, onClose);
