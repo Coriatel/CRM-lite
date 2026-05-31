@@ -15,7 +15,12 @@
  * `donorSummary.ts`. Israel-local timezone refinement is a tracked follow-up.
  */
 
-import { getContacts, type DirectusContact } from "../services/directus";
+import {
+  getContacts,
+  getCareReports,
+  type DirectusContact,
+  type DirectusCareReport,
+} from "../services/directus";
 
 export type AgendaItemKind = "follow_up" | "care_followup" | "meeting" | "reminder";
 
@@ -131,21 +136,43 @@ export function contactFollowUpToItem(c: DirectusContact): AgendaSourceItem {
 }
 
 /**
- * Build the Rabbi daily agenda from live data. v1 source = `contacts` rows
- * with a `follow_up_date` within [past .. today+upcomingDays]. Meetings /
- * reminders / care_followup_due join here as their readers land.
+ * A pending `care_reports` row → a care_followup agenda item.
+ *
+ * PRIVACY: the pastoral `summary` is deliberately NOT mapped. The agenda is a
+ * broad surface (RabbiDayCard on /today + /rabbi), so care items carry only a
+ * generic title, due date, and contact_id for linking — never the summary.
+ */
+export function careFollowUpToItem(r: DirectusCareReport): AgendaSourceItem {
+  return {
+    id: `care_followup:${r.id}`,
+    kind: "care_followup",
+    title: "מעקב טיפול רוחני",
+    due: r.followup_due ?? null,
+    contact_id: r.contact_id,
+    contact_name: null,
+    status: r.followup_status ?? null,
+  };
+}
+
+/**
+ * Build the Rabbi daily agenda from live data. Sources merged before bucketing:
+ * (1) `contacts` rows with a `follow_up_date`, and (2) pending `care_reports`
+ * with a `followup_due` — both within [past .. today+upcomingDays]. Meetings /
+ * reminders join here as their readers land.
  */
 export async function fetchDailyAgenda(
   now: Date = new Date(),
   opts: BuildDailyAgendaOptions = {},
 ): Promise<DailyAgenda> {
   const upcomingDays = opts.upcomingDays ?? 7;
-  const contacts = await getContacts({
-    followUpBefore: addDaysUtc(now, upcomingDays),
-    limit: 500,
-  });
-  const items = contacts
-    .filter((c) => c.follow_up_date)
-    .map(contactFollowUpToItem);
+  const horizon = addDaysUtc(now, upcomingDays);
+  const [contacts, careReports] = await Promise.all([
+    getContacts({ followUpBefore: horizon, limit: 500 }),
+    getCareReports({ followupDueBefore: horizon }),
+  ]);
+  const items: AgendaSourceItem[] = [
+    ...contacts.filter((c) => c.follow_up_date).map(contactFollowUpToItem),
+    ...careReports.filter((r) => r.followup_due).map(careFollowUpToItem),
+  ];
   return buildDailyAgenda(items, now, { upcomingDays });
 }
