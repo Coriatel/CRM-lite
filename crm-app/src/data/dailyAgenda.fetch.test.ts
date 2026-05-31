@@ -2,15 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getContacts = vi.fn();
 const getCareReports = vi.fn();
+const getMeetings = vi.fn();
+const getReminders = vi.fn();
 vi.mock("../services/directus", () => ({
   getContacts: (...a: unknown[]) => getContacts(...a),
   getCareReports: (...a: unknown[]) => getCareReports(...a),
+  getMeetings: (...a: unknown[]) => getMeetings(...a),
+  getReminders: (...a: unknown[]) => getReminders(...a),
 }));
 
 import {
   fetchDailyAgenda,
   contactFollowUpToItem,
   careFollowUpToItem,
+  meetingToItem,
+  reminderToItem,
 } from "./dailyAgenda";
 
 const NOW = new Date("2026-05-29T09:00:00.000Z");
@@ -42,10 +48,41 @@ function careReport(over: Record<string, unknown> = {}) {
   };
 }
 
+function meeting(over: Record<string, unknown> = {}) {
+  return {
+    id: "m1",
+    title: "פגישה עם משפחת כהן",
+    starts_at: "2026-05-29T11:00:00.000Z",
+    ends_at: null,
+    location: null,
+    status: "scheduled",
+    contact_id: "c5",
+    owner_id: "u1",
+    ...over,
+  };
+}
+
+function reminder(over: Record<string, unknown> = {}) {
+  return {
+    id: "rm1",
+    title: "להכין שיעור",
+    due_at: "2026-05-29T08:00:00.000Z",
+    status: "pending",
+    contact_id: null,
+    owner_id: "u1",
+    ...over,
+  };
+}
+
 beforeEach(() => {
   getContacts.mockReset();
   getCareReports.mockReset();
-  getCareReports.mockResolvedValue([]); // default: no care follow-ups
+  getMeetings.mockReset();
+  getReminders.mockReset();
+  // defaults: no extra sources unless a test sets them
+  getCareReports.mockResolvedValue([]);
+  getMeetings.mockResolvedValue([]);
+  getReminders.mockResolvedValue([]);
 });
 
 describe("contactFollowUpToItem", () => {
@@ -160,6 +197,85 @@ describe("fetchDailyAgenda — care follow-up join (A4)", () => {
       contact({ id: "t", follow_up_date: "2026-05-29" }),
     ]);
     getCareReports.mockResolvedValue([]);
+    const a = await fetchDailyAgenda(NOW);
+    expect(a.counts.total).toBe(1);
+    expect(a.today.map((x) => x.kind)).toEqual(["follow_up"]);
+  });
+});
+
+describe("meetingToItem / reminderToItem (A5)", () => {
+  it("maps a meeting to a meeting agenda item anchored on starts_at", () => {
+    expect(meetingToItem(meeting() as never)).toMatchObject({
+      id: "meeting:m1",
+      kind: "meeting",
+      title: "פגישה עם משפחת כהן",
+      due: "2026-05-29T11:00:00.000Z",
+      contact_id: "c5",
+      status: "scheduled",
+    });
+  });
+
+  it("maps a reminder to a reminder agenda item anchored on due_at", () => {
+    expect(reminderToItem(reminder() as never)).toMatchObject({
+      id: "reminder:rm1",
+      kind: "reminder",
+      title: "להכין שיעור",
+      due: "2026-05-29T08:00:00.000Z",
+      contact_id: null,
+      status: "pending",
+    });
+  });
+
+  it("never carries notes into the agenda item (privacy — type has no notes field)", () => {
+    const m = meetingToItem(meeting({ notes: "תוכן רגיש בפגישה" } as never) as never) as unknown as Record<string, unknown>;
+    const r = reminderToItem(reminder({ notes: "תזכורת סודית" } as never) as never) as unknown as Record<string, unknown>;
+    expect(m.notes).toBeUndefined();
+    expect(r.notes).toBeUndefined();
+    expect(JSON.stringify(m)).not.toContain("תוכן רגיש בפגישה");
+    expect(JSON.stringify(r)).not.toContain("תזכורת סודית");
+  });
+});
+
+describe("fetchDailyAgenda — meetings + reminders join (A5)", () => {
+  it("reads meetings + reminders owner-scoped within the horizon", async () => {
+    getContacts.mockResolvedValue([]);
+    await fetchDailyAgenda(NOW);
+    expect(getMeetings).toHaveBeenCalledWith({ startsBefore: "2026-06-05", status: "scheduled" });
+    expect(getReminders).toHaveBeenCalledWith({ dueBefore: "2026-06-05", status: "pending" });
+  });
+
+  it("merges all four sources and buckets meetings/reminders correctly", async () => {
+    getContacts.mockResolvedValue([
+      contact({ id: "ct", full_name: "Contact Today", follow_up_date: "2026-05-29" }),
+    ]);
+    getCareReports.mockResolvedValue([
+      careReport({ id: "cr", contact_id: "p1", followup_due: "2026-05-29" }),
+    ]);
+    getMeetings.mockResolvedValue([
+      meeting({ id: "mo", starts_at: "2026-05-27T11:00:00.000Z" }), // overdue
+    ]);
+    getReminders.mockResolvedValue([
+      reminder({ id: "ru", due_at: "2026-06-01T08:00:00.000Z" }), // upcoming
+    ]);
+    const a = await fetchDailyAgenda(NOW);
+    expect(a.overdue.map((x) => x.id)).toEqual(["meeting:mo"]);
+    expect(a.today.map((x) => x.kind).sort()).toEqual(["care_followup", "follow_up"]);
+    expect(a.upcoming.map((x) => x.id)).toEqual(["reminder:ru"]);
+    expect(a.counts.total).toBe(4);
+  });
+
+  it("does not leak meeting/reminder notes into the built agenda (privacy)", async () => {
+    getContacts.mockResolvedValue([]);
+    getMeetings.mockResolvedValue([meeting({ notes: "סוד פגישה" } as never)]);
+    getReminders.mockResolvedValue([reminder({ notes: "סוד תזכורת" } as never)]);
+    const a = await fetchDailyAgenda(NOW);
+    const s = JSON.stringify(a);
+    expect(s).not.toContain("סוד פגישה");
+    expect(s).not.toContain("סוד תזכורת");
+  });
+
+  it("leaves contact-only agenda unchanged when meetings/reminders are empty", async () => {
+    getContacts.mockResolvedValue([contact({ id: "t", follow_up_date: "2026-05-29" })]);
     const a = await fetchDailyAgenda(NOW);
     expect(a.counts.total).toBe(1);
     expect(a.today.map((x) => x.kind)).toEqual(["follow_up"]);

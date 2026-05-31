@@ -18,8 +18,12 @@
 import {
   getContacts,
   getCareReports,
+  getMeetings,
+  getReminders,
   type DirectusContact,
   type DirectusCareReport,
+  type DirectusMeeting,
+  type DirectusReminder,
 } from "../services/directus";
 
 export type AgendaItemKind = "follow_up" | "care_followup" | "meeting" | "reminder";
@@ -155,10 +159,46 @@ export function careFollowUpToItem(r: DirectusCareReport): AgendaSourceItem {
 }
 
 /**
- * Build the Rabbi daily agenda from live data. Sources merged before bucketing:
- * (1) `contacts` rows with a `follow_up_date`, and (2) pending `care_reports`
- * with a `followup_due` — both within [past .. today+upcomingDays]. Meetings /
- * reminders join here as their readers land.
+ * A scheduled `meetings` row → a meeting agenda item, anchored on `starts_at`.
+ *
+ * PRIVACY: `notes` is deliberately not mapped (it is not even requested by the
+ * reader). `title` does surface — meetings are owner-scoped at the reader
+ * (`owner_id = $CURRENT_USER`), so only the viewer sees their own.
+ */
+export function meetingToItem(m: DirectusMeeting): AgendaSourceItem {
+  return {
+    id: `meeting:${m.id}`,
+    kind: "meeting",
+    title: m.title,
+    due: m.starts_at ?? null,
+    contact_id: m.contact_id ?? null,
+    contact_name: null,
+    status: m.status ?? null,
+  };
+}
+
+/**
+ * A pending `reminders` row → a reminder agenda item, anchored on `due_at`.
+ * Same privacy + owner-scoping posture as meetings; `notes` never mapped.
+ */
+export function reminderToItem(r: DirectusReminder): AgendaSourceItem {
+  return {
+    id: `reminder:${r.id}`,
+    kind: "reminder",
+    title: r.title,
+    due: r.due_at ?? null,
+    contact_id: r.contact_id ?? null,
+    contact_name: null,
+    status: r.status ?? null,
+  };
+}
+
+/**
+ * Build the Rabbi daily agenda from live data. Four substrate sources are read
+ * in parallel and merged before bucketing, all within [past .. today+upcomingDays]:
+ * (1) `contacts.follow_up_date`, (2) pending `care_reports.followup_due`,
+ * (3) scheduled `meetings.starts_at`, (4) pending `reminders.due_at`.
+ * Meetings/reminders are owner-scoped at the reader (`owner_id = $CURRENT_USER`).
  */
 export async function fetchDailyAgenda(
   now: Date = new Date(),
@@ -166,13 +206,17 @@ export async function fetchDailyAgenda(
 ): Promise<DailyAgenda> {
   const upcomingDays = opts.upcomingDays ?? 7;
   const horizon = addDaysUtc(now, upcomingDays);
-  const [contacts, careReports] = await Promise.all([
+  const [contacts, careReports, meetings, reminders] = await Promise.all([
     getContacts({ followUpBefore: horizon, limit: 500 }),
     getCareReports({ followupDueBefore: horizon }),
+    getMeetings({ startsBefore: horizon, status: "scheduled" }),
+    getReminders({ dueBefore: horizon, status: "pending" }),
   ]);
   const items: AgendaSourceItem[] = [
     ...contacts.filter((c) => c.follow_up_date).map(contactFollowUpToItem),
     ...careReports.filter((r) => r.followup_due).map(careFollowUpToItem),
+    ...meetings.filter((m) => m.starts_at).map(meetingToItem),
+    ...reminders.filter((r) => r.due_at).map(reminderToItem),
   ];
   return buildDailyAgenda(items, now, { upcomingDays });
 }
