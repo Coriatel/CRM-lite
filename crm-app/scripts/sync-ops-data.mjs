@@ -13,6 +13,7 @@ const vaultState = "/srv/ops-vault/state";
 
 const files = [
   "projects.json",
+  "campaigns.json",
   "blockers.json",
   "session_index.json",
   "health.json",
