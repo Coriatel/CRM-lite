@@ -9,6 +9,7 @@ import {
 } from "../components/today/TodayWorkflowCard";
 import { LessonRunsCard } from "../components/today/LessonRunsCard";
 import { TodayBlockersCard } from "../components/today/TodayBlockersCard";
+import { HealthPulseRow } from "../components/today/HealthPulseRow";
 import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
 function todayLabel(): string {
@@ -77,6 +78,8 @@ export function TodayPage() {
       fetchedAt={attentionFetchedAt}
       pressureChips={chips}
     >
+      <HealthPulseRow />
+
       <TodaySection title="תשומת לב" meta={attentionMeta(buckets)}>
         {error ? (
           <div className="today-empty" role="alert" data-testid="today-attention-error">
