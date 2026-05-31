@@ -1591,6 +1591,10 @@ export type OperationalQueueItem = {
   reversibility: "reversible" | "risky" | "irreversible" | "unknown";
   operational_priority: number;
   summary: string;
+  // P6.2 item-origin linkage: the campaign this row derives from, when the producer
+  // authored one (operational_queue.json queue[].campaign_id, auto-maintained from
+  // origin/main every 1 min). Optional — most rows carry none.
+  campaign_id?: string | null;
 };
 
 export type OperationalQueueDoc = {
@@ -1602,6 +1606,19 @@ export type OperationalQueueDoc = {
   };
   queue?: OperationalQueueItem[];
 };
+
+// Pure: resolve a queue row's campaign_id to its campaigns.json entry. Returns the
+// matched Campaign (with owner_user/status) when present; a bare {id} when the row
+// carries a campaign_id absent from the feed (the id is still authored truth); null
+// when the row has no campaign_id. No fabricated fields.
+export function resolveQueueCampaign(
+  item: Pick<OperationalQueueItem, "campaign_id">,
+  doc: CampaignsDoc | null | undefined,
+): Campaign | null {
+  const cid = item.campaign_id;
+  if (!cid) return null;
+  return doc?.campaigns?.find((c) => c.id === cid) ?? { id: cid };
+}
 
 export type QueueRouteDecision = "autonomous" | "owner" | "escalate" | "defer";
 export type QueueRoute = { decision: QueueRouteDecision; reason: string; since?: string };
@@ -2365,6 +2382,8 @@ export function OpsPage() {
         routes={queueRoutes}
         plan={queuePlan}
         receipts={queueReceipts}
+        campaigns={campaigns}
+        goals={goals}
       />
       <RuntimeOrchestrationCard routes={queueRoutes} queue={operationalQueue} />
       <ManagementCockpitCard doc={managementCockpit} />
@@ -4509,11 +4528,15 @@ function OperationalQueueRow({
   route,
   planned,
   latestReceipt,
+  campaign,
+  goalChain,
 }: {
   item: OperationalQueueItem;
   route?: QueueRoute;
   planned?: boolean;
   latestReceipt?: QueueReceipt;
+  campaign?: Campaign | null;
+  goalChain?: CampaignGoalChain | null;
 }) {
   const lvl = severityFromQueue(item.severity);
   // Suppress the OWNER router pill when the GATE pill already says it,
@@ -4631,6 +4654,24 @@ function OperationalQueueRow({
         {item.lane ? ` · lane: ${item.lane}` : ""}
         {item.freshness === "stale" ? " · stale" : ""}
       </div>
+      {campaign && (
+        <div style={subLine} data-testid="ops-queue-row-campaign">
+          <span
+            style={{ ...pill, background: "#ede9fe", color: "#5b21b6", fontWeight: 600 }}
+            title={`campaign: ${campaign.id}`}
+          >
+            🎯 {campaign.id}
+          </span>
+          {campaign.owner_user ? ` · ${campaign.owner_user}` : ""}
+          {campaign.status ? ` · ${campaign.status}` : ""}
+        </div>
+      )}
+      {goalChain && (
+        <div style={subLine} data-testid="ops-queue-row-goal">
+          <span style={{ fontWeight: 600 }}>למה: </span>
+          {goalChain.goal}
+        </div>
+      )}
       {item.suggested_action && (
         <div style={subLine}>{item.suggested_action}</div>
       )}
@@ -4875,11 +4916,15 @@ export function OperationalQueueCard({
   routes,
   plan,
   receipts,
+  campaigns,
+  goals,
 }: {
   doc: OperationalQueueDoc | null;
   routes?: QueueRoutesDoc | null;
   plan?: QueueReceiptDoc;
   receipts?: QueueReceiptDoc;
+  campaigns?: CampaignsDoc | null;
+  goals?: GoalsDoc | null;
 }) {
   const { actionable, awaitingOwner, total } = operationalQueueGroups(doc);
   const collapsible = awaitingOwner.length > OWNER_COLLAPSE_THRESHOLD;
@@ -4994,6 +5039,8 @@ export function OperationalQueueCard({
                 route={routesMap[i.id]}
                 planned={plannedIds.has(i.id)}
                 latestReceipt={latestByItem[i.id]}
+                campaign={resolveQueueCampaign(i, campaigns)}
+                goalChain={i.campaign_id ? goalChainForCampaign(goals ?? null, i.campaign_id) : null}
               />
             ))}
           </ul>
@@ -5048,6 +5095,8 @@ export function OperationalQueueCard({
                 route={routesMap[i.id]}
                 planned={plannedIds.has(i.id)}
                 latestReceipt={latestByItem[i.id]}
+                campaign={resolveQueueCampaign(i, campaigns)}
+                goalChain={i.campaign_id ? goalChainForCampaign(goals ?? null, i.campaign_id) : null}
               />
             ))}
           </ul>
