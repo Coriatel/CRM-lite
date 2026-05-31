@@ -362,6 +362,77 @@ export async function createCareReport(data: {
   return json.data;
 }
 
+// ---------- Meetings + reminders (A5 — time-management agenda sources) ----------
+//
+// Owner-scoped (Q2 ratified): both readers default `owner_id` to the Directus
+// `$CURRENT_USER` filter variable, resolved server-side from the bearer token,
+// so the agenda shows only the viewing user's calendar without plumbing the
+// user id through the React data layer. PRIVACY: `notes` is intentionally NOT
+// requested — it must never reach a broad agenda surface.
+
+export type MeetingStatus = "scheduled" | "done" | "cancelled";
+export type ReminderStatus = "pending" | "done" | "dismissed";
+
+export interface DirectusMeeting {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at?: string | null;
+  location?: string | null;
+  status: MeetingStatus;
+  contact_id?: string | null;
+  owner_id?: string | null;
+}
+
+export interface DirectusReminder {
+  id: string;
+  title: string;
+  due_at: string;
+  status: ReminderStatus;
+  contact_id?: string | null;
+  owner_id?: string | null;
+}
+
+const MEETING_FIELDS =
+  "id,title,starts_at,ends_at,location,status,contact_id,owner_id";
+const REMINDER_FIELDS = "id,title,due_at,status,contact_id,owner_id";
+
+export async function getMeetings(filters: {
+  startsBefore?: string;
+  status?: MeetingStatus;
+  ownerId?: string;
+}): Promise<DirectusMeeting[]> {
+  const params: Record<string, string> = {
+    fields: MEETING_FIELDS,
+    sort: "starts_at",
+    limit: "200",
+    "filter[owner_id][_eq]": filters.ownerId ?? "$CURRENT_USER",
+  };
+  if (filters.status) params["filter[status][_eq]"] = filters.status;
+  if (filters.startsBefore) params["filter[starts_at][_lte]"] = filters.startsBefore;
+  const res = await directusFetch(`/items/meetings${buildQuery(params)}`);
+  const json: DirectusResponse<DirectusMeeting[]> = await res.json();
+  return json.data;
+}
+
+export async function getReminders(filters: {
+  dueBefore?: string;
+  status?: ReminderStatus;
+  ownerId?: string;
+}): Promise<DirectusReminder[]> {
+  const params: Record<string, string> = {
+    fields: REMINDER_FIELDS,
+    sort: "due_at",
+    limit: "200",
+    "filter[owner_id][_eq]": filters.ownerId ?? "$CURRENT_USER",
+  };
+  if (filters.status) params["filter[status][_eq]"] = filters.status;
+  if (filters.dueBefore) params["filter[due_at][_lte]"] = filters.dueBefore;
+  const res = await directusFetch(`/items/reminders${buildQuery(params)}`);
+  const json: DirectusResponse<DirectusReminder[]> = await res.json();
+  return json.data;
+}
+
 // ---------- Tags ----------
 
 export interface DirectusTag {
