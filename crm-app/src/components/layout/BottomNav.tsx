@@ -5,6 +5,7 @@ import {
   Filter,
   MoreHorizontal,
   CalendarClock,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { path: "/today", label: "היום", icon: CalendarClock, action: "navigate" },
+  { path: "/rabbi", label: "הרב", icon: UserRound, action: "navigate" },
   { path: "/", label: "אנשי קשר", icon: Users, action: "navigate" },
   { path: "/dashboard", label: "לוח בקרה", icon: LayoutDashboard, action: "navigate" },
   { path: "/filter", label: "סינון", icon: Filter, action: "filter" },
