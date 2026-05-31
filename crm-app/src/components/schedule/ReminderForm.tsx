@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { X, ShieldAlert } from "lucide-react";
-import { createReminder, type ReminderStatus } from "../../services/directus";
+import {
+  createReminder,
+  updateReminder,
+  type DirectusReminder,
+  type ReminderStatus,
+} from "../../services/directus";
 import { useAuth } from "../../contexts/AuthContext";
 
 interface ReminderFormProps {
   onClose: () => void;
   onCreated?: () => void;
+  /** When provided, the form edits this row (PATCH) instead of creating one. */
+  editing?: DirectusReminder;
 }
 
 const STATUSES: { value: ReminderStatus; label: string }[] = [
@@ -22,11 +29,27 @@ function nowLocalInput(): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-export function ReminderForm({ onClose, onCreated }: ReminderFormProps) {
+/** ISO datetime -> local "YYYY-MM-DDTHH:mm" for a datetime-local input. */
+function isoToLocalInput(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
+}
+
+export function ReminderForm({ onClose, onCreated, editing }: ReminderFormProps) {
   const { user } = useAuth();
-  const [title, setTitle] = useState("");
-  const [dueAt, setDueAt] = useState(nowLocalInput());
-  const [status, setStatus] = useState<ReminderStatus>("pending");
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [dueAt, setDueAt] = useState(
+    editing ? isoToLocalInput(editing.due_at) : nowLocalInput(),
+  );
+  const [status, setStatus] = useState<ReminderStatus>(
+    editing?.status ?? "pending",
+  );
+  // notes never read into this surface (privacy) — blank in edit mode; an empty
+  // field is not sent on update, so an existing note is preserved.
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,18 +62,27 @@ export function ReminderForm({ onClose, onCreated }: ReminderFormProps) {
     setSaving(true);
     setError(null);
     try {
-      await createReminder({
-        title: title.trim(),
-        due_at: new Date(dueAt).toISOString(),
-        status,
-        owner_id: user?.uid ?? null,
-        notes: notes.trim() || null,
-      });
+      if (editing) {
+        await updateReminder(editing.id, {
+          title: title.trim(),
+          due_at: new Date(dueAt).toISOString(),
+          status,
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+        });
+      } else {
+        await createReminder({
+          title: title.trim(),
+          due_at: new Date(dueAt).toISOString(),
+          status,
+          owner_id: user?.uid ?? null,
+          notes: notes.trim() || null,
+        });
+      }
       onCreated?.();
       onClose();
     } catch (err) {
-      console.error("Error creating reminder");
-      setError("שגיאה ביצירת התזכורת");
+      console.error(editing ? "Error updating reminder" : "Error creating reminder");
+      setError(editing ? "שגיאה בעדכון התזכורת" : "שגיאה ביצירת התזכורת");
     } finally {
       setSaving(false);
     }
@@ -60,7 +92,7 @@ export function ReminderForm({ onClose, onCreated }: ReminderFormProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>תזכורת חדשה</h2>
+          <h2>{editing ? "עריכת תזכורת" : "תזכורת חדשה"}</h2>
           <button className="btn btn-icon btn-outline" onClick={onClose}>
             <X size={20} />
           </button>
@@ -117,7 +149,11 @@ export function ReminderForm({ onClose, onCreated }: ReminderFormProps) {
               }}
             >
               <ShieldAlert size={14} />
-              <span>הערות פרטיות – לא מוצגות בסדר היום</span>
+              <span>
+                {editing
+                  ? "הערות פרטיות – השאר ריק כדי לא לשנות הערה קיימת"
+                  : "הערות פרטיות – לא מוצגות בסדר היום"}
+              </span>
             </div>
             <textarea
               className="form-input"
@@ -139,7 +175,7 @@ export function ReminderForm({ onClose, onCreated }: ReminderFormProps) {
             ביטול
           </button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? "שומר…" : "שמירה"}
+            {saving ? "שומר…" : editing ? "עדכון" : "שמירה"}
           </button>
         </div>
       </div>

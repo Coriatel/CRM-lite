@@ -15,6 +15,11 @@ const updateReminder = vi.fn();
 vi.mock("../../services/directus", () => ({
   updateMeeting: (...a: unknown[]) => updateMeeting(...a),
   updateReminder: (...a: unknown[]) => updateReminder(...a),
+  createMeeting: vi.fn(),
+  createReminder: vi.fn(),
+}));
+vi.mock("../../contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { uid: "u1", email: "r@x", displayName: "Rav" } }),
 }));
 
 import { RabbiScheduleManager } from "../dashboard/RabbiScheduleManager";
@@ -112,6 +117,16 @@ describe("RabbiScheduleManager", () => {
     render(<RabbiScheduleManager />);
     fireEvent.click(screen.getByTestId("rabbi-sched-mark-done"));
     await waitFor(() => expect(updateReminder).toHaveBeenCalledWith("r1", { status: "done" }));
+  });
+
+  it("opens the meeting edit form prefilled when the row edit button is clicked", () => {
+    useRabbiScheduleItems.mockReturnValue({
+      meetings: [meeting()], reminders: [], loading: false, error: null, refresh: () => {},
+    });
+    render(<RabbiScheduleManager />);
+    fireEvent.click(screen.getByTestId("rabbi-sched-edit"));
+    expect(screen.getByText("עריכת פגישה")).toBeTruthy();
+    expect((screen.getByPlaceholderText("עם מי / על מה") as HTMLInputElement).value).toBe("פגישה עם תורם");
   });
 
   it("surfaces an error when a status update fails", async () => {

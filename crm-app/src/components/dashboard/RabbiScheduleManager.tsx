@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { CalendarRange, RefreshCw, Check, MapPin } from "lucide-react";
+import { CalendarRange, RefreshCw, Check, MapPin, Pencil } from "lucide-react";
 import { useRabbiScheduleItems } from "../../data/useRabbiScheduleItems";
+import { MeetingForm } from "../schedule/MeetingForm";
+import { ReminderForm } from "../schedule/ReminderForm";
 import {
   updateMeeting,
   updateReminder,
@@ -68,6 +70,33 @@ function MarkDoneButton({
   );
 }
 
+function EditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid="rabbi-sched-edit"
+      onClick={onClick}
+      aria-label="עריכה"
+      title="עריכה"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: 44,
+        minHeight: 44,
+        background: "none",
+        border: "1px solid var(--color-border)",
+        borderRadius: 999,
+        color: "var(--color-text-secondary)",
+        cursor: "pointer",
+        flexShrink: 0,
+      }}
+    >
+      <Pencil size={15} />
+    </button>
+  );
+}
+
 function rowStyle(): React.CSSProperties {
   return {
     display: "flex",
@@ -83,6 +112,8 @@ export function RabbiScheduleManager() {
     useRabbiScheduleItems();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editMeeting, setEditMeeting] = useState<DirectusMeeting | null>(null);
+  const [editReminder, setEditReminder] = useState<DirectusReminder | null>(null);
 
   async function markMeetingDone(m: DirectusMeeting) {
     setBusyId(`m:${m.id}`);
@@ -186,6 +217,7 @@ export function RabbiScheduleManager() {
                       )}
                     </div>
                   </div>
+                  <EditButton onClick={() => setEditMeeting(m)} />
                   <MarkDoneButton onClick={() => markMeetingDone(m)} busy={busyId === `m:${m.id}`} />
                 </li>
               ))}
@@ -209,6 +241,7 @@ export function RabbiScheduleManager() {
                       {fmtDateTime(r.due_at)}
                     </div>
                   </div>
+                  <EditButton onClick={() => setEditReminder(r)} />
                   <MarkDoneButton onClick={() => markReminderDone(r)} busy={busyId === `r:${r.id}`} />
                 </li>
               ))}
@@ -221,6 +254,21 @@ export function RabbiScheduleManager() {
         <p data-testid="rabbi-sched-action-error" style={{ color: "var(--color-danger)", fontSize: 13, margin: "8px 0 0" }}>
           {actionError}
         </p>
+      )}
+
+      {editMeeting && (
+        <MeetingForm
+          editing={editMeeting}
+          onClose={() => setEditMeeting(null)}
+          onCreated={refresh}
+        />
+      )}
+      {editReminder && (
+        <ReminderForm
+          editing={editReminder}
+          onClose={() => setEditReminder(null)}
+          onCreated={refresh}
+        />
       )}
     </section>
   );
