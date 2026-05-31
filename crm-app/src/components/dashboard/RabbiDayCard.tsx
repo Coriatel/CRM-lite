@@ -1,6 +1,7 @@
 import { CalendarClock, RefreshCw } from "lucide-react";
 import { useDailyAgenda } from "../../data/useDailyAgenda";
 import type { AgendaBucket, AgendaItem } from "../../data/dailyAgenda";
+import { ScheduleQuickAdd } from "../schedule/ScheduleQuickAdd";
 
 /**
  * Rabbi daily agenda surface (A4). Self-contained: owns its `useDailyAgenda`
@@ -169,6 +170,8 @@ export function RabbiDayCard({ hideHeading = false }: { hideHeading?: boolean } 
           )}
         </>
       )}
+
+      <ScheduleQuickAdd onCreated={refresh} />
     </section>
   );
 }
