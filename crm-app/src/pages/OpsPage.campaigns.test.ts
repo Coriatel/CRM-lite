@@ -31,8 +31,19 @@ describe("summarizeCampaigns", () => {
     expect(s.overflow).toBe(1);
   });
 
+  it("returns BLOCKED campaigns sorted by recency (newest first)", () => {
+    const s = summarizeCampaigns({
+      campaigns: [
+        { id: "b-old", status: "BLOCKED", last_written_at: "2026-05-01T00:00:00Z" },
+        { id: "b-new", status: "blocked", last_written_at: "2026-05-28T00:00:00Z" },
+        { id: "a", status: "ACTIVE", last_written_at: "2026-05-30T00:00:00Z" },
+      ],
+    });
+    expect(s.blocked.map((c) => c.id)).toEqual(["b-new", "b-old"]);
+  });
+
   it("handles null / empty doc safely", () => {
-    expect(summarizeCampaigns(null)).toMatchObject({ total: 0, active: [], overflow: 0 });
+    expect(summarizeCampaigns(null)).toMatchObject({ total: 0, active: [], blocked: [], overflow: 0 });
     expect(summarizeCampaigns({ campaigns: [] }).total).toBe(0);
   });
 });

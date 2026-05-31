@@ -9,6 +9,9 @@ import {
 } from "../components/today/TodayWorkflowCard";
 import { LessonRunsCard } from "../components/today/LessonRunsCard";
 import { TodayBlockersCard } from "../components/today/TodayBlockersCard";
+import { TodayOwnerGatesCard } from "../components/today/TodayOwnerGatesCard";
+import { TodayFailedAutomationsCard } from "../components/today/TodayFailedAutomationsCard";
+import { TodayBlockedCampaignsCard } from "../components/today/TodayBlockedCampaignsCard";
 import { HealthPulseRow } from "../components/today/HealthPulseRow";
 import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
@@ -78,7 +81,10 @@ export function TodayPage() {
       fetchedAt={attentionFetchedAt}
       pressureChips={chips}
     >
-      <HealthPulseRow />
+      {/* Cockpit order = operator priority (P5.4): what requires the owner →
+          what needs attention next → what is critical → what failed →
+          what is blocked → operational health pulse → content → rabbi. */}
+      <TodayOwnerGatesCard />
 
       <TodaySection title="תשומת לב" meta={attentionMeta(buckets)}>
         {error ? (
@@ -99,6 +105,12 @@ export function TodayPage() {
       </TodaySection>
 
       <TodayBlockersCard />
+
+      <TodayFailedAutomationsCard />
+
+      <TodayBlockedCampaignsCard />
+
+      <HealthPulseRow />
 
       <TodaySection title="תכנים">
         <LessonRunsCard />
