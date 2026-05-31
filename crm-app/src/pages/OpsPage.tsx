@@ -2215,13 +2215,14 @@ export function OpsPage() {
   const [gateStatus, setGateStatus] = useState<OwnerGateStatusDoc | null>(null);
   const [gateDecisions, setGateDecisions] = useState<OwnerGateDecisionsDoc | null>(null);
   const [automations, setAutomations] = useState<AutomationInventoryDoc | null>(null);
+  const [goals, setGoals] = useState<GoalsDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -2251,6 +2252,7 @@ export function OpsPage() {
         fetchJson<OwnerGateStatusDoc>("/ops-data/owner_gate_status.json"),
         fetchJson<OwnerGateDecisionsDoc>("/ops-data/owner_gate_decisions.json"),
         fetchJson<AutomationInventoryDoc>("/ops-data/automation_runtime_inventory.json"),
+        fetchJson<GoalsDoc>("/ops-data/goals.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -2287,6 +2289,7 @@ export function OpsPage() {
       setGateStatus(gst ?? null);
       setGateDecisions(gdc ?? null);
       setAutomations(autoInv ?? null);
+      setGoals(gls ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -2382,7 +2385,7 @@ export function OpsPage() {
       <AutomationInventoryCard doc={automations} />
       <LanesOverview lanes={lanes} />
       <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
-      <CampaignsCard doc={campaigns} />
+      <CampaignsCard doc={campaigns} goalsDoc={goals} />
       <ActionLauncherCard doc={campaigns} />
       <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
       <RecentMergesCard doc={recentMerges} />
@@ -2604,9 +2607,49 @@ export function summarizeCampaigns(
   return { total: all.length, counts, active, blocked, shown, overflow: active.length - shown.length };
 }
 
+// Canonical, hand-authored goal hierarchy (state/goals.json): System -> Lane -> Campaign -> Phase.
+// Authored-goals-only: a campaign appears here only once its goal text is authored. Absence means
+// "goal not yet authored", NOT "campaign invalid". Consumed read-only; this app forks no mission logic.
+export type GoalsDoc = {
+  _meta?: { error?: string };
+  system?: { id?: string; goal?: string };
+  lanes?: Record<string, { goal?: string; serves?: string }>;
+  campaigns?: Record<string, { goal?: string; serves?: string; source?: string }>;
+};
+
+export type CampaignGoalChain = {
+  goal: string;
+  lane?: string;
+  laneGoal?: string;
+  systemGoal?: string;
+};
+
+// Pure: join a campaign id to its authored why-chain (campaign goal -> lane goal -> system goal).
+// Returns null when no authored goal exists for the campaign (honest absence, no fabrication).
+export function goalChainForCampaign(
+  doc: GoalsDoc | null,
+  campaignId: string,
+): CampaignGoalChain | null {
+  const node = doc?.campaigns?.[campaignId];
+  if (!node?.goal) return null;
+  const lane = node.serves;
+  return {
+    goal: node.goal,
+    lane,
+    laneGoal: lane ? doc?.lanes?.[lane]?.goal : undefined,
+    systemGoal: doc?.system?.goal,
+  };
+}
+
 // Surface state/campaigns.json (derived from ~/work/handoffs/<campaign>/CURRENT.md).
 // Read-only: shows active campaigns sorted by recency + a status roll-up. No controls.
-function CampaignsCard({ doc }: { doc: CampaignsDoc | null }) {
+function CampaignsCard({
+  doc,
+  goalsDoc = null,
+}: {
+  doc: CampaignsDoc | null;
+  goalsDoc?: GoalsDoc | null;
+}) {
   if (doc === null) return null;
   const { total, counts, active, shown, overflow } = summarizeCampaigns(doc);
   return (
@@ -2654,6 +2697,24 @@ function CampaignsCard({ doc }: { doc: CampaignsDoc | null }) {
                 {c.last_terminal_state ? (
                   <div style={subLine}>{c.last_terminal_state}</div>
                 ) : null}
+                {(() => {
+                  const chain = goalChainForCampaign(goalsDoc, c.id);
+                  if (!chain) return null;
+                  return (
+                    <div
+                      data-testid="campaign-goal"
+                      style={{ fontSize: 12, color: "#404040", marginTop: 3, lineHeight: 1.4 }}
+                    >
+                      <span style={{ fontWeight: 600 }}>למה: </span>
+                      {chain.goal}
+                      {chain.lane ? (
+                        <span style={{ ...pill, background: "#525252", marginInlineStart: 6 }}>
+                          {`Lane ${chain.lane}`}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
                 <div style={{ fontSize: 11, color: "#737373", marginTop: 2 }}>
                   {c.owner_user ?? "—"}
                   {c.lane_field ? (

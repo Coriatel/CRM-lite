@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { summarizeCampaigns, campaignStatusColor } from "./OpsPage";
+import {
+  summarizeCampaigns,
+  campaignStatusColor,
+  goalChainForCampaign,
+} from "./OpsPage";
 
 const doc = {
   campaigns: [
@@ -45,6 +49,38 @@ describe("summarizeCampaigns", () => {
   it("handles null / empty doc safely", () => {
     expect(summarizeCampaigns(null)).toMatchObject({ total: 0, active: [], blocked: [], overflow: 0 });
     expect(summarizeCampaigns({ campaigns: [] }).total).toBe(0);
+  });
+});
+
+describe("goalChainForCampaign", () => {
+  const goalsDoc = {
+    system: { id: "mn-os", goal: "Reduce the operator bottleneck." },
+    lanes: { A: { goal: "MN-OS Core lane.", serves: "mn-os" } },
+    campaigns: {
+      "authored-one": {
+        goal: "Encode the goal chain as machine state.",
+        serves: "A",
+        source: "x.md",
+      },
+    },
+  };
+
+  it("returns the campaign goal + lane + lane/system goals for an authored campaign", () => {
+    const chain = goalChainForCampaign(goalsDoc, "authored-one");
+    expect(chain).toEqual({
+      goal: "Encode the goal chain as machine state.",
+      lane: "A",
+      laneGoal: "MN-OS Core lane.",
+      systemGoal: "Reduce the operator bottleneck.",
+    });
+  });
+
+  it("returns null for an unauthored campaign (absence is not invalid)", () => {
+    expect(goalChainForCampaign(goalsDoc, "not-authored")).toBeNull();
+  });
+
+  it("returns null for a null doc", () => {
+    expect(goalChainForCampaign(null, "authored-one")).toBeNull();
   });
 });
 
