@@ -81,8 +81,9 @@ export function TodayPage() {
       fetchedAt={attentionFetchedAt}
       pressureChips={chips}
     >
-      <HealthPulseRow />
-
+      {/* Cockpit order = operator priority (P5.4): what requires the owner →
+          what needs attention next → what is critical → what failed →
+          what is blocked → operational health pulse → content → rabbi. */}
       <TodayOwnerGatesCard />
 
       <TodaySection title="תשומת לב" meta={attentionMeta(buckets)}>
@@ -108,6 +109,8 @@ export function TodayPage() {
       <TodayFailedAutomationsCard />
 
       <TodayBlockedCampaignsCard />
+
+      <HealthPulseRow />
 
       <TodaySection title="תכנים">
         <LessonRunsCard />
