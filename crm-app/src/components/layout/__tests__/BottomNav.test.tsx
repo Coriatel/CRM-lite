@@ -21,13 +21,14 @@ function renderAt(path: string) {
 }
 
 describe("BottomNav", () => {
-  it("renders all five primary tabs in order", () => {
+  it("renders all six primary tabs in order", () => {
     renderAt("/today");
     const labels = screen
       .getAllByRole("button")
       .map((b) => b.textContent?.trim());
     expect(labels).toEqual([
       "היום",
+      "הרב",
       "אנשי קשר",
       "לוח בקרה",
       "סינון",
