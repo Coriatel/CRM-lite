@@ -4,6 +4,8 @@ import {
   getReminders,
   createMeeting,
   createReminder,
+  updateMeeting,
+  updateReminder,
 } from "../directus";
 
 // URL-shape tests: confirm the meetings/reminders readers compose the agenda
@@ -101,5 +103,57 @@ describe("createMeeting / createReminder", () => {
     expect(b.title).toBe("לזכור");
     expect(b.owner_id).toBe("u1");
     expect(b.status).toBe("pending");
+  });
+});
+
+describe("updateMeeting / updateReminder", () => {
+  let calls: { url: string; method?: string; body?: string }[] = [];
+  beforeEach(() => {
+    calls = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      calls.push({
+        url: typeof input === "string" ? input : input.toString(),
+        method: init?.method,
+        body: init?.body as string | undefined,
+      });
+      return jsonResponse({ data: { id: "x" } });
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("PATCHes a meeting by id and edits fields", async () => {
+    await updateMeeting("m1", {
+      title: "פגישה מעודכנת",
+      starts_at: "2026-06-01T09:00:00.000Z",
+    });
+    const c = calls[0];
+    expect(c.url).toContain("/items/meetings/m1");
+    expect(c.method).toBe("PATCH");
+    const b = JSON.parse(c.body!);
+    expect(b.title).toBe("פגישה מעודכנת");
+    expect(b.starts_at).toBe("2026-06-01T09:00:00.000Z");
+  });
+
+  it("PATCHes meeting status only (mark done) and never reads notes back", async () => {
+    await updateMeeting("m2", { status: "done" });
+    const c = calls[0];
+    expect(c.url).toContain("/items/meetings/m2");
+    // returned fields are owner-scoped agenda fields — notes excluded by design
+    expect(c.url).toContain("fields=");
+    expect(c.url).not.toContain("notes");
+    expect(JSON.parse(c.body!).status).toBe("done");
+  });
+
+  it("PATCHes reminder status only (mark done)", async () => {
+    await updateReminder("r1", { status: "done" });
+    const c = calls[0];
+    expect(c.url).toContain("/items/reminders/r1");
+    expect(c.method).toBe("PATCH");
+    expect(JSON.parse(c.body!).status).toBe("done");
+  });
+
+  it("allows editing reminder notes (write-only field) in the patch body", async () => {
+    await updateReminder("r2", { notes: "פרטי לרב" });
+    expect(JSON.parse(calls[0].body!).notes).toBe("פרטי לרב");
   });
 });

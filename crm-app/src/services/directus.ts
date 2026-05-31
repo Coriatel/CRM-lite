@@ -469,6 +469,48 @@ export async function createReminder(data: {
   return json.data;
 }
 
+// Edit + status lifecycle (A7). owner_id is intentionally NOT patchable — a row
+// never changes owner, preserving the agenda's owner-scoped read. `notes` may be
+// written here but the response requests MEETING_FIELDS/REMINDER_FIELDS, so the
+// pastoral note never comes back into a broad surface.
+export async function updateMeeting(
+  id: string,
+  patch: Partial<{
+    title: string;
+    starts_at: string;
+    ends_at: string | null;
+    location: string | null;
+    status: MeetingStatus;
+    contact_id: string | null;
+    notes: string | null;
+  }>,
+): Promise<DirectusMeeting> {
+  const res = await directusFetch(
+    `/items/meetings/${id}${buildQuery({ fields: MEETING_FIELDS })}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+  const json: DirectusResponse<DirectusMeeting> = await res.json();
+  return json.data;
+}
+
+export async function updateReminder(
+  id: string,
+  patch: Partial<{
+    title: string;
+    due_at: string;
+    status: ReminderStatus;
+    contact_id: string | null;
+    notes: string | null;
+  }>,
+): Promise<DirectusReminder> {
+  const res = await directusFetch(
+    `/items/reminders/${id}${buildQuery({ fields: REMINDER_FIELDS })}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+  const json: DirectusResponse<DirectusReminder> = await res.json();
+  return json.data;
+}
+
 // ---------- Tags ----------
 
 export interface DirectusTag {
