@@ -59,7 +59,7 @@ describe("TodayPage — MN-OS operational root", () => {
 
   it("renders Today as the operational root with one live attention workflow", () => {
     renderTodayPage();
-    expect(screen.getByRole("heading", { name: /היום/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: /היום/ })).toBeTruthy();
     expect(screen.getByText("תשומת לב")).toBeTruthy();
     expect(screen.getByTestId("today-workflow-card")).toBeTruthy();
     expect(screen.getByText("שרה כהן · אין קשר 21 ימים")).toBeTruthy();
