@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { OperationalQueueDoc, OperationalQueueItem } from "./OpsPage";
+import { goalChainForCampaign } from "./OpsPage";
+import type {
+  Campaign,
+  CampaignGoalChain,
+  CampaignsDoc,
+  GoalsDoc,
+  OperationalQueueDoc,
+  OperationalQueueItem,
+} from "./OpsPage";
 import { bodyLine, sectionBox, sectionHead, subLine } from "./workflow-page-styles";
 
 // Layer-3 drilldown for a single operational_queue.json item. Read-only consumer;
@@ -31,11 +39,31 @@ export function findQueueItem(
   return (doc?.queue ?? []).find((q) => q.id === id) ?? null;
 }
 
-async function fetchQueue(): Promise<OperationalQueueDoc | null> {
+export type QueueItemCampaignContext = {
+  id: string;
+  campaign: Campaign | null; // null = id absent from the campaigns.json feed
+  goalChain: CampaignGoalChain | null;
+};
+
+// Pure: resolve a queue item's campaign_id to read-only context using the existing
+// queue-id route's sibling feeds. Returns null when the item carries no campaign_id.
+// When campaign_id is present but absent from campaigns.json, returns campaign=null so
+// the UI shows a safe fallback (the id is authored truth; never a link, never a 404).
+export function resolveQueueItemCampaign(
+  campaignId: string | null | undefined,
+  campaignsDoc: CampaignsDoc | null,
+  goalsDoc: GoalsDoc | null,
+): QueueItemCampaignContext | null {
+  if (!campaignId) return null;
+  const campaign = campaignsDoc?.campaigns?.find((c) => c.id === campaignId) ?? null;
+  return { id: campaignId, campaign, goalChain: goalChainForCampaign(goalsDoc, campaignId) };
+}
+
+async function fetchJson<T>(path: string): Promise<T | null> {
   try {
-    const r = await fetch("/ops-data/operational_queue.json", { cache: "no-store" });
+    const r = await fetch(path, { cache: "no-store" });
     if (!r.ok) return null;
-    return (await r.json()) as OperationalQueueDoc;
+    return (await r.json()) as T;
   } catch {
     return null;
   }
@@ -45,14 +73,24 @@ export function OpsQueueItemPage() {
   const { id: rawId } = useParams<{ id: string }>();
   const id = rawId ? decodeURIComponent(rawId) : "";
   const [doc, setDoc] = useState<OperationalQueueDoc | null>(null);
+  const [campaigns, setCampaigns] = useState<CampaignsDoc | null>(null);
+  const [goals, setGoals] = useState<GoalsDoc | null>(null);
   const [state, setState] = useState<LoadState>("loading");
 
   useEffect(() => {
     let cancelled = false;
-    fetchQueue().then((d) => {
+    // Campaigns/goals are supplementary context — only the queue feed gates page
+    // state, so a missing campaigns.json degrades to no campaign block, not an error.
+    Promise.all([
+      fetchJson<OperationalQueueDoc>("/ops-data/operational_queue.json"),
+      fetchJson<CampaignsDoc>("/ops-data/campaigns.json"),
+      fetchJson<GoalsDoc>("/ops-data/goals.json"),
+    ]).then(([qd, cd, gd]) => {
       if (cancelled) return;
-      setDoc(d);
-      setState(d == null ? "error" : "ready");
+      setDoc(qd);
+      setCampaigns(cd);
+      setGoals(gd);
+      setState(qd == null ? "error" : "ready");
     });
     return () => {
       cancelled = true;
@@ -60,6 +98,7 @@ export function OpsQueueItemPage() {
   }, []);
 
   const q = state === "ready" ? findQueueItem(doc, id) : null;
+  const campaignCtx = resolveQueueItemCampaign(q?.campaign_id, campaigns, goals);
 
   return (
     <main
@@ -104,12 +143,18 @@ export function OpsQueueItemPage() {
         </div>
       )}
 
-      {state === "ready" && q && <QueueItemDetail q={q} />}
+      {state === "ready" && q && <QueueItemDetail q={q} campaign={campaignCtx} />}
     </main>
   );
 }
 
-function QueueItemDetail({ q }: { q: OperationalQueueItem }) {
+function QueueItemDetail({
+  q,
+  campaign,
+}: {
+  q: OperationalQueueItem;
+  campaign: QueueItemCampaignContext | null;
+}) {
   const sev = SEVERITY_LABEL[q.severity] ?? q.severity;
   return (
     <>
@@ -132,6 +177,40 @@ function QueueItemDetail({ q }: { q: OperationalQueueItem }) {
         <p style={subLine}><strong>טריות: </strong>{q.freshness}</p>
         {q.created_at ? <p style={subLine}><strong>נוצר: </strong>{q.created_at}</p> : null}
       </section>
+
+      {campaign && (
+        <section data-testid="section-campaign" style={sectionBox}>
+          <h2 style={sectionHead}>קמפיין מקור</h2>
+          <p style={bodyLine}>
+            <strong>מזהה: </strong>
+            <code style={{ fontSize: 12, direction: "ltr", unicodeBidi: "isolate", overflowWrap: "anywhere" }}>
+              {campaign.id}
+            </code>
+          </p>
+          {campaign.campaign ? (
+            <>
+              {campaign.campaign.owner_user ? (
+                <p style={subLine}><strong>בעלים: </strong>{campaign.campaign.owner_user}</p>
+              ) : null}
+              {campaign.campaign.status ? (
+                <p style={subLine}><strong>סטטוס: </strong>{campaign.campaign.status}</p>
+              ) : null}
+              {campaign.campaign.last_terminal_state ? (
+                <p style={subLine}><strong>מצב אחרון: </strong>{campaign.campaign.last_terminal_state}</p>
+              ) : null}
+            </>
+          ) : (
+            <p data-testid="section-campaign-fallback" style={subLine}>
+              פרטי הקמפיין אינם זמינים בעדכון הנוכחי.
+            </p>
+          )}
+          {campaign.goalChain ? (
+            <p data-testid="section-campaign-goal" style={subLine}>
+              <strong>למה: </strong>{campaign.goalChain.goal}
+            </p>
+          ) : null}
+        </section>
+      )}
 
       <section data-testid="section-why" style={sectionBox}>
         <h2 style={sectionHead}>למה זה חשוב</h2>

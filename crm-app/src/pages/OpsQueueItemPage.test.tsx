@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { findQueueItem } from "./OpsQueueItemPage";
-import type { OperationalQueueDoc } from "./OpsPage";
+import { findQueueItem, resolveQueueItemCampaign } from "./OpsQueueItemPage";
+import type { CampaignsDoc, GoalsDoc, OperationalQueueDoc } from "./OpsPage";
 
 const doc: OperationalQueueDoc = {
   queue: [
@@ -31,5 +31,39 @@ describe("findQueueItem", () => {
   it("returns null for unknown id or null doc", () => {
     expect(findQueueItem(doc, "nope")).toBeNull();
     expect(findQueueItem(null, "q1")).toBeNull();
+  });
+});
+
+describe("resolveQueueItemCampaign", () => {
+  const campaignsDoc: CampaignsDoc = {
+    campaigns: [{ id: "crm-lite-a4", owner_user: "devuserp", status: "SHIPPED" }],
+  };
+  const goalsDoc: GoalsDoc = {
+    campaigns: { "crm-lite-a4": { goal: "ship the rabbi daily agenda" } },
+  };
+
+  it("returns null when the item carries no campaign_id", () => {
+    expect(resolveQueueItemCampaign(null, campaignsDoc, goalsDoc)).toBeNull();
+    expect(resolveQueueItemCampaign(undefined, campaignsDoc, goalsDoc)).toBeNull();
+  });
+
+  it("resolves the campaign + authored goal when both feeds carry it", () => {
+    const ctx = resolveQueueItemCampaign("crm-lite-a4", campaignsDoc, goalsDoc);
+    expect(ctx?.id).toBe("crm-lite-a4");
+    expect(ctx?.campaign).toEqual({ id: "crm-lite-a4", owner_user: "devuserp", status: "SHIPPED" });
+    expect(ctx?.goalChain?.goal).toBe("ship the rabbi daily agenda");
+  });
+
+  it("safe fallback: campaign=null + goalChain=null when id absent from feeds (no broken link)", () => {
+    const ctx = resolveQueueItemCampaign("mayenotecha", campaignsDoc, goalsDoc);
+    expect(ctx).not.toBeNull();
+    expect(ctx?.id).toBe("mayenotecha");
+    expect(ctx?.campaign).toBeNull();
+    expect(ctx?.goalChain).toBeNull();
+  });
+
+  it("is null-safe for null campaigns/goals docs (id preserved, no goal)", () => {
+    const ctx = resolveQueueItemCampaign("crm-lite-a4", null, null);
+    expect(ctx).toEqual({ id: "crm-lite-a4", campaign: null, goalChain: null });
   });
 });
