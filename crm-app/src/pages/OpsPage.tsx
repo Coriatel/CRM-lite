@@ -98,7 +98,7 @@ type OwnerGateRow = {
   matched_decision?: string | null;
 };
 
-type OwnerGateStatusDoc = {
+export type OwnerGateStatusDoc = {
   _meta?: { generated_at?: string; error?: string };
   summary?: {
     open_gates?: number;

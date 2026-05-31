@@ -9,6 +9,7 @@ import {
 } from "../components/today/TodayWorkflowCard";
 import { LessonRunsCard } from "../components/today/LessonRunsCard";
 import { TodayBlockersCard } from "../components/today/TodayBlockersCard";
+import { TodayOwnerGatesCard } from "../components/today/TodayOwnerGatesCard";
 import { HealthPulseRow } from "../components/today/HealthPulseRow";
 import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 
@@ -79,6 +80,8 @@ export function TodayPage() {
       pressureChips={chips}
     >
       <HealthPulseRow />
+
+      <TodayOwnerGatesCard />
 
       <TodaySection title="תשומת לב" meta={attentionMeta(buckets)}>
         {error ? (
