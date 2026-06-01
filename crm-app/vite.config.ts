@@ -20,9 +20,9 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "CRM Phone - מרכז נשמה",
-        short_name: "CRM Phone",
-        description: "ניהול תורמים ואנשי קשר",
+        name: "מרכז נשמה — OPS",
+        short_name: "מרכז נשמה",
+        description: "מערכת התפעול של מרכז נשמה — תורמים, אנשי קשר, תורים ואוטומציות",
         theme_color: "#1a5f7a",
         background_color: "#ffffff",
         display: "standalone",

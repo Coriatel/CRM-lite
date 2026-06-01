@@ -47,8 +47,8 @@ export function LoginPage() {
                 <span style={{ fontSize: '48px' }}>📞</span>
             </div>
 
-            <h1 className="login-title">CRM Phone</h1>
-            <p className="login-subtitle">מרכז נשמה - ניהול תורמים</p>
+            <h1 className="login-title">מרכז נשמה — OPS</h1>
+            <p className="login-subtitle">מערכת התפעול של מרכז נשמה</p>
 
             {error && (
                 <div style={{
