@@ -7,6 +7,7 @@ import {
   type AttentionSynthesisDoc,
 } from "../components/ops/AttentionSynthesisCard";
 import { HybridBlockersCard } from "../components/ops/HybridBlockersCard";
+import { OpsSection } from "../components/ops/OpsSection";
 
 type ProjectRow = {
   key: string;
@@ -2356,74 +2357,89 @@ export function OpsPage() {
 
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
-      <AttentionSummaryCard
-        ownerGates={ownerGates}
-        activeIncidents={activeIncidents}
-        blockers={blockers}
-        freshness={freshness}
-        runtimeIssues={runtimeIssues}
-        pushIsolation={pushIsolation}
-        processes={processes}
-        dependencies={dependencies}
-        workflows={workflows}
-        orchestratorIntegrity={orchestratorIntegrity}
-        queueRoutes={queueRoutes}
-      />
+      {/* Section grouping (MN-OS Slice 1): tame the flat 28-card scroll into
+          progressive-disclosure sections, actionable-first. Every card + its
+          freshness badge is preserved; deep-infra section collapsed by default. */}
 
-      <CardFreshnessBadge file="attention_synthesis.json" freshness={freshness} />
-      <AttentionSynthesisCard doc={attentionSynthesis} />
+      <OpsSection title="נדרש עכשיו" defaultOpen>
+        <AttentionSummaryCard
+          ownerGates={ownerGates}
+          activeIncidents={activeIncidents}
+          blockers={blockers}
+          freshness={freshness}
+          runtimeIssues={runtimeIssues}
+          pushIsolation={pushIsolation}
+          processes={processes}
+          dependencies={dependencies}
+          workflows={workflows}
+          orchestratorIntegrity={orchestratorIntegrity}
+          queueRoutes={queueRoutes}
+        />
 
-      <CardFreshnessBadge file="runtime_governance_debt.json" freshness={freshness} />
-      <HybridBlockersCard doc={attentionSynthesis} />
+        <CardFreshnessBadge file="attention_synthesis.json" freshness={freshness} />
+        <AttentionSynthesisCard doc={attentionSynthesis} />
 
-      <CardFreshnessBadge file="operational_queue.json" freshness={freshness} />
-      <OperationalQueueCard
-        doc={operationalQueue}
-        routes={queueRoutes}
-        plan={queuePlan}
-        receipts={queueReceipts}
-        campaigns={campaigns}
-        goals={goals}
-      />
-      <RuntimeOrchestrationCard routes={queueRoutes} queue={operationalQueue} />
-      <ManagementCockpitCard doc={managementCockpit} />
-      <CardFreshnessBadge file="safe_swarm.json" freshness={freshness} />
-      <SafeSwarmCard doc={safeSwarm} />
-      <CardFreshnessBadge file="orchestrator_integrity.json" freshness={freshness} />
-      <OrchestratorIntegrityCard doc={orchestratorIntegrity} />
-      <CardFreshnessBadge file="producer_contract_violations.json" freshness={freshness} />
-      <ProducerHealthCard doc={producerHealth} />
-      <CardFreshnessBadge file="health.json" freshness={freshness} />
-      <HealthOverview health={health} />
-      <CardFreshnessBadge file="active_sessions.json" freshness={freshness} />
-      <ActiveSessionsCard doc={activeSessions} />
-      <DependenciesCard doc={dependencies} />
-      <CardFreshnessBadge file="workflows.json" freshness={freshness} />
-      <WorkflowsCard doc={workflows} />
-      <CardFreshnessBadge file="automation_runtime_inventory.json" freshness={freshness} />
-      <AutomationInventoryCard doc={automations} />
-      <LanesOverview lanes={lanes} />
-      <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
-      <CampaignsCard doc={campaigns} goalsDoc={goals} />
-      <ActionLauncherCard doc={campaigns} />
-      <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
-      <RecentMergesCard doc={recentMerges} />
-      <BlockersOverview blockers={blockers} />
-      <CardFreshnessBadge file="session_index.json" freshness={freshness} />
-      <ActiveIncidentsCard incidents={activeIncidents} />
-      <CardFreshnessBadge file="session_index.json" freshness={freshness} />
-      <OwnerGatesCard gates={ownerGates} />
-      <CardFreshnessBadge file="owner_gate_status.json" freshness={freshness} />
-      <OwnerGateQueueCard statusDoc={gateStatus} decisionsDoc={gateDecisions} />
-      <ProcessesCard doc={processes} />
-      <PushIsolationCard snap={pushIsolation} />
-      <CardFreshnessBadge file="runtime-continuity.json" freshness={freshness} />
-      <RuntimeContinuityMetricsCard doc={runtimeContinuity} />
-      <CardFreshnessBadge file="handoffs_index.json" freshness={freshness} />
-      <RuntimeContinuityCard doc={handoffs} />
-      <HandoffsCard doc={handoffs} />
-      <CardFreshnessBadge file="runtime-issues.json" freshness={freshness} />
-      <RuntimeIssuesCard doc={runtimeIssues} />
+        <CardFreshnessBadge file="runtime_governance_debt.json" freshness={freshness} />
+        <HybridBlockersCard doc={attentionSynthesis} />
+
+        <CardFreshnessBadge file="operational_queue.json" freshness={freshness} />
+        <OperationalQueueCard
+          doc={operationalQueue}
+          routes={queueRoutes}
+          plan={queuePlan}
+          receipts={queueReceipts}
+          campaigns={campaigns}
+          goals={goals}
+        />
+
+        <CardFreshnessBadge file="session_index.json" freshness={freshness} />
+        <OwnerGatesCard gates={ownerGates} />
+        <CardFreshnessBadge file="owner_gate_status.json" freshness={freshness} />
+        <OwnerGateQueueCard statusDoc={gateStatus} decisionsDoc={gateDecisions} />
+
+        <CardFreshnessBadge file="session_index.json" freshness={freshness} />
+        <ActiveIncidentsCard incidents={activeIncidents} />
+        <BlockersOverview blockers={blockers} />
+
+        <CardFreshnessBadge file="runtime-issues.json" freshness={freshness} />
+        <RuntimeIssuesCard doc={runtimeIssues} />
+      </OpsSection>
+
+      <OpsSection title="אוטומציות ותהליכים" defaultOpen>
+        <CardFreshnessBadge file="workflows.json" freshness={freshness} />
+        <WorkflowsCard doc={workflows} />
+        <CardFreshnessBadge file="automation_runtime_inventory.json" freshness={freshness} />
+        <AutomationInventoryCard doc={automations} />
+        <ProcessesCard doc={processes} />
+        <ActionLauncherCard doc={campaigns} />
+        <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
+        <CampaignsCard doc={campaigns} goalsDoc={goals} />
+        <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
+        <RecentMergesCard doc={recentMerges} />
+      </OpsSection>
+
+      <OpsSection title="בריאות מערכת וזמן-ריצה" defaultOpen={false}>
+        <ManagementCockpitCard doc={managementCockpit} />
+        <RuntimeOrchestrationCard routes={queueRoutes} queue={operationalQueue} />
+        <CardFreshnessBadge file="safe_swarm.json" freshness={freshness} />
+        <SafeSwarmCard doc={safeSwarm} />
+        <CardFreshnessBadge file="orchestrator_integrity.json" freshness={freshness} />
+        <OrchestratorIntegrityCard doc={orchestratorIntegrity} />
+        <CardFreshnessBadge file="producer_contract_violations.json" freshness={freshness} />
+        <ProducerHealthCard doc={producerHealth} />
+        <CardFreshnessBadge file="health.json" freshness={freshness} />
+        <HealthOverview health={health} />
+        <CardFreshnessBadge file="active_sessions.json" freshness={freshness} />
+        <ActiveSessionsCard doc={activeSessions} />
+        <DependenciesCard doc={dependencies} />
+        <LanesOverview lanes={lanes} />
+        <PushIsolationCard snap={pushIsolation} />
+        <CardFreshnessBadge file="runtime-continuity.json" freshness={freshness} />
+        <RuntimeContinuityMetricsCard doc={runtimeContinuity} />
+        <CardFreshnessBadge file="handoffs_index.json" freshness={freshness} />
+        <RuntimeContinuityCard doc={handoffs} />
+        <HandoffsCard doc={handoffs} />
+      </OpsSection>
 
       {rows.length === 0 && !loadError && (
         <div style={emptyBox}>אין פרויקטים — האם <code>state/projects.json</code> ריק?</div>
