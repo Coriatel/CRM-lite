@@ -1,7 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Users,
-  LayoutDashboard,
+  Activity,
   Filter,
   MoreHorizontal,
   CalendarClock,
@@ -22,7 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/today", label: "היום", icon: CalendarClock, action: "navigate" },
   { path: "/rabbi", label: "הרב", icon: UserRound, action: "navigate" },
   { path: "/", label: "אנשי קשר", icon: Users, action: "navigate" },
-  { path: "/dashboard", label: "לוח בקרה", icon: LayoutDashboard, action: "navigate" },
+  { path: "/ops", label: "מערכת", icon: Activity, action: "navigate" },
   { path: "/filter", label: "סינון", icon: Filter, action: "filter" },
   { path: "/more", label: "עוד", icon: MoreHorizontal, action: "more" },
 ];
