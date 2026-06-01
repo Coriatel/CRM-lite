@@ -1,8 +1,18 @@
 import { useState } from "react";
-import { UserRound, RefreshCw, Phone, MessageCircle, Check } from "lucide-react";
+import { UserRound, RefreshCw, Phone, MessageCircle, Check, AlarmClock } from "lucide-react";
 import { usePeopleWaiting } from "../../data/usePeopleWaiting";
 import { normalizeIsraeliPhone } from "../../services/phoneUtils";
 import { updateContact, type DirectusContact } from "../../services/directus";
+
+const SNOOZE_DAYS = 7;
+
+/** Today + n days as YYYY-MM-DD (tz-safe local). */
+function datePlusDays(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+}
 
 /**
  * People Waiting card (RPOS Phase 1 top-card "people waiting for contact").
@@ -78,10 +88,12 @@ function ActionButton({
 function PersonRow({
   person,
   onHandled,
+  onSnooze,
   busy,
 }: {
   person: DirectusContact;
   onHandled: () => void;
+  onSnooze: () => void;
   busy: boolean;
 }) {
   const phone = normalizeIsraeliPhone(person.phone_e164 || person.phone_raw);
@@ -147,6 +159,30 @@ function PersonRow({
       )}
       <button
         type="button"
+        data-testid="people-waiting-snooze"
+        onClick={onSnooze}
+        disabled={busy}
+        aria-label={`דחה מעקב בשבוע — ${person.full_name || "איש קשר"}`}
+        title={`דחה מעקב ב-${SNOOZE_DAYS} ימים`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 44,
+          minHeight: 44,
+          background: "none",
+          border: "1px solid var(--color-border)",
+          borderRadius: 999,
+          color: "var(--color-text-secondary)",
+          cursor: busy ? "wait" : "pointer",
+          opacity: busy ? 0.6 : 1,
+          flexShrink: 0,
+        }}
+      >
+        <AlarmClock size={16} />
+      </button>
+      <button
+        type="button"
         data-testid="people-waiting-handled"
         onClick={onHandled}
         disabled={busy}
@@ -185,6 +221,21 @@ export function PeopleWaitingCard() {
     setActionError(null);
     try {
       await updateContact(id, { follow_up_date: null } as Record<string, unknown>);
+      refresh();
+    } catch {
+      setActionError("עדכון נכשל");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Snooze: push the follow-up out by a week so it leaves today's list but
+  // isn't lost (the quick complement to the full reschedule in ScheduleFollowUp).
+  async function handleSnooze(id: string) {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      await updateContact(id, { follow_up_date: datePlusDays(SNOOZE_DAYS) } as Record<string, unknown>);
       refresh();
     } catch {
       setActionError("עדכון נכשל");
@@ -255,6 +306,7 @@ export function PeopleWaitingCard() {
               person={p}
               busy={busyId === p.id}
               onHandled={() => handleHandled(p.id)}
+              onSnooze={() => handleSnooze(p.id)}
             />
           ))}
         </ul>

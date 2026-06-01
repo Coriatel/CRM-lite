@@ -93,4 +93,17 @@ describe("PeopleWaitingCard", () => {
     await waitFor(() => expect(updateContact).toHaveBeenCalledWith("c9", { follow_up_date: null }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
+
+  it("snoozing pushes follow_up_date out by a week (future date) and refreshes", async () => {
+    updateContact.mockResolvedValue({});
+    const refresh = vi.fn();
+    state({ people: [person({ id: "c9" })], refresh });
+    render(<PeopleWaitingCard />);
+    fireEvent.click(screen.getByTestId("people-waiting-snooze"));
+    await waitFor(() => expect(updateContact).toHaveBeenCalledTimes(1));
+    const arg = updateContact.mock.calls[0][1] as { follow_up_date: string };
+    const today = new Date().toISOString().slice(0, 10);
+    expect(arg.follow_up_date > today).toBe(true); // strictly future
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
 });
