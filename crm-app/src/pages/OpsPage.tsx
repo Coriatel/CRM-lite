@@ -2225,6 +2225,7 @@ export function OpsPage() {
   const [managementCockpit, setManagementCockpit] =
     useState<ManagementCockpitDoc | null>(null);
   const [safeSwarm, setSafeSwarm] = useState<SafeSwarmDoc | null>(null);
+  const [harnessRun, setHarnessRun] = useState<HarnessRunDoc | null>(null);
   const [orchestratorIntegrity, setOrchestratorIntegrity] =
     useState<OrchestratorIntegrityDoc | null>(null);
   const [producerHealth, setProducerHealth] =
@@ -2240,7 +2241,7 @@ export function OpsPage() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls, hr] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -2271,6 +2272,7 @@ export function OpsPage() {
         fetchJson<OwnerGateDecisionsDoc>("/ops-data/owner_gate_decisions.json"),
         fetchJson<AutomationInventoryDoc>("/ops-data/automation_runtime_inventory.json"),
         fetchJson<GoalsDoc>("/ops-data/goals.json"),
+        fetchJson<HarnessRunDoc>("/ops-data/harness_run.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -2308,6 +2310,7 @@ export function OpsPage() {
       setGateDecisions(gdc ?? null);
       setAutomations(autoInv ?? null);
       setGoals(gls ?? null);
+      setHarnessRun(hr ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -2412,7 +2415,7 @@ export function OpsPage() {
         <AutomationInventoryCard doc={automations} />
         <ProcessesCard doc={processes} />
         <ActionLauncherCard doc={campaigns} />
-        <HarnessControlCard />
+        <HarnessControlCard doc={harnessRun} />
         <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
         <CampaignsCard doc={campaigns} goalsDoc={goals} />
         <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
@@ -3141,7 +3144,27 @@ export function buildHarnessPlayCommand(
 // no backend, and live execution would need a daemon/service (forbidden). Safe
 // dry-run is the default; the annotate (write-back) form is behind an advanced
 // disclosure and marked as a billing decision. No execution, no new state.
-function HarnessControlCard() {
+export type HarnessRunDoc = {
+  _meta?: {
+    generated_default?: boolean;
+    source?: string;
+    generated_at?: string;
+  } | null;
+  last_run: {
+    started_at?: string;
+    finished_at?: string;
+    final_decision?: string;
+    dispatched?: number;
+    continue_count?: number;
+    stop_reason?: string;
+    scope?: { campaign_id?: string | null; item_ids?: string[] } | null;
+    evidence?: { summary_path?: string; iterations?: number } | null;
+  } | null;
+  next_action: { code?: string; text?: string } | null;
+  health?: { status?: string; reasons?: string[] } | null;
+};
+
+export function HarnessControlCard({ doc }: { doc: HarnessRunDoc | null }) {
   const [copied, setCopied] = useState<HarnessPlayMode | null>(null);
   const copy = (mode: HarnessPlayMode) => {
     const text = buildHarnessPlayCommand({ mode });
@@ -3228,11 +3251,72 @@ function HarnessControlCard() {
         </pre>
       </details>
 
-      <div style={{ ...subLine, marginTop: 8 }}>
-        סיכום הריצה נכתב ל-<code>--summary-out</code> (run artifact). הצגת הסיכום החי ב-/ops תלויה
-        בפרויקציה ייעודית שטרם נכתבה (Lane B).
-      </div>
+      <HarnessLastRun doc={doc} />
     </section>
+  );
+}
+
+// Honest "last run" surface: renders the latest harness_run.json projection, or a
+// truthful "no run observed yet" state when the envelope is a generated_default
+// (last_run === null). No fabricated run is ever shown.
+function HarnessLastRun({ doc }: { doc: HarnessRunDoc | null }) {
+  const lastRun = doc?.last_run ?? null;
+  const labelStyle: React.CSSProperties = { color: "#737373", marginInlineEnd: 6 };
+  const evidencePath = lastRun?.evidence?.summary_path ?? null;
+
+  if (lastRun === null) {
+    return (
+      <div data-testid="harness-last-run" style={{ ...subLine, marginTop: 8 }}>
+        טרם נצפתה ריצה — <code>harness_run.json</code>
+        {doc?._meta?.generated_default ? " (ברירת מחדל בטוחה, לא הורצה לולאה)" : " לא זמין"}.
+        הרץ את הפקודה למעלה כדי לייצר סיכום ריצה.
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid="harness-last-run" style={{ marginTop: 8 }}>
+      <div style={{ fontWeight: 600, color: "#171717", fontSize: 13, marginBottom: 4 }}>
+        ריצה אחרונה
+      </div>
+      <div style={subLine}>
+        <span style={labelStyle}>החלטה:</span>
+        <code>{lastRun.final_decision ?? "—"}</code>
+        <span style={{ ...labelStyle, marginInlineStart: 12 }}>נשלחו:</span>
+        {lastRun.dispatched ?? 0}
+        {typeof lastRun.continue_count === "number" ? (
+          <>
+            <span style={{ ...labelStyle, marginInlineStart: 12 }}>המשך:</span>
+            {lastRun.continue_count}
+          </>
+        ) : null}
+      </div>
+      {lastRun.started_at ? (
+        <div style={subLine}>
+          <span style={labelStyle}>התחילה:</span>
+          <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>{lastRun.started_at}</span>
+        </div>
+      ) : null}
+      {evidencePath ? (
+        <div style={subLine}>
+          <span style={labelStyle}>ראיה:</span>
+          <code style={{ direction: "ltr", unicodeBidi: "isolate", overflowWrap: "anywhere" }}>
+            {evidencePath}
+          </code>
+        </div>
+      ) : null}
+      {doc?.next_action?.text ? (
+        <div style={{ ...subLine, marginTop: 4 }}>
+          <span style={labelStyle}>המלצה הבאה:</span>
+          {doc.next_action.text}
+        </div>
+      ) : null}
+      {doc?._meta?.source ? (
+        <div style={{ ...subLine, color: "#a3a3a3", fontSize: 11, marginTop: 4 }}>
+          {doc._meta.source}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
