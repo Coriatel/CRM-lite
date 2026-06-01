@@ -1,16 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { DailyAgenda, AgendaItem, AgendaBucket } from "../../data/dailyAgenda";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { DailyAgenda, AgendaItem, AgendaBucket, AgendaItemKind } from "../../data/dailyAgenda";
 
 const useDailyAgenda = vi.fn();
 vi.mock("../../data/useDailyAgenda", () => ({
   useDailyAgenda: () => useDailyAgenda(),
 }));
 
+const updateMeeting = vi.fn();
+const updateReminder = vi.fn();
+vi.mock("../../services/directus", () => ({
+  updateMeeting: (...a: unknown[]) => updateMeeting(...a),
+  updateReminder: (...a: unknown[]) => updateReminder(...a),
+}));
+
 import { RabbiDayCard } from "../dashboard/RabbiDayCard";
 
-function aitem(id: string, bucket: AgendaBucket, due: string, title = id): AgendaItem {
-  return { id, kind: "follow_up", title, due, bucket, contact_id: id };
+function aitem(
+  id: string,
+  bucket: AgendaBucket,
+  due: string,
+  title = id,
+  kind: AgendaItemKind = "follow_up",
+): AgendaItem {
+  return { id, kind, title, due, bucket, contact_id: id };
 }
 
 function agenda(over: Partial<DailyAgenda> = {}): DailyAgenda {
@@ -34,7 +47,11 @@ function agenda(over: Partial<DailyAgenda> = {}): DailyAgenda {
   };
 }
 
-beforeEach(() => useDailyAgenda.mockReset());
+beforeEach(() => {
+  useDailyAgenda.mockReset();
+  updateMeeting.mockReset().mockResolvedValue({ id: "x" });
+  updateReminder.mockReset().mockResolvedValue({ id: "x" });
+});
 
 describe("RabbiDayCard", () => {
   it("shows loading state", () => {
@@ -89,5 +106,52 @@ describe("RabbiDayCard", () => {
     expect(rows.length).toBe(5);
     // most-urgent ordering: first row is an overdue item
     expect(rows[0].textContent).toContain("o1");
+  });
+
+  it("shows a mark-done action only on meeting/reminder rows, not follow-up rows", () => {
+    const a = agenda({
+      today: [
+        aitem("follow_up:c1", "today", "2026-05-29", "מעקב", "follow_up"),
+        aitem("meeting:m1", "today", "2026-05-29", "פגישה", "meeting"),
+        aitem("reminder:r1", "today", "2026-05-29", "תזכורת", "reminder"),
+      ],
+    });
+    useDailyAgenda.mockReturnValue({ agenda: a, loading: false, error: null, refresh: () => {} });
+    render(<RabbiDayCard />);
+    // only the meeting + reminder rows expose the button (follow_up does not)
+    expect(screen.getAllByTestId("rabbi-day-mark-done").length).toBe(2);
+  });
+
+  it("marks a meeting done via updateMeeting (raw id, status=done) then refreshes", async () => {
+    const refresh = vi.fn();
+    const a = agenda({
+      today: [aitem("meeting:m-uuid", "today", "2026-05-29", "פגישה", "meeting")],
+    });
+    useDailyAgenda.mockReturnValue({ agenda: a, loading: false, error: null, refresh });
+    render(<RabbiDayCard />);
+    fireEvent.click(screen.getByTestId("rabbi-day-mark-done"));
+    await waitFor(() => expect(updateMeeting).toHaveBeenCalledWith("m-uuid", { status: "done" }));
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("marks a reminder done via updateReminder", async () => {
+    const a = agenda({
+      today: [aitem("reminder:r-uuid", "today", "2026-05-29", "תזכורת", "reminder")],
+    });
+    useDailyAgenda.mockReturnValue({ agenda: a, loading: false, error: null, refresh: () => {} });
+    render(<RabbiDayCard />);
+    fireEvent.click(screen.getByTestId("rabbi-day-mark-done"));
+    await waitFor(() => expect(updateReminder).toHaveBeenCalledWith("r-uuid", { status: "done" }));
+  });
+
+  it("surfaces an error when the status update fails", async () => {
+    updateMeeting.mockRejectedValueOnce(new Error("boom"));
+    const a = agenda({
+      today: [aitem("meeting:m1", "today", "2026-05-29", "פגישה", "meeting")],
+    });
+    useDailyAgenda.mockReturnValue({ agenda: a, loading: false, error: null, refresh: () => {} });
+    render(<RabbiDayCard />);
+    fireEvent.click(screen.getByTestId("rabbi-day-mark-done"));
+    await waitFor(() => expect(screen.getByTestId("rabbi-day-action-error")).toBeTruthy());
   });
 });

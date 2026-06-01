@@ -1,17 +1,30 @@
 import { useState } from "react";
 import { X, ShieldAlert } from "lucide-react";
-import { createMeeting, type MeetingStatus } from "../../services/directus";
+import {
+  createMeeting,
+  updateMeeting,
+  type DirectusMeeting,
+  type MeetingStatus,
+  type ItemScope,
+} from "../../services/directus";
 import { useAuth } from "../../contexts/AuthContext";
 
 interface MeetingFormProps {
   onClose: () => void;
   onCreated?: () => void;
+  /** When provided, the form edits this row (PATCH) instead of creating one. */
+  editing?: DirectusMeeting;
 }
 
 const STATUSES: { value: MeetingStatus; label: string }[] = [
   { value: "scheduled", label: "מתוכננת" },
   { value: "done", label: "התקיימה" },
   { value: "cancelled", label: "בוטלה" },
+];
+
+const SCOPES: { value: ItemScope; label: string }[] = [
+  { value: "private", label: "פרטי לרב" },
+  { value: "amuta", label: "עמותה / מרכז נשמה" },
 ];
 
 function nowLocalInput(): string {
@@ -22,13 +35,32 @@ function nowLocalInput(): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-export function MeetingForm({ onClose, onCreated }: MeetingFormProps) {
+/** ISO datetime -> local "YYYY-MM-DDTHH:mm" for a datetime-local input. */
+function isoToLocalInput(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
+}
+
+export function MeetingForm({ onClose, onCreated, editing }: MeetingFormProps) {
   const { user } = useAuth();
-  const [title, setTitle] = useState("");
-  const [startsAt, setStartsAt] = useState(nowLocalInput());
-  const [endsAt, setEndsAt] = useState("");
-  const [location, setLocation] = useState("");
-  const [status, setStatus] = useState<MeetingStatus>("scheduled");
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [startsAt, setStartsAt] = useState(
+    editing ? isoToLocalInput(editing.starts_at) : nowLocalInput(),
+  );
+  const [endsAt, setEndsAt] = useState(
+    editing?.ends_at ? isoToLocalInput(editing.ends_at) : "",
+  );
+  const [location, setLocation] = useState(editing?.location ?? "");
+  const [status, setStatus] = useState<MeetingStatus>(
+    editing?.status ?? "scheduled",
+  );
+  const [scope, setScope] = useState<ItemScope>(editing?.scope ?? "private");
+  // notes is never read into this surface (privacy) — start blank in edit mode;
+  // an empty notes field is NOT sent on update, so existing notes are preserved.
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,20 +73,34 @@ export function MeetingForm({ onClose, onCreated }: MeetingFormProps) {
     setSaving(true);
     setError(null);
     try {
-      await createMeeting({
-        title: title.trim(),
-        starts_at: new Date(startsAt).toISOString(),
-        ends_at: endsAt ? new Date(endsAt).toISOString() : null,
-        location: location.trim() || null,
-        status,
-        owner_id: user?.uid ?? null,
-        notes: notes.trim() || null,
-      });
+      if (editing) {
+        await updateMeeting(editing.id, {
+          title: title.trim(),
+          starts_at: new Date(startsAt).toISOString(),
+          ends_at: endsAt ? new Date(endsAt).toISOString() : null,
+          location: location.trim() || null,
+          status,
+          scope,
+          // only overwrite notes when the rabbi typed a new one
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+        });
+      } else {
+        await createMeeting({
+          title: title.trim(),
+          starts_at: new Date(startsAt).toISOString(),
+          ends_at: endsAt ? new Date(endsAt).toISOString() : null,
+          location: location.trim() || null,
+          status,
+          scope,
+          owner_id: user?.uid ?? null,
+          notes: notes.trim() || null,
+        });
+      }
       onCreated?.();
       onClose();
     } catch (err) {
-      console.error("Error creating meeting");
-      setError("שגיאה ביצירת הפגישה");
+      console.error(editing ? "Error updating meeting" : "Error creating meeting");
+      setError(editing ? "שגיאה בעדכון הפגישה" : "שגיאה ביצירת הפגישה");
     } finally {
       setSaving(false);
     }
@@ -64,7 +110,7 @@ export function MeetingForm({ onClose, onCreated }: MeetingFormProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>פגישה חדשה</h2>
+          <h2>{editing ? "עריכת פגישה" : "פגישה חדשה"}</h2>
           <button className="btn btn-icon btn-outline" onClick={onClose}>
             <X size={20} />
           </button>
@@ -130,6 +176,23 @@ export function MeetingForm({ onClose, onCreated }: MeetingFormProps) {
           </div>
 
           <div className="form-group">
+            <label className="form-label">שיוך</label>
+            <select
+              className="form-input"
+              data-testid="meeting-scope"
+              value={scope}
+              onChange={(e) => setScope(e.target.value as ItemScope)}
+              style={{ minHeight: 44 }}
+            >
+              {SCOPES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
             <label className="form-label">הערות</label>
             <div
               style={{
@@ -142,7 +205,11 @@ export function MeetingForm({ onClose, onCreated }: MeetingFormProps) {
               }}
             >
               <ShieldAlert size={14} />
-              <span>הערות פרטיות – לא מוצגות בסדר היום</span>
+              <span>
+                {editing
+                  ? "הערות פרטיות – השאר ריק כדי לא לשנות הערה קיימת"
+                  : "הערות פרטיות – לא מוצגות בסדר היום"}
+              </span>
             </div>
             <textarea
               className="form-input"
@@ -164,7 +231,7 @@ export function MeetingForm({ onClose, onCreated }: MeetingFormProps) {
             ביטול
           </button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? "שומר…" : "שמירה"}
+            {saving ? "שומר…" : editing ? "עדכון" : "שמירה"}
           </button>
         </div>
       </div>

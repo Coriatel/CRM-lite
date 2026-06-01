@@ -1,7 +1,9 @@
-import { CalendarClock, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { CalendarClock, RefreshCw, Check } from "lucide-react";
 import { useDailyAgenda } from "../../data/useDailyAgenda";
 import type { AgendaBucket, AgendaItem } from "../../data/dailyAgenda";
 import { ScheduleQuickAdd } from "../schedule/ScheduleQuickAdd";
+import { updateMeeting, updateReminder } from "../../services/directus";
 
 /**
  * Rabbi daily agenda surface (A4). Self-contained: owns its `useDailyAgenda`
@@ -48,7 +50,20 @@ function CountStat({ bucket, n }: { bucket: AgendaBucket; n: number }) {
   );
 }
 
-function ItemRow({ item }: { item: AgendaItem }) {
+/** Only meetings/reminders own a writable status lifecycle via this card. */
+function isMarkable(item: AgendaItem): boolean {
+  return item.kind === "meeting" || item.kind === "reminder";
+}
+
+function ItemRow({
+  item,
+  onMarkDone,
+  busy,
+}: {
+  item: AgendaItem;
+  onMarkDone?: () => void;
+  busy?: boolean;
+}) {
   return (
     <li
       data-testid="rabbi-day-item"
@@ -88,6 +103,32 @@ function ItemRow({ item }: { item: AgendaItem }) {
       >
         {shortDate(item.due)}
       </span>
+      {onMarkDone && (
+        <button
+          type="button"
+          data-testid="rabbi-day-mark-done"
+          onClick={onMarkDone}
+          disabled={busy}
+          aria-label="סמן כבוצע"
+          title="סמן כבוצע"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minWidth: 44,
+            minHeight: 44,
+            background: "none",
+            border: "1px solid var(--color-border)",
+            borderRadius: 999,
+            color: "var(--color-primary)",
+            cursor: busy ? "wait" : "pointer",
+            opacity: busy ? 0.6 : 1,
+            flexShrink: 0,
+          }}
+        >
+          <Check size={16} />
+        </button>
+      )}
     </li>
   );
 }
@@ -99,10 +140,29 @@ function ItemRow({ item }: { item: AgendaItem }) {
  */
 export function RabbiDayCard({ hideHeading = false }: { hideHeading?: boolean } = {}) {
   const { agenda, loading, error, refresh } = useDailyAgenda();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const urgent = agenda
     ? [...agenda.overdue, ...agenda.today, ...agenda.upcoming].slice(0, MAX_ITEMS)
     : [];
+
+  // Status lifecycle (A7): mark a meeting/reminder done from the agenda. The
+  // agenda id is namespaced (`meeting:<uuid>`); strip the prefix for the PATCH.
+  async function handleMarkDone(item: AgendaItem) {
+    const rawId = item.id.slice(item.id.indexOf(":") + 1);
+    setBusyId(item.id);
+    setActionError(null);
+    try {
+      if (item.kind === "meeting") await updateMeeting(rawId, { status: "done" });
+      else if (item.kind === "reminder") await updateReminder(rawId, { status: "done" });
+      refresh();
+    } catch {
+      setActionError("עדכון הסטטוס נכשל");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <section className="card" data-testid="rabbi-day-card" style={{ marginBottom: "var(--spacing-md)" }}>
@@ -164,9 +224,24 @@ export function RabbiDayCard({ hideHeading = false }: { hideHeading?: boolean } 
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
               {urgent.map((item) => (
-                <ItemRow key={item.id} item={item} />
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  busy={busyId === item.id}
+                  onMarkDone={
+                    isMarkable(item) ? () => handleMarkDone(item) : undefined
+                  }
+                />
               ))}
             </ul>
+          )}
+          {actionError && (
+            <p
+              data-testid="rabbi-day-action-error"
+              style={{ color: "var(--color-danger)", fontSize: 13, margin: "8px 0 0" }}
+            >
+              {actionError}
+            </p>
           )}
         </>
       )}
