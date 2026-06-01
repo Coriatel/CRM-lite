@@ -1,7 +1,8 @@
-import { UserRound, RefreshCw, Phone, MessageCircle } from "lucide-react";
+import { useState } from "react";
+import { UserRound, RefreshCw, Phone, MessageCircle, Check } from "lucide-react";
 import { usePeopleWaiting } from "../../data/usePeopleWaiting";
 import { normalizeIsraeliPhone } from "../../services/phoneUtils";
-import type { DirectusContact } from "../../services/directus";
+import { updateContact, type DirectusContact } from "../../services/directus";
 
 /**
  * People Waiting card (RPOS Phase 1 top-card "people waiting for contact").
@@ -74,7 +75,15 @@ function ActionButton({
   );
 }
 
-function PersonRow({ person }: { person: DirectusContact }) {
+function PersonRow({
+  person,
+  onHandled,
+  busy,
+}: {
+  person: DirectusContact;
+  onHandled: () => void;
+  busy: boolean;
+}) {
   const phone = normalizeIsraeliPhone(person.phone_e164 || person.phone_raw);
   const waNumber = phone.replace(/^\+/, "");
   const hasPhone = phone.length >= 10;
@@ -136,12 +145,53 @@ function PersonRow({ person }: { person: DirectusContact }) {
           אין טלפון
         </span>
       )}
+      <button
+        type="button"
+        data-testid="people-waiting-handled"
+        onClick={onHandled}
+        disabled={busy}
+        aria-label={`סמן שטופל — ${person.full_name || "איש קשר"}`}
+        title="טופל (הסר מהרשימה)"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 44,
+          minHeight: 44,
+          background: "none",
+          border: "1px solid var(--color-border)",
+          borderRadius: 999,
+          color: "var(--color-text-secondary)",
+          cursor: busy ? "wait" : "pointer",
+          opacity: busy ? 0.6 : 1,
+          flexShrink: 0,
+        }}
+      >
+        <Check size={16} />
+      </button>
     </li>
   );
 }
 
 export function PeopleWaitingCard() {
   const { people, loading, error, refresh } = usePeopleWaiting();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // "Handled": after the Rabbi makes contact, clear follow_up_date so the
+  // person drops off the waiting list (and the agenda). The note is preserved.
+  async function handleHandled(id: string) {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      await updateContact(id, { follow_up_date: null } as Record<string, unknown>);
+      refresh();
+    } catch {
+      setActionError("עדכון נכשל");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <section
@@ -200,10 +250,20 @@ export function PeopleWaitingCard() {
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {people.slice(0, MAX_ROWS).map((p) => (
-            <PersonRow key={p.id} person={p} />
+            <PersonRow
+              key={p.id}
+              person={p}
+              busy={busyId === p.id}
+              onHandled={() => handleHandled(p.id)}
+            />
           ))}
         </ul>
       )}
+      {actionError ? (
+        <p data-testid="people-waiting-action-error" style={{ color: "var(--color-danger)", fontSize: 13, margin: "8px 0 0" }}>
+          {actionError}
+        </p>
+      ) : null}
     </section>
   );
 }

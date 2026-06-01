@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { DirectusContact } from "../../services/directus";
 
 const usePeopleWaiting = vi.fn();
 vi.mock("../../data/usePeopleWaiting", () => ({
   usePeopleWaiting: () => usePeopleWaiting(),
+}));
+
+const updateContact = vi.fn();
+vi.mock("../../services/directus", () => ({
+  updateContact: (...a: unknown[]) => updateContact(...a),
 }));
 
 import { PeopleWaitingCard } from "../dashboard/PeopleWaitingCard";
@@ -77,5 +82,15 @@ describe("PeopleWaitingCard", () => {
     render(<PeopleWaitingCard />);
     expect(screen.queryByTestId("people-waiting-call")).toBeNull();
     expect(screen.getByText("אין טלפון")).toBeTruthy();
+  });
+
+  it("marking handled clears follow_up_date via updateContact and refreshes", async () => {
+    updateContact.mockResolvedValue({});
+    const refresh = vi.fn();
+    state({ people: [person({ id: "c9" })], refresh });
+    render(<PeopleWaitingCard />);
+    fireEvent.click(screen.getByTestId("people-waiting-handled"));
+    await waitFor(() => expect(updateContact).toHaveBeenCalledWith("c9", { follow_up_date: null }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 });
