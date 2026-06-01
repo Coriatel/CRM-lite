@@ -2412,6 +2412,7 @@ export function OpsPage() {
         <AutomationInventoryCard doc={automations} />
         <ProcessesCard doc={processes} />
         <ActionLauncherCard doc={campaigns} />
+        <HarnessControlCard />
         <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
         <CampaignsCard doc={campaigns} goalsDoc={goals} />
         <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
@@ -3094,6 +3095,145 @@ export function buildResumePrompt(c: Campaign, reasoning = "high"): string {
   ]
     .filter((l) => l !== null)
     .join("\n");
+}
+
+export type HarnessPlayMode = "dry-run" | "annotate";
+
+// Pure: build the documented, copy-paste-ready CLI command that runs the shipped
+// MN-OS campaign-advance loop (campaign_advance_loop.py) for one bounded pass.
+// TEXT only — observability-safe; this NEVER executes anything. /ops is a
+// read-only static SPA with no backend, so the operator runs the command in a
+// terminal himself. This is the "Play" affordance: a documented invocation path,
+// not a live trigger.
+//
+// Default mode "dry-run" mutates nothing — the loop only materializes and selects
+// the next runnable packet; it never invokes the executor, so --worker-cmd is
+// inert. Mode "annotate" escalates to a real bounded run that records each
+// dispatched item as an append-only queue_actions event (the canonical
+// write-back folded into operational queue state). Per the loop's own contract it
+// never hardcodes a paid worker — choosing one is a billing decision — so the
+// annotate template leaves the worker as a placeholder for the operator.
+export function buildHarnessPlayCommand(
+  opts: { claimantId?: string; mode?: HarnessPlayMode; maxIterations?: number } = {},
+): string {
+  const claimant =
+    opts.claimantId && opts.claimantId.trim() ? opts.claimantId.trim() : "<your-session-id>";
+  const mode = opts.mode ?? "dry-run";
+  const maxIter = Math.min(5, Math.max(1, Math.trunc(opts.maxIterations ?? 1)));
+  const lines = [
+    "cd /srv/ops-vault/automation-registry/scripts && \\",
+    "python3 campaign_advance_loop.py \\",
+    `  --claimant-id ${claimant} \\`,
+    `  --worker-cmd ${mode === "dry-run" ? "true" : "<safe-local-worker-cmd>"} \\`,
+    `  --max-iterations ${maxIter} \\`,
+  ];
+  if (mode === "dry-run") {
+    lines.push("  --dry-run \\");
+  } else {
+    lines.push("  --state-update annotate \\");
+  }
+  lines.push("  --summary-out /tmp/harness-run.json");
+  return lines.join("\n");
+}
+
+// Read-only Control Tower for the shipped campaign-advance loop. Surfaces the
+// documented Play command (copy + preview) rather than a live button — /ops has
+// no backend, and live execution would need a daemon/service (forbidden). Safe
+// dry-run is the default; the annotate (write-back) form is behind an advanced
+// disclosure and marked as a billing decision. No execution, no new state.
+function HarnessControlCard() {
+  const [copied, setCopied] = useState<HarnessPlayMode | null>(null);
+  const copy = (mode: HarnessPlayMode) => {
+    const text = buildHarnessPlayCommand({ mode });
+    const done = () => {
+      setCopied(mode);
+      window.setTimeout(() => setCopied(null), 1500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => undefined);
+    }
+  };
+  const codeBox: React.CSSProperties = {
+    direction: "ltr",
+    unicodeBidi: "isolate",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    fontSize: 11,
+    background: "#f5f5f5",
+    padding: 8,
+    borderRadius: 6,
+    margin: "4px 0 0 0",
+    color: "#404040",
+  };
+  const playBtn = (mode: HarnessPlayMode): React.CSSProperties => ({
+    fontSize: 12,
+    padding: "6px 12px",
+    minHeight: 32,
+    borderRadius: 6,
+    border: "1px solid #1d4ed8",
+    background: copied === mode ? "#1d4ed8" : "#fff",
+    color: copied === mode ? "#fff" : "#1d4ed8",
+    cursor: "pointer",
+  });
+  return (
+    <section aria-label="מרכז בקרה — לולאת קמפיין" data-testid="harness-control-card" style={overviewCard}>
+      <div style={overviewHead}>
+        <span>מרכז בקרה · לולאת קמפיין (Harness)</span>
+        <span style={overviewCount}>CLI</span>
+      </div>
+      <div style={{ ...subLine, marginBottom: 8 }}>
+        הלולאה מופעלת מתוך session/טרמינל — לא דמון ולא שירות רקע. ה-/ops קריאה-בלבד, ולכן זו פקודה
+        להעתקה והרצה ידנית, לא כפתור שמריץ בדפדפן.
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <span style={{ fontWeight: 600, color: "#171717", fontSize: 13 }}>
+          הרצת בדיקה בטוחה (dry-run)
+        </span>
+        <button
+          type="button"
+          data-testid="harness-play-dryrun"
+          onClick={() => copy("dry-run")}
+          style={playBtn("dry-run")}
+        >
+          {copied === "dry-run" ? "הועתק ✓" : "העתק פקודה"}
+        </button>
+      </div>
+      <div style={subLine}>
+        בוחר את ה-packet הבא להרצה ומדפיס סיכום — לא מריץ worker ולא משנה state. בטוח להעתקה והרצה.
+      </div>
+      <pre data-testid="harness-dryrun-preview" style={codeBox}>
+        {buildHarnessPlayCommand({ mode: "dry-run" })}
+      </pre>
+
+      <details style={{ marginTop: 8 }}>
+        <summary style={{ ...subLine, cursor: "pointer" }}>
+          מתקדם — הרצה אמיתית עם כתיבת state (annotate)
+        </summary>
+        <div style={{ ...subLine, margin: "6px 0 4px 0" }}>
+          רושם כל packet שנשלח כאירוע <code>queue_actions</code> append-only (write-back קנוני שמתקפל
+          לתוך מצב התור). דורש בחירת <code>worker</code> בטוח/מקומי — החלטת תקצוב; הלולאה לעולם לא מקבעת
+          worker בתשלום. החלף את <code>&lt;safe-local-worker-cmd&gt;</code> לפני הרצה.
+        </div>
+        <button
+          type="button"
+          data-testid="harness-play-annotate"
+          onClick={() => copy("annotate")}
+          style={playBtn("annotate")}
+        >
+          {copied === "annotate" ? "הועתק ✓" : "העתק פקודה (annotate)"}
+        </button>
+        <pre data-testid="harness-annotate-preview" style={codeBox}>
+          {buildHarnessPlayCommand({ mode: "annotate" })}
+        </pre>
+      </details>
+
+      <div style={{ ...subLine, marginTop: 8 }}>
+        סיכום הריצה נכתב ל-<code>--summary-out</code> (run artifact). הצגת הסיכום החי ב-/ops תלויה
+        בפרויקציה ייעודית שטרם נכתבה (Lane B).
+      </div>
+    </section>
+  );
 }
 
 // Read-only action launcher: turns an active campaign into a ready-to-paste Claude
