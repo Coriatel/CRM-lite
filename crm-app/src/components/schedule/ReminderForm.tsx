@@ -5,6 +5,7 @@ import {
   updateReminder,
   type DirectusReminder,
   type ReminderStatus,
+  type ItemScope,
 } from "../../services/directus";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -19,6 +20,11 @@ const STATUSES: { value: ReminderStatus; label: string }[] = [
   { value: "pending", label: "ממתינה" },
   { value: "done", label: "בוצעה" },
   { value: "dismissed", label: "בוטלה" },
+];
+
+const SCOPES: { value: ItemScope; label: string }[] = [
+  { value: "private", label: "פרטי לרב" },
+  { value: "amuta", label: "עמותה / מרכז נשמה" },
 ];
 
 function nowLocalInput(): string {
@@ -48,6 +54,7 @@ export function ReminderForm({ onClose, onCreated, editing }: ReminderFormProps)
   const [status, setStatus] = useState<ReminderStatus>(
     editing?.status ?? "pending",
   );
+  const [scope, setScope] = useState<ItemScope>(editing?.scope ?? "private");
   // notes never read into this surface (privacy) — blank in edit mode; an empty
   // field is not sent on update, so an existing note is preserved.
   const [notes, setNotes] = useState("");
@@ -67,6 +74,7 @@ export function ReminderForm({ onClose, onCreated, editing }: ReminderFormProps)
           title: title.trim(),
           due_at: new Date(dueAt).toISOString(),
           status,
+          scope,
           ...(notes.trim() ? { notes: notes.trim() } : {}),
         });
       } else {
@@ -74,6 +82,7 @@ export function ReminderForm({ onClose, onCreated, editing }: ReminderFormProps)
           title: title.trim(),
           due_at: new Date(dueAt).toISOString(),
           status,
+          scope,
           owner_id: user?.uid ?? null,
           notes: notes.trim() || null,
         });
@@ -129,6 +138,23 @@ export function ReminderForm({ onClose, onCreated, editing }: ReminderFormProps)
               style={{ minHeight: 44 }}
             >
               {STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">שיוך</label>
+            <select
+              className="form-input"
+              data-testid="reminder-scope"
+              value={scope}
+              onChange={(e) => setScope(e.target.value as ItemScope)}
+              style={{ minHeight: 44 }}
+            >
+              {SCOPES.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>

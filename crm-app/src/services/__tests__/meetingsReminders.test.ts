@@ -46,6 +46,16 @@ describe("getMeetings", () => {
     await getMeetings({ ownerId: "u-123" });
     expect(urls[0]).toContain("filter%5Bowner_id%5D%5B_eq%5D=u-123");
   });
+
+  it("requests scope in the read field list (A7 Phase 3)", async () => {
+    await getMeetings({});
+    expect(urls[0]).toContain("scope");
+  });
+
+  it("filters by scope=amuta when a broad/org read asks for it", async () => {
+    await getMeetings({ scope: "amuta" });
+    expect(urls[0]).toContain("filter%5Bscope%5D%5B_eq%5D=amuta");
+  });
 });
 
 describe("getReminders", () => {
@@ -104,6 +114,22 @@ describe("createMeeting / createReminder", () => {
     expect(b.owner_id).toBe("u1");
     expect(b.status).toBe("pending");
   });
+
+  it("defaults scope to private on create (fail-safe, never NULL/unknown)", async () => {
+    await createMeeting({ title: "פגישה", starts_at: "2026-05-31T10:00:00.000Z" });
+    expect(JSON.parse(bodies[0]).scope).toBe("private");
+    await createReminder({ title: "לזכור", due_at: "2026-05-31T10:00:00.000Z" });
+    expect(JSON.parse(bodies[1]).scope).toBe("private");
+  });
+
+  it("carries an explicit scope=amuta when chosen", async () => {
+    await createMeeting({
+      title: "ישיבת עמותה",
+      starts_at: "2026-05-31T10:00:00.000Z",
+      scope: "amuta",
+    });
+    expect(JSON.parse(bodies[0]).scope).toBe("amuta");
+  });
 });
 
 describe("updateMeeting / updateReminder", () => {
@@ -155,5 +181,10 @@ describe("updateMeeting / updateReminder", () => {
   it("allows editing reminder notes (write-only field) in the patch body", async () => {
     await updateReminder("r2", { notes: "פרטי לרב" });
     expect(JSON.parse(calls[0].body!).notes).toBe("פרטי לרב");
+  });
+
+  it("PATCHes scope when re-classifying a meeting private↔amuta", async () => {
+    await updateMeeting("m3", { scope: "amuta" });
+    expect(JSON.parse(calls[0].body!).scope).toBe("amuta");
   });
 });

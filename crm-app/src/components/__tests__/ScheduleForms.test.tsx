@@ -29,6 +29,7 @@ const fullMeeting: DirectusMeeting = {
   ends_at: "2026-06-01T12:30:00.000Z",
   location: "המשרד הראשי",
   status: "scheduled",
+  scope: "amuta",
   contact_id: "c1",
   owner_id: "u1",
 };
@@ -37,6 +38,7 @@ const fullReminder: DirectusReminder = {
   title: "תזכורת קיימת",
   due_at: "2026-06-02T09:00:00.000Z",
   status: "pending",
+  scope: "private",
   contact_id: "c2",
   owner_id: "u1",
 };
@@ -77,6 +79,37 @@ describe("MeetingForm", () => {
     render(<MeetingForm onClose={() => {}} />);
     expect(screen.getByText("הערות פרטיות – לא מוצגות בסדר היום")).toBeTruthy();
   });
+
+  it("defaults a new meeting's scope to private (fail-safe)", async () => {
+    createMeeting.mockResolvedValue({ id: "m1" });
+    render(<MeetingForm onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText("עם מי / על מה"), {
+      target: { value: "פגישה" },
+    });
+    fireEvent.click(screen.getByText("שמירה"));
+    await waitFor(() => expect(createMeeting).toHaveBeenCalledTimes(1));
+    expect(createMeeting.mock.calls[0][0].scope).toBe("private");
+  });
+
+  it("writes scope=amuta when the rabbi flags the meeting organizational", async () => {
+    createMeeting.mockResolvedValue({ id: "m1" });
+    render(<MeetingForm onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText("עם מי / על מה"), {
+      target: { value: "ישיבת ועד" },
+    });
+    fireEvent.change(screen.getByTestId("meeting-scope"), { target: { value: "amuta" } });
+    fireEvent.click(screen.getByText("שמירה"));
+    await waitFor(() => expect(createMeeting).toHaveBeenCalledTimes(1));
+    expect(createMeeting.mock.calls[0][0].scope).toBe("amuta");
+  });
+
+  it("prefills the scope toggle from the edited row and re-sends it", async () => {
+    render(<MeetingForm onClose={() => {}} editing={fullMeeting} />);
+    expect((screen.getByTestId("meeting-scope") as HTMLSelectElement).value).toBe("amuta");
+    fireEvent.click(screen.getByText("עדכון"));
+    await waitFor(() => expect(updateMeeting).toHaveBeenCalledTimes(1));
+    expect(updateMeeting.mock.calls[0][1].scope).toBe("amuta");
+  });
 });
 
 describe("ReminderForm", () => {
@@ -98,6 +131,19 @@ describe("ReminderForm", () => {
     const arg = createReminder.mock.calls[0][0];
     expect(arg.title).toBe("להכין שיעור");
     expect(arg.owner_id).toBe("u1");
+    expect(arg.scope).toBe("private");
+  });
+
+  it("writes scope=amuta when the reminder is flagged organizational", async () => {
+    createReminder.mockResolvedValue({ id: "r1" });
+    render(<ReminderForm onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText("מה לזכור"), {
+      target: { value: "להגיש דוח לרשם" },
+    });
+    fireEvent.change(screen.getByTestId("reminder-scope"), { target: { value: "amuta" } });
+    fireEvent.click(screen.getByText("שמירה"));
+    await waitFor(() => expect(createReminder).toHaveBeenCalledTimes(1));
+    expect(createReminder.mock.calls[0][0].scope).toBe("amuta");
   });
 });
 

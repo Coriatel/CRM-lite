@@ -10,6 +10,7 @@ import {
   type DirectusReminder,
   type MeetingStatus,
   type ReminderStatus,
+  type ItemScope,
 } from "../../services/directus";
 
 /**
@@ -57,6 +58,43 @@ const TONE_STYLE: Record<StatusTone, React.CSSProperties> = {
   done: { color: "var(--color-success, #16a34a)", borderColor: "var(--color-success, #16a34a)" },
   cancelled: { color: "var(--color-text-secondary)", borderColor: "var(--color-border)" },
 };
+
+// Scope display (A7 Phase 3) — private (Rabbi-only) vs amuta (organizational).
+const SCOPE_LABEL: Record<ItemScope, string> = {
+  private: "פרטי",
+  amuta: "עמותה",
+};
+
+function ScopeChip({ scope }: { scope: ItemScope }) {
+  const amuta = scope === "amuta";
+  return (
+    <span
+      data-testid="rabbi-sched-scope-badge"
+      style={{
+        fontSize: 11,
+        lineHeight: 1,
+        padding: "2px 6px",
+        borderRadius: 999,
+        border: "1px solid",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
+        color: amuta ? "var(--color-primary)" : "var(--color-text-secondary)",
+        borderColor: amuta ? "var(--color-primary)" : "var(--color-border)",
+      }}
+    >
+      {SCOPE_LABEL[scope]}
+    </span>
+  );
+}
+
+// All / Rabbi(private) / Amuta filter (A7 Phase 3 audit item #1) — client-side
+// over already-fetched owner-scoped rows; no extra read.
+type ScopeFilter = "all" | "private" | "amuta";
+const SCOPE_FILTERS: { value: ScopeFilter; label: string }[] = [
+  { value: "all", label: "הכל" },
+  { value: "private", label: "פרטי לרב" },
+  { value: "amuta", label: "עמותה" },
+];
 
 function StatusChip({ label, tone }: { label: string; tone: StatusTone }) {
   return (
@@ -157,6 +195,12 @@ export function RabbiScheduleManager() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [editMeeting, setEditMeeting] = useState<DirectusMeeting | null>(null);
   const [editReminder, setEditReminder] = useState<DirectusReminder | null>(null);
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+
+  const filterByScope = <T extends { scope: ItemScope }>(rows: T[]): T[] =>
+    scopeFilter === "all" ? rows : rows.filter((r) => r.scope === scopeFilter);
+  const shownMeetings = meetings ? filterByScope(meetings) : meetings;
+  const shownReminders = reminders ? filterByScope(reminders) : reminders;
 
   async function markMeetingDone(m: DirectusMeeting) {
     setBusyId(`m:${m.id}`);
@@ -238,20 +282,54 @@ export function RabbiScheduleManager() {
         </p>
       ) : (
         <>
+          <div
+            role="tablist"
+            aria-label="סינון לפי שיוך"
+            style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}
+          >
+            {SCOPE_FILTERS.map((f) => {
+              const active = scopeFilter === f.value;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`rabbi-sched-scope-filter-${f.value}`}
+                  onClick={() => setScopeFilter(f.value)}
+                  style={{
+                    minHeight: 32,
+                    padding: "4px 12px",
+                    fontSize: 13,
+                    borderRadius: 999,
+                    border: "1px solid",
+                    cursor: "pointer",
+                    background: active ? "var(--color-primary)" : "none",
+                    color: active ? "#fff" : "var(--color-text-secondary)",
+                    borderColor: active ? "var(--color-primary)" : "var(--color-border)",
+                  }}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+
           <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text-secondary)", margin: "4px 0" }}>
-            פגישות קרובות ({meetings.length})
+            פגישות קרובות ({shownMeetings!.length})
           </h3>
-          {meetings.length === 0 ? (
+          {shownMeetings!.length === 0 ? (
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: "0 0 8px" }}>—</p>
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px" }}>
-              {meetings.map((m) => (
+              {shownMeetings!.map((m) => (
                 <li key={m.id} data-testid="rabbi-sched-meeting-row" style={rowStyle()}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {m.title}
                       </span>
+                      <ScopeChip scope={m.scope} />
                       <StatusChip {...MEETING_STATUS[m.status]} />
                     </div>
                     <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
@@ -271,19 +349,20 @@ export function RabbiScheduleManager() {
           )}
 
           <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text-secondary)", margin: "4px 0" }}>
-            תזכורות ומשימות ({reminders.length})
+            תזכורות ומשימות ({shownReminders!.length})
           </h3>
-          {reminders.length === 0 ? (
+          {shownReminders!.length === 0 ? (
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: 0 }}>—</p>
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {reminders.map((r) => (
+              {shownReminders!.map((r) => (
                 <li key={r.id} data-testid="rabbi-sched-reminder-row" style={rowStyle()}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {r.title}
                       </span>
+                      <ScopeChip scope={r.scope} />
                       <StatusChip {...REMINDER_STATUS[r.status]} />
                     </div>
                     <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>

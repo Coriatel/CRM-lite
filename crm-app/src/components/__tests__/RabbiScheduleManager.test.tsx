@@ -32,6 +32,7 @@ function meeting(over: Partial<DirectusMeeting> = {}): DirectusMeeting {
     ends_at: "2026-06-01T12:00:00.000Z",
     location: "המשרד",
     status: "scheduled",
+    scope: "private",
     contact_id: "c1",
     owner_id: "u1",
     ...over,
@@ -43,6 +44,7 @@ function reminder(over: Partial<DirectusReminder> = {}): DirectusReminder {
     title: "להתקשר לרב",
     due_at: "2026-06-02T09:00:00.000Z",
     status: "pending",
+    scope: "private",
     contact_id: "c2",
     owner_id: "u1",
     ...over,
@@ -159,6 +161,38 @@ describe("RabbiScheduleManager", () => {
     fireEvent.click(screen.getByTestId("rabbi-sched-edit"));
     expect(screen.getByText("עריכת פגישה")).toBeTruthy();
     expect((screen.getByPlaceholderText("עם מי / על מה") as HTMLInputElement).value).toBe("פגישה עם תורם");
+  });
+
+  it("renders a scope badge (פרטי / עמותה) on each row", () => {
+    useRabbiScheduleItems.mockReturnValue({
+      meetings: [meeting({ scope: "amuta" })],
+      reminders: [reminder({ scope: "private" })],
+      loading: false, error: null, refresh: () => {},
+    });
+    render(<RabbiScheduleManager />);
+    const labels = screen.getAllByTestId("rabbi-sched-scope-badge").map((b) => b.textContent);
+    expect(labels).toContain("עמותה");
+    expect(labels).toContain("פרטי");
+  });
+
+  it("filters rows by scope when the עמותה filter is selected", () => {
+    useRabbiScheduleItems.mockReturnValue({
+      meetings: [meeting({ id: "mp", title: "פגישה פרטית", scope: "private" }),
+                 meeting({ id: "ma", title: "ישיבת עמותה", scope: "amuta" })],
+      reminders: [reminder({ id: "rp", title: "תזכורת פרטית", scope: "private" })],
+      loading: false, error: null, refresh: () => {},
+    });
+    render(<RabbiScheduleManager />);
+    // default "all": both meetings + the reminder visible
+    expect(screen.getAllByTestId("rabbi-sched-meeting-row").length).toBe(2);
+    expect(screen.getAllByTestId("rabbi-sched-reminder-row").length).toBe(1);
+    // switch to amuta: only the amuta meeting, no private rows
+    fireEvent.click(screen.getByTestId("rabbi-sched-scope-filter-amuta"));
+    const rows = screen.getAllByTestId("rabbi-sched-meeting-row");
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain("ישיבת עמותה");
+    expect(screen.queryByTestId("rabbi-sched-reminder-row")).toBeNull();
+    expect(screen.getByTestId("rabbi-sched-manager").textContent).not.toContain("פגישה פרטית");
   });
 
   it("surfaces an error when a status update fails", async () => {

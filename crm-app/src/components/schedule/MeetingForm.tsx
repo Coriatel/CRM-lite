@@ -5,6 +5,7 @@ import {
   updateMeeting,
   type DirectusMeeting,
   type MeetingStatus,
+  type ItemScope,
 } from "../../services/directus";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -19,6 +20,11 @@ const STATUSES: { value: MeetingStatus; label: string }[] = [
   { value: "scheduled", label: "מתוכננת" },
   { value: "done", label: "התקיימה" },
   { value: "cancelled", label: "בוטלה" },
+];
+
+const SCOPES: { value: ItemScope; label: string }[] = [
+  { value: "private", label: "פרטי לרב" },
+  { value: "amuta", label: "עמותה / מרכז נשמה" },
 ];
 
 function nowLocalInput(): string {
@@ -52,6 +58,7 @@ export function MeetingForm({ onClose, onCreated, editing }: MeetingFormProps) {
   const [status, setStatus] = useState<MeetingStatus>(
     editing?.status ?? "scheduled",
   );
+  const [scope, setScope] = useState<ItemScope>(editing?.scope ?? "private");
   // notes is never read into this surface (privacy) — start blank in edit mode;
   // an empty notes field is NOT sent on update, so existing notes are preserved.
   const [notes, setNotes] = useState("");
@@ -73,6 +80,7 @@ export function MeetingForm({ onClose, onCreated, editing }: MeetingFormProps) {
           ends_at: endsAt ? new Date(endsAt).toISOString() : null,
           location: location.trim() || null,
           status,
+          scope,
           // only overwrite notes when the rabbi typed a new one
           ...(notes.trim() ? { notes: notes.trim() } : {}),
         });
@@ -83,6 +91,7 @@ export function MeetingForm({ onClose, onCreated, editing }: MeetingFormProps) {
           ends_at: endsAt ? new Date(endsAt).toISOString() : null,
           location: location.trim() || null,
           status,
+          scope,
           owner_id: user?.uid ?? null,
           notes: notes.trim() || null,
         });
@@ -159,6 +168,23 @@ export function MeetingForm({ onClose, onCreated, editing }: MeetingFormProps) {
               style={{ minHeight: 44 }}
             >
               {STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">שיוך</label>
+            <select
+              className="form-input"
+              data-testid="meeting-scope"
+              value={scope}
+              onChange={(e) => setScope(e.target.value as ItemScope)}
+              style={{ minHeight: 44 }}
+            >
+              {SCOPES.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>

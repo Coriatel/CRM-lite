@@ -372,6 +372,9 @@ export async function createCareReport(data: {
 
 export type MeetingStatus = "scheduled" | "done" | "cancelled";
 export type ReminderStatus = "pending" | "done" | "dismissed";
+// A7 Phase 3: private = Rabbi-only; amuta = organizational (may appear on broad
+// ops surfaces later). DB column is NOT NULL DEFAULT 'private' — never NULL.
+export type ItemScope = "private" | "amuta";
 
 export interface DirectusMeeting {
   id: string;
@@ -380,6 +383,7 @@ export interface DirectusMeeting {
   ends_at?: string | null;
   location?: string | null;
   status: MeetingStatus;
+  scope: ItemScope;
   contact_id?: string | null;
   owner_id?: string | null;
 }
@@ -389,17 +393,19 @@ export interface DirectusReminder {
   title: string;
   due_at: string;
   status: ReminderStatus;
+  scope: ItemScope;
   contact_id?: string | null;
   owner_id?: string | null;
 }
 
 const MEETING_FIELDS =
-  "id,title,starts_at,ends_at,location,status,contact_id,owner_id";
-const REMINDER_FIELDS = "id,title,due_at,status,contact_id,owner_id";
+  "id,title,starts_at,ends_at,location,status,scope,contact_id,owner_id";
+const REMINDER_FIELDS = "id,title,due_at,status,scope,contact_id,owner_id";
 
 export async function getMeetings(filters: {
   startsBefore?: string;
   status?: MeetingStatus;
+  scope?: ItemScope;
   ownerId?: string;
 }): Promise<DirectusMeeting[]> {
   const params: Record<string, string> = {
@@ -409,6 +415,7 @@ export async function getMeetings(filters: {
     "filter[owner_id][_eq]": filters.ownerId ?? "$CURRENT_USER",
   };
   if (filters.status) params["filter[status][_eq]"] = filters.status;
+  if (filters.scope) params["filter[scope][_eq]"] = filters.scope;
   if (filters.startsBefore) params["filter[starts_at][_lte]"] = filters.startsBefore;
   const res = await directusFetch(`/items/meetings${buildQuery(params)}`);
   const json: DirectusResponse<DirectusMeeting[]> = await res.json();
@@ -418,6 +425,7 @@ export async function getMeetings(filters: {
 export async function getReminders(filters: {
   dueBefore?: string;
   status?: ReminderStatus;
+  scope?: ItemScope;
   ownerId?: string;
 }): Promise<DirectusReminder[]> {
   const params: Record<string, string> = {
@@ -427,6 +435,7 @@ export async function getReminders(filters: {
     "filter[owner_id][_eq]": filters.ownerId ?? "$CURRENT_USER",
   };
   if (filters.status) params["filter[status][_eq]"] = filters.status;
+  if (filters.scope) params["filter[scope][_eq]"] = filters.scope;
   if (filters.dueBefore) params["filter[due_at][_lte]"] = filters.dueBefore;
   const res = await directusFetch(`/items/reminders${buildQuery(params)}`);
   const json: DirectusResponse<DirectusReminder[]> = await res.json();
@@ -441,13 +450,18 @@ export async function createMeeting(data: {
   ends_at?: string | null;
   location?: string | null;
   status?: MeetingStatus;
+  scope?: ItemScope;
   contact_id?: string | null;
   owner_id?: string | null;
   notes?: string | null;
 }): Promise<DirectusMeeting> {
   const res = await directusFetch("/items/meetings", {
     method: "POST",
-    body: JSON.stringify({ ...data, status: data.status || "scheduled" }),
+    body: JSON.stringify({
+      ...data,
+      status: data.status || "scheduled",
+      scope: data.scope || "private",
+    }),
   });
   const json: DirectusResponse<DirectusMeeting> = await res.json();
   return json.data;
@@ -457,13 +471,18 @@ export async function createReminder(data: {
   title: string;
   due_at: string;
   status?: ReminderStatus;
+  scope?: ItemScope;
   contact_id?: string | null;
   owner_id?: string | null;
   notes?: string | null;
 }): Promise<DirectusReminder> {
   const res = await directusFetch("/items/reminders", {
     method: "POST",
-    body: JSON.stringify({ ...data, status: data.status || "pending" }),
+    body: JSON.stringify({
+      ...data,
+      status: data.status || "pending",
+      scope: data.scope || "private",
+    }),
   });
   const json: DirectusResponse<DirectusReminder> = await res.json();
   return json.data;
@@ -481,6 +500,7 @@ export async function updateMeeting(
     ends_at: string | null;
     location: string | null;
     status: MeetingStatus;
+    scope: ItemScope;
     contact_id: string | null;
     notes: string | null;
   }>,
@@ -499,6 +519,7 @@ export async function updateReminder(
     title: string;
     due_at: string;
     status: ReminderStatus;
+    scope: ItemScope;
     contact_id: string | null;
     notes: string | null;
   }>,
