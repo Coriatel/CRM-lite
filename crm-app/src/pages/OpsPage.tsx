@@ -3157,6 +3157,44 @@ export function buildHarnessPlayCommand(
   return lines.join("\n");
 }
 
+export type RunRequestMode = "dry-run" | "owner-gated";
+
+// Pure: build the documented, copy-paste-ready CLI command that produces an
+// AUDITABLE run-request via emit-run-request.py (Phase G3 producer). Unlike
+// buildHarnessPlayCommand — which invokes campaign_advance_loop.py directly and
+// leaves no durable record — this writes an append-only run-request file to
+// state/run-requests/<id>.json that the EXISTING Phase F run_request_handler.py
+// consumes. The browser only emits TEXT; it never writes the file, never runs a
+// worker, and never holds a credential. This is the auditable, owner-gate-aware
+// operator path the read-only /ops cannot trigger live (no backend, no daemon).
+//
+// Default "dry-run" requests a planning-only pass with the inert --worker-cmd true
+// no-op. "owner-gated" records a gated REAL-run request: the handler logs it and
+// SKIPS it until an owner acks (owner_gate_ack), and the worker is left as a
+// placeholder because choosing one is a billing decision — never a paid default.
+export function buildRunRequestCommand(
+  opts: { requestedBy?: string; mode?: RunRequestMode; maxIterations?: number } = {},
+): string {
+  const requestedBy =
+    opts.requestedBy && opts.requestedBy.trim() ? opts.requestedBy.trim() : "<your-session-id>";
+  const mode = opts.mode ?? "dry-run";
+  const maxIter = Math.min(5, Math.max(1, Math.trunc(opts.maxIterations ?? 1)));
+  const lines = [
+    "cd /srv/ops-vault/automation-registry/scripts && \\",
+    "python3 emit-run-request.py \\",
+    "  --mode lane \\",
+    `  --requested-by ${requestedBy} \\`,
+    `  --worker-cmd ${mode === "dry-run" ? "true" : "<safe-local-worker-cmd>"} \\`,
+    `  --max-iterations ${maxIter} \\`,
+  ];
+  if (mode === "dry-run") {
+    lines.push("  --dry-run");
+  } else {
+    lines.push("  --owner-gated");
+  }
+  return lines.join("\n");
+}
+
 // Read-only Control Tower for the shipped campaign-advance loop. Surfaces the
 // documented Play command (copy + preview) rather than a live button — /ops has
 // no backend, and live execution would need a daemon/service (forbidden). Safe
@@ -3194,6 +3232,17 @@ export function HarnessControlCard({ doc }: { doc: HarnessRunDoc | null }) {
       navigator.clipboard.writeText(text).then(done).catch(() => undefined);
     }
   };
+  const [rrCopied, setRrCopied] = useState<RunRequestMode | null>(null);
+  const copyRR = (mode: RunRequestMode) => {
+    const text = buildRunRequestCommand({ mode });
+    const done = () => {
+      setRrCopied(mode);
+      window.setTimeout(() => setRrCopied(null), 1500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => undefined);
+    }
+  };
   const codeBox: React.CSSProperties = {
     direction: "ltr",
     unicodeBidi: "isolate",
@@ -3214,6 +3263,16 @@ export function HarnessControlCard({ doc }: { doc: HarnessRunDoc | null }) {
     border: "1px solid #1d4ed8",
     background: copied === mode ? "#1d4ed8" : "#fff",
     color: copied === mode ? "#fff" : "#1d4ed8",
+    cursor: "pointer",
+  });
+  const rrBtn = (mode: RunRequestMode): React.CSSProperties => ({
+    fontSize: 12,
+    padding: "6px 12px",
+    minHeight: 32,
+    borderRadius: 6,
+    border: "1px solid #047857",
+    background: rrCopied === mode ? "#047857" : "#fff",
+    color: rrCopied === mode ? "#fff" : "#047857",
     cursor: "pointer",
   });
   return (
@@ -3266,6 +3325,50 @@ export function HarnessControlCard({ doc }: { doc: HarnessRunDoc | null }) {
         </button>
         <pre data-testid="harness-annotate-preview" style={codeBox}>
           {buildHarnessPlayCommand({ mode: "annotate" })}
+        </pre>
+      </details>
+
+      <div style={{ borderTop: "1px solid #e5e5e5", margin: "12px 0 8px 0" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <span style={{ fontWeight: 600, color: "#171717", fontSize: 13 }}>
+          בקשת-ריצה מתועדת (run-request)
+        </span>
+        <button
+          type="button"
+          data-testid="harness-runrequest-dryrun"
+          onClick={() => copyRR("dry-run")}
+          style={rrBtn("dry-run")}
+        >
+          {rrCopied === "dry-run" ? "הועתק ✓" : "העתק פקודה"}
+        </button>
+      </div>
+      <div style={subLine}>
+        כותב בקשת-ריצה append-only ל-<code>state/run-requests/</code> ש-<code>run_request_handler.py</code>{" "}
+        הקיים צורך אחר-כך — נתיב מתועד וניתן לביקורת, לא מריץ worker ולא משנה state ב-dry-run.
+      </div>
+      <pre data-testid="harness-runrequest-dryrun-preview" style={codeBox}>
+        {buildRunRequestCommand({ mode: "dry-run" })}
+      </pre>
+
+      <details style={{ marginTop: 8 }}>
+        <summary style={{ ...subLine, cursor: "pointer" }}>
+          מתקדם — בקשת ריצה אמיתית מגודרת-בעלים (owner-gated)
+        </summary>
+        <div style={{ ...subLine, margin: "6px 0 4px 0" }}>
+          רושם בקשה <code>owner_gated</code>: ה-handler מתעד אותה אך <b>לא</b> מריץ עד אישור בעלים
+          (<code>owner_gate_ack</code>). דורש בחירת <code>worker</code> בטוח/מקומי — החלטת תקצוב; לעולם
+          לא worker בתשלום כברירת מחדל. החלף את <code>&lt;safe-local-worker-cmd&gt;</code> לפני הרצה.
+        </div>
+        <button
+          type="button"
+          data-testid="harness-runrequest-gated"
+          onClick={() => copyRR("owner-gated")}
+          style={rrBtn("owner-gated")}
+        >
+          {rrCopied === "owner-gated" ? "הועתק ✓" : "העתק פקודה (owner-gated)"}
+        </button>
+        <pre data-testid="harness-runrequest-gated-preview" style={codeBox}>
+          {buildRunRequestCommand({ mode: "owner-gated" })}
         </pre>
       </details>
 
