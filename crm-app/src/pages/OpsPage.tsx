@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { SafeSwarmCard, type SafeSwarmDoc } from "./SafeSwarmCard";
+import { RunHistoryCard, type RunHistoryDoc } from "./RunHistoryCard";
+import { RunStatusCard, type RunStatusDoc } from "./RunStatusCard";
+import { RunGovernanceCard, type RunGovernanceDoc } from "./RunGovernanceCard";
 import { AttentionSummaryCard, BackToAttentionSummaryLink } from "./AttentionSummaryCard";
 import {
   AttentionSynthesisCard,
@@ -2234,13 +2237,16 @@ export function OpsPage() {
   const [gateDecisions, setGateDecisions] = useState<OwnerGateDecisionsDoc | null>(null);
   const [automations, setAutomations] = useState<AutomationInventoryDoc | null>(null);
   const [goals, setGoals] = useState<GoalsDoc | null>(null);
+  const [runHistory, setRunHistory] = useState<RunHistoryDoc | null>(null);
+  const [runStatus, setRunStatus] = useState<RunStatusDoc | null>(null);
+  const [runGovernance, setRunGovernance] = useState<RunGovernanceDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls, rhist, rstat, rgov] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -2271,6 +2277,9 @@ export function OpsPage() {
         fetchJson<OwnerGateDecisionsDoc>("/ops-data/owner_gate_decisions.json"),
         fetchJson<AutomationInventoryDoc>("/ops-data/automation_runtime_inventory.json"),
         fetchJson<GoalsDoc>("/ops-data/goals.json"),
+        fetchJson<RunHistoryDoc>("/ops-data/run_history.json"),
+        fetchJson<RunStatusDoc>("/ops-data/run_status.json"),
+        fetchJson<RunGovernanceDoc>("/ops-data/run_governance.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -2308,6 +2317,9 @@ export function OpsPage() {
       setGateDecisions(gdc ?? null);
       setAutomations(autoInv ?? null);
       setGoals(gls ?? null);
+      setRunHistory(rhist ?? null);
+      setRunStatus(rstat ?? null);
+      setRunGovernance(rgov ?? null);
       setLastVerified(pd?._meta?.last_verified ?? null);
     };
     load();
@@ -2413,6 +2425,12 @@ export function OpsPage() {
         <ProcessesCard doc={processes} />
         <ActionLauncherCard doc={campaigns} />
         <HarnessControlCard />
+        <CardFreshnessBadge file="run_history.json" freshness={freshness} />
+        <RunHistoryCard doc={runHistory} />
+        <CardFreshnessBadge file="run_status.json" freshness={freshness} />
+        <RunStatusCard doc={runStatus} />
+        <CardFreshnessBadge file="run_governance.json" freshness={freshness} />
+        <RunGovernanceCard doc={runGovernance} />
         <CardFreshnessBadge file="campaigns.json" freshness={freshness} />
         <CampaignsCard doc={campaigns} goalsDoc={goals} />
         <CardFreshnessBadge file="recent_merges.json" freshness={freshness} />
