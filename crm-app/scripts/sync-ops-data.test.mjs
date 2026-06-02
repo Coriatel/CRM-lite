@@ -72,6 +72,12 @@ describe("ENVELOPE_DEFAULT_FILES", () => {
     expect(ENVELOPE_DEFAULT_FILES.has("queue_routes.json")).toBe(false);
     expect(ENVELOPE_DEFAULT_FILES.has("operational_queue.json")).toBe(false);
   });
+
+  it("covers the Phase G Ops Center projection files (G1/G2/G5)", () => {
+    expect(ENVELOPE_DEFAULT_FILES.has("run_history.json")).toBe(true);
+    expect(ENVELOPE_DEFAULT_FILES.has("run_status.json")).toBe(true);
+    expect(ENVELOPE_DEFAULT_FILES.has("run_governance.json")).toBe(true);
+  });
 });
 
 describe("management_cockpit.json envelope", () => {
@@ -288,5 +294,82 @@ describe("orchestrator_integrity.json envelope", () => {
     expect("inbox" in oi).toBe(false);
     expect("substrate" in oi).toBe(false);
     expect("gates" in oi).toBe(false);
+  });
+});
+
+describe("run_history.json envelope (Phase G1)", () => {
+  it("returns the v0 safe-empty shape — generated_default true, empty runs, zero totals", () => {
+    const doc = envelopeDefault("run_history.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      writer: "scripts/sync-ops-data.mjs",
+      generated_at: FIXED_ISO,
+      generated_default: true,
+      read_only: true,
+      total: 0,
+      shown: 0,
+    });
+    expect(typeof doc._meta.source).toBe("string");
+    expect(typeof doc._meta.note).toBe("string");
+    expect(Array.isArray(doc.runs)).toBe(true);
+    expect(doc.runs).toHaveLength(0);
+  });
+
+  it("missingDefaultBytes emits the run_history envelope as JSON", () => {
+    const doc = JSON.parse(missingDefaultBytes("run_history.json", FIXED_ISO));
+    expect(doc._meta.generated_default).toBe(true);
+    expect(doc.runs).toEqual([]);
+  });
+});
+
+describe("run_status.json envelope (Phase G2)", () => {
+  it("returns the v0 safe-empty shape — empty active/queued/done, zero counts", () => {
+    const doc = envelopeDefault("run_status.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      generated_default: true,
+      read_only: true,
+      active_count: 0,
+      queued_count: 0,
+      done_count: 0,
+    });
+    expect(doc.active).toEqual([]);
+    expect(doc.queued).toEqual([]);
+    expect(doc.done).toEqual([]);
+  });
+
+  it("missingDefaultBytes emits the run_status envelope as JSON", () => {
+    const doc = JSON.parse(missingDefaultBytes("run_status.json", FIXED_ISO));
+    expect(doc._meta.generated_default).toBe(true);
+    expect(doc.active).toEqual([]);
+  });
+});
+
+describe("run_governance.json envelope (Phase G5)", () => {
+  it("returns the v0 safe-empty shape — empty gates/budget, zero counts", () => {
+    const doc = envelopeDefault("run_governance.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      generated_default: true,
+      read_only: true,
+      total_runs: 0,
+    });
+    expect(doc.owner_gates).toEqual({ skipped_runs: [], pending_requests: [], count: 0 });
+    expect(doc.budget_posture).toEqual({ limit_reached_runs: [], count: 0 });
+    expect(doc.runtime_posture).toMatchObject({ by_status: {}, by_decision: {}, in_flight: 0, total_runs: 0 });
+    expect(doc.stop_reasons).toEqual({});
+  });
+
+  it("missingDefaultBytes emits the run_governance envelope as JSON", () => {
+    const doc = JSON.parse(missingDefaultBytes("run_governance.json", FIXED_ISO));
+    expect(doc._meta.generated_default).toBe(true);
+    expect(doc.owner_gates.count).toBe(0);
+  });
+
+  it("does not collide with the run_history or run_status envelope shapes", () => {
+    const gov = envelopeDefault("run_governance.json", FIXED_ISO);
+    expect("runs" in gov).toBe(false);
+    expect("active" in gov).toBe(false);
+    expect("queued" in gov).toBe(false);
   });
 });

@@ -45,6 +45,10 @@ const files = [
   "inbound_messages.json",
   "global_next_action.json",
   "lesson_processing_runs.json",
+  // Phase G Ops Center projections (harness trigger runtime — read-only visibility).
+  "run_history.json",
+  "run_status.json",
+  "run_governance.json",
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
@@ -59,6 +63,9 @@ export const ENVELOPE_DEFAULT_FILES = new Set([
   "safe_swarm.json",
   "orchestrator_integrity.json",
   "harness_run.json",
+  "run_history.json",
+  "run_status.json",
+  "run_governance.json",
 ]);
 
 export function envelopeDefault(name, nowIso = new Date().toISOString()) {
@@ -223,6 +230,66 @@ export function envelopeDefault(name, nowIso = new Date().toISOString()) {
         needs_owner: 0,
         needs_rabbi: 0,
       },
+    };
+  }
+  if (name === "run_history.json") {
+    // Shape per automation-registry/scripts/build-run-history.py (Phase G1).
+    // Honesty rule: generated_default=true ⇒ no runs, totals zero. read_only
+    // mirrors the producer's _meta flag (this surface never writes runtime state).
+    return {
+      _meta: {
+        schema_version: "v0",
+        writer: "scripts/sync-ops-data.mjs",
+        source: "missing — vault projection not synced",
+        generated_at: nowIso,
+        generated_default: true,
+        read_only: true,
+        total: 0,
+        shown: 0,
+        note: "Safe-empty default envelope written by the CRM ops-data sync when /srv/ops-vault/state/run_history.json is unavailable. Mirrors the Phase G1 build-run-history.py contract.",
+      },
+      runs: [],
+    };
+  }
+  if (name === "run_status.json") {
+    // Shape per automation-registry/scripts/build-run-status.py (Phase G2).
+    // Honesty rule: generated_default=true ⇒ active/queued/done all empty, counts zero.
+    return {
+      _meta: {
+        schema_version: "v0",
+        writer: "scripts/sync-ops-data.mjs",
+        source: "missing — vault projection not synced",
+        generated_at: nowIso,
+        generated_default: true,
+        read_only: true,
+        active_count: 0,
+        queued_count: 0,
+        done_count: 0,
+        note: "Safe-empty default envelope written by the CRM ops-data sync when /srv/ops-vault/state/run_status.json is unavailable. Mirrors the Phase G2 build-run-status.py contract.",
+      },
+      active: [],
+      queued: [],
+      done: [],
+    };
+  }
+  if (name === "run_governance.json") {
+    // Shape per automation-registry/scripts/build-run-governance.py (Phase G5).
+    // Honesty rule: generated_default=true ⇒ no gates/budget hits, all counts zero.
+    return {
+      _meta: {
+        schema_version: "v0",
+        writer: "scripts/sync-ops-data.mjs",
+        source: "missing — vault projection not synced",
+        generated_at: nowIso,
+        generated_default: true,
+        read_only: true,
+        total_runs: 0,
+        note: "Safe-empty default envelope written by the CRM ops-data sync when /srv/ops-vault/state/run_governance.json is unavailable. Mirrors the Phase G5 build-run-governance.py contract.",
+      },
+      owner_gates: { skipped_runs: [], pending_requests: [], count: 0 },
+      budget_posture: { limit_reached_runs: [], count: 0 },
+      runtime_posture: { by_status: {}, by_decision: {}, in_flight: 0, total_runs: 0 },
+      stop_reasons: {},
     };
   }
   return {
