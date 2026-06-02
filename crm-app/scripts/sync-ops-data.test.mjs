@@ -68,6 +68,7 @@ describe("ENVELOPE_DEFAULT_FILES", () => {
     expect(ENVELOPE_DEFAULT_FILES.has("management_cockpit.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("safe_swarm.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("orchestrator_integrity.json")).toBe(true);
+    expect(ENVELOPE_DEFAULT_FILES.has("harness_run.json")).toBe(true);
     expect(ENVELOPE_DEFAULT_FILES.has("queue_routes.json")).toBe(false);
     expect(ENVELOPE_DEFAULT_FILES.has("operational_queue.json")).toBe(false);
   });
@@ -170,6 +171,33 @@ describe("safe_swarm.json envelope", () => {
     const bytes = missingDefaultBytes("safe_swarm.json", FIXED_ISO);
     const doc = JSON.parse(bytes);
     expect(doc._meta.generated_default).toBe(true);
+    expect(doc.health.status).toBe("red");
+  });
+});
+
+describe("harness_run.json envelope", () => {
+  it("returns the v0 safe-empty shape — generated_default true, last_run/next_action null, health red", () => {
+    const doc = envelopeDefault("harness_run.json", FIXED_ISO);
+    expect(doc._meta).toMatchObject({
+      schema_version: "v0",
+      writer: "scripts/sync-ops-data.mjs",
+      generated_at: FIXED_ISO,
+      generated_default: true,
+    });
+    expect(typeof doc._meta.source).toBe("string");
+    expect(typeof doc._meta.note).toBe("string");
+    expect(doc.last_run).toBeNull();
+    expect(doc.next_action).toBeNull();
+    expect(doc.health.status).toBe("red");
+    expect(Array.isArray(doc.health.reasons)).toBe(true);
+    expect(doc.health.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("missingDefaultBytes emits the harness_run envelope as JSON", () => {
+    const bytes = missingDefaultBytes("harness_run.json", FIXED_ISO);
+    const doc = JSON.parse(bytes);
+    expect(doc._meta.generated_default).toBe(true);
+    expect(doc.last_run).toBeNull();
     expect(doc.health.status).toBe("red");
   });
 });

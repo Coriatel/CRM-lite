@@ -38,6 +38,7 @@ const files = [
   "management_cockpit.json",
   "safe_swarm.json",
   "orchestrator_integrity.json",
+  "harness_run.json",
   "producer_contract_violations.json",
   "owner_gate_status.json",
   "owner_gate_decisions.json",
@@ -61,6 +62,7 @@ export const ENVELOPE_DEFAULT_FILES = new Set([
   "management_cockpit.json",
   "safe_swarm.json",
   "orchestrator_integrity.json",
+  "harness_run.json",
   "run_history.json",
   "run_status.json",
   "run_governance.json",
@@ -176,6 +178,28 @@ export function envelopeDefault(name, nowIso = new Date().toISOString()) {
         reasons: ["projection_not_synced"],
       },
       integrity_status: {
+        status: "red",
+        reasons: ["projection_not_synced"],
+      },
+    };
+  }
+  if (name === "harness_run.json") {
+    // Shape per /srv/ops-vault/state/harness_run.schema.json (v0). Mirrors the
+    // build-harness-run.py --default envelope so /ops renders an honest "no run
+    // yet" state before the campaign-advance loop has been run on a build host.
+    // Honesty rule: generated_default=true ⇒ last_run/next_action null, health red.
+    return {
+      _meta: {
+        schema_version: "v0",
+        writer: "scripts/sync-ops-data.mjs",
+        source: "missing — vault projection not synced",
+        generated_at: nowIso,
+        generated_default: true,
+        note: "Safe-empty default envelope written by the CRM ops-data sync when /srv/ops-vault/state/harness_run.json is unavailable. Mirrors build-harness-run.py --default; no campaign-advance run has been observed.",
+      },
+      last_run: null,
+      next_action: null,
+      health: {
         status: "red",
         reasons: ["projection_not_synced"],
       },
