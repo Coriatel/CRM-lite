@@ -44,6 +44,11 @@ const SchedulePage = lazy(() =>
 const OpsPage = lazy(() =>
   import("./pages/OpsPage").then((m) => ({ default: m.OpsPage })),
 );
+const ControlPanelPage = lazy(() =>
+  import("./pages/control/ControlPanelPage").then((m) => ({
+    default: m.ControlPanelPage,
+  })),
+);
 const OpsIssuePage = lazy(() =>
   import("./pages/OpsIssuePage").then((m) => ({ default: m.OpsIssuePage })),
 );
@@ -177,6 +182,7 @@ function AppContent() {
           <Route path="calls-today" element={<CallsTodayPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="ops" element={<OpsPage />} />
+          <Route path="control" element={<ControlPanelPage />} />
           <Route path="ops/issues/:id" element={<OpsIssuePage />} />
           <Route path="ops/blockers/:id" element={<OpsBlockerPage />} />
           <Route path="ops/gates/:id" element={<OpsGatePage />} />
