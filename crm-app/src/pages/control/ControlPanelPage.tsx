@@ -23,12 +23,16 @@ const FRESHNESS_URL = "/ops-data/_freshness.json";
 
 // Per-feed runtime SLA (seconds): how old content may be before "not live".
 const FEEDS = {
-  automation_runtime_inventory: 3600,
-  active_sessions: 600,
   health: 600,
+  automation_runtime_inventory: 3600,
   operational_queue: 1800,
+  "runtime-issues": 1800,
   owner_gate_status: 3600,
+  blockers: 86400,
+  active_sessions: 600,
   processes: 600,
+  campaigns: 1800,
+  handoffs_index: 3600,
 } as const;
 type FeedKey = keyof typeof FEEDS;
 
@@ -108,6 +112,29 @@ function processMetric(d: Json | null): Metric {
   return { value: String(lr.length + pm.length), detail: "תהליכים שנדגמו", severity: "muted" };
 }
 
+function campaignMetric(d: Json | null): Metric {
+  const list = (d?.campaigns as Array<{ status?: string }>) ?? [];
+  const active = list.filter((c) => /active/i.test(String(c.status ?? ""))).length;
+  const blocked = list.filter((c) => /block/i.test(String(c.status ?? ""))).length;
+  return { value: String(active), detail: blocked > 0 ? `${blocked} חסומים` : "פעילים", severity: blocked > 0 ? "warn" : "ok" };
+}
+
+function issueMetric(d: Json | null): Metric {
+  const list = (d?.issues as Array<{ severity?: string }>) ?? [];
+  const high = list.filter((i) => /high|crit/i.test(String(i.severity ?? ""))).length;
+  return { value: String(list.length), detail: high > 0 ? `${high} חמורות` : "פתוחות", severity: high > 0 ? "warn" : "ok" };
+}
+
+function blockerMetric(d: Json | null): Metric {
+  const list = (d?.blockers as unknown[]) ?? [];
+  return { value: String(list.length), detail: "חסמים פתוחים", severity: list.length > 0 ? "warn" : "ok" };
+}
+
+function handoffMetric(d: Json | null): Metric {
+  const list = (d?.entries as unknown[]) ?? [];
+  return { value: String(list.length), detail: "handoffs אחרונים", severity: "ok" };
+}
+
 interface TileDef {
   key: FeedKey;
   title: string;
@@ -115,12 +142,16 @@ interface TileDef {
 }
 
 const TILES: TileDef[] = [
-  { key: "automation_runtime_inventory", title: "אוטומציות", metric: automationMetric },
   { key: "health", title: "בריאות מערכת", metric: healthMetric },
-  { key: "active_sessions", title: "סשנים פעילים", metric: sessionMetric },
+  { key: "automation_runtime_inventory", title: "אוטומציות", metric: automationMetric },
   { key: "operational_queue", title: "תור פעולות", metric: queueMetric },
+  { key: "runtime-issues", title: "תקלות ריצה", metric: issueMetric },
   { key: "owner_gate_status", title: "שערי בעלים", metric: gateMetric },
+  { key: "blockers", title: "חסמים", metric: blockerMetric },
+  { key: "active_sessions", title: "סשנים פעילים", metric: sessionMetric },
   { key: "processes", title: "תהליכים", metric: processMetric },
+  { key: "campaigns", title: "קמפיינים", metric: campaignMetric },
+  { key: "handoffs_index", title: "Handoffs", metric: handoffMetric },
 ];
 
 const SEV_COLOR: Record<Metric["severity"], string> = {
@@ -180,6 +211,23 @@ export function ControlPanelPage() {
     }));
   }, [feeds]);
 
+  // Operational-flow-first headline: only counts that come from LIVE feeds.
+  const attention = useMemo(() => {
+    if (!feeds) return 0;
+    const live = (k: FeedKey) => (feeds[k]?.fresh.trustworthy ? feeds[k]?.data ?? null : null);
+    const h = live("health");
+    const failed = ((h?.endpoints as Array<{ ok?: boolean }>) ?? []).filter((e) => !e.ok).length;
+    const a = live("automation_runtime_inventory");
+    const broken = ((a?.automations as Array<Record<string, unknown>>) ?? []).filter(
+      (x) => String(x.health_status ?? "").startsWith("broken") || ["errored", "failed"].includes(String(x.runtime_state ?? "")),
+    ).length;
+    const g = live("owner_gate_status");
+    const pending = ((g?.gates as Array<{ status?: string }>) ?? []).filter((x) => /pend|open|wait/i.test(String(x.status ?? ""))).length;
+    const i = live("runtime-issues");
+    const high = ((i?.issues as Array<{ severity?: string }>) ?? []).filter((x) => /high|crit/i.test(String(x.severity ?? ""))).length;
+    return failed + broken + pending + high;
+  }, [feeds]);
+
   return (
     <div dir="rtl" style={pageStyle}>
       <header style={headerStyle}>
@@ -203,6 +251,19 @@ export function ControlPanelPage() {
             {" "}
             הנתונים שלהם לא מוצגים כעדכניים: {deadFeeds.map((f) => f.title).join(" · ")}
           </span>
+        </div>
+      )}
+
+      {feeds && (
+        <div style={attentionStyle}>
+          {attention > 0 ? (
+            <>
+              <span style={{ fontSize: 22, fontWeight: 800, color: "var(--mn-critical)" }}>{attention}</span>
+              <span style={{ fontSize: 13.5, color: "var(--mn-text-body)" }}>פריטים דורשים תשומת לב כעת</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 13.5, color: "var(--mn-success)", fontWeight: 600 }}>✓ אין פריטים דחופים במקורות החיים</span>
+          )}
         </div>
       )}
 
@@ -305,9 +366,7 @@ function DetailPanel({ feedKey, state, onClose }: { feedKey: FeedKey; state: Fee
       </div>
       {feedKey === "health" && <HealthRows data={data} />}
       {feedKey === "automation_runtime_inventory" && <AutomationRows data={data} />}
-      {(feedKey === "active_sessions" || feedKey === "processes" || feedKey === "owner_gate_status" || feedKey === "operational_queue") && (
-        <GenericRows feedKey={feedKey} data={data} />
-      )}
+      {feedKey !== "health" && feedKey !== "automation_runtime_inventory" && <GenericRows feedKey={feedKey} data={data} />}
     </section>
   );
 }
@@ -380,6 +439,19 @@ function GenericRows({ feedKey, data }: { feedKey: FeedKey; data: Json | null })
     rows = ((data?.gates as Array<Record<string, unknown>>) ?? []).map((g) => `${g.gate_kind ?? g.gate_id} · ${g.status} · ${String(g.summary ?? "").slice(0, 50)}`);
   } else if (feedKey === "operational_queue") {
     rows = ((data?.queue as Array<Record<string, unknown>>) ?? []).slice(0, 20).map((q) => `${q.type ?? "?"} · ${q.severity ?? ""} · ${String(q.source ?? q.campaign_id ?? "")}`);
+  } else if (feedKey === "runtime-issues") {
+    rows = ((data?.issues as Array<Record<string, unknown>>) ?? []).map((i) => `${i.severity ?? ""} · ${String(i.title ?? i.id ?? "").slice(0, 60)}`);
+  } else if (feedKey === "blockers") {
+    rows = ((data?.blockers as Array<Record<string, unknown>>) ?? []).map((b) => `${b.lane ?? "?"} · ${String(b.summary ?? "").slice(0, 60)}`);
+  } else if (feedKey === "campaigns") {
+    rows = ((data?.campaigns as Array<Record<string, unknown>>) ?? [])
+      .filter((c) => /active|block/i.test(String(c.status ?? "")))
+      .slice(0, 25)
+      .map((c) => `${c.status ?? ""} · ${String(c.id ?? "")}`);
+  } else if (feedKey === "handoffs_index") {
+    rows = ((data?.entries as Array<Record<string, unknown>>) ?? [])
+      .slice(0, 20)
+      .map((e) => `${e.lane ?? "?"} · ${String(e.handoff_id ?? e.branch ?? "").slice(0, 50)}`);
   }
   if (!rows.length) return <Empty />;
   return (
@@ -419,6 +491,16 @@ const truthBannerStyle: React.CSSProperties = {
   border: "1px solid #fecaca",
   borderRadius: "var(--mn-radius-card)",
   fontSize: 13,
+};
+const attentionStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 12,
+  padding: "8px 12px",
+  background: "var(--mn-surface-guidance)",
+  border: "1px solid var(--mn-border-fold)",
+  borderRadius: "var(--mn-radius-card)",
 };
 const gridStyle: React.CSSProperties = {
   display: "grid",
