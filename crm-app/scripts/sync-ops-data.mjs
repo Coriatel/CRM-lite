@@ -49,6 +49,8 @@ const files = [
   "run_history.json",
   "run_status.json",
   "run_governance.json",
+  // Automation Control Tower catalog — NESTED source, flat dest name (read-only).
+  { src: "projections/control-tower/automation_catalog.json", dst: "automation_catalog.json" },
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
@@ -315,8 +317,12 @@ export function missingDefaultBytes(name, nowIso = new Date().toISOString()) {
 function syncAll() {
   mkdirSync(out, { recursive: true });
 
-  for (const f of files) {
-    const src = `${vaultState}/${f}`;
+  for (const entry of files) {
+    // Bare string ⇒ flat copy state/<f> → ops-data/<f>. Object {src,dst} ⇒
+    // nested source under state/, flat dest name (e.g. control-tower catalog).
+    const srcRel = typeof entry === "string" ? entry : entry.src;
+    const f = typeof entry === "string" ? entry : entry.dst;
+    const src = `${vaultState}/${srcRel}`;
     const dst = `${out}/${f}`;
     if (existsSync(src)) {
       writeFileSync(dst, readFileSync(src));

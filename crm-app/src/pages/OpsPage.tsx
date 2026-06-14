@@ -164,6 +164,70 @@ export type AutomationInventoryDoc = {
   automations?: AutomationRow[];
 };
 
+// Automation Control Tower catalog (derived projection at
+// state/projections/control-tower/automation_catalog.json). Read-only: every
+// record traces to a canonical file via source_ref; nothing is a new source of truth.
+export type CatalogAutomation = {
+  id: string;
+  name?: string;
+  platform?: string;
+  type?: string;
+  trigger_type_raw?: string;
+  trigger_detail?: string;
+  cadence?: string;
+  enabled?: boolean;
+  runtime_state?: string;
+  health?: string;
+  last_signal_at?: string | null;
+  last_run_at?: string | null;
+  last_success_at?: string | null;
+  last_failure_at?: string | null;
+  freshness_known?: boolean;
+  owner?: string;
+  domain?: string;
+  project_ref?: string | null;
+  provenance?: string;
+  source_ref?: string;
+  source_path?: string;
+  evidence_refs?: string[];
+  unknowns?: string[];
+};
+
+export type CatalogFinding = {
+  id: string;
+  title?: string;
+  severity?: string;
+  disposition?: string;
+  provenance?: string;
+  derivable?: boolean;
+  note?: string;
+  source_ref?: string;
+  evidence_refs?: string[];
+};
+
+export type AutomationCatalogDoc = {
+  _meta?: {
+    kind?: string;
+    domain?: string;
+    title?: string;
+    source_generated_at?: string;
+    content_digest?: string;
+    counts?: {
+      total?: number;
+      by_platform?: Record<string, number>;
+      by_type?: Record<string, number>;
+      by_health?: Record<string, number>;
+      linked_findings?: number;
+    };
+    provenance_legend?: Record<string, string>;
+    navigation?: Record<string, string>;
+    canonical_sources?: string[];
+    no_new_source_of_truth?: string;
+  };
+  automations?: CatalogAutomation[];
+  linked_findings?: CatalogFinding[];
+};
+
 export type FreshnessDoc = {
   ts?: string;
   files?: Record<string, { mtime: string; age_seconds: number }>;
@@ -2237,6 +2301,8 @@ export function OpsPage() {
   const [gateStatus, setGateStatus] = useState<OwnerGateStatusDoc | null>(null);
   const [gateDecisions, setGateDecisions] = useState<OwnerGateDecisionsDoc | null>(null);
   const [automations, setAutomations] = useState<AutomationInventoryDoc | null>(null);
+  const [automationCatalog, setAutomationCatalog] =
+    useState<AutomationCatalogDoc | null>(null);
   const [goals, setGoals] = useState<GoalsDoc | null>(null);
   const [runHistory, setRunHistory] = useState<RunHistoryDoc | null>(null);
   const [runStatus, setRunStatus] = useState<RunStatusDoc | null>(null);
@@ -2247,7 +2313,7 @@ export function OpsPage() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls, hr, rhist, rstat, rgov] = await Promise.all([
+      const [pd, bd, sd, hd, ld, rm, fr, pr, ho, ri, md, as, dp, wf, pi, rc, oq, qr, qp, qrc, mc, ss, oi, pcv, ats, cmp, gst, gdc, autoInv, gls, hr, rhist, rstat, rgov, autoCat] = await Promise.all([
         fetchJson<ProjectsDoc>("/ops-data/projects.json"),
         fetchJson<BlockersDoc>("/ops-data/blockers.json"),
         fetchJson<SessionsDoc>("/ops-data/session_index.json"),
@@ -2282,6 +2348,7 @@ export function OpsPage() {
         fetchJson<RunHistoryDoc>("/ops-data/run_history.json"),
         fetchJson<RunStatusDoc>("/ops-data/run_status.json"),
         fetchJson<RunGovernanceDoc>("/ops-data/run_governance.json"),
+        fetchJson<AutomationCatalogDoc>("/ops-data/automation_catalog.json"),
       ]);
       if (cancelled) return;
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
@@ -2318,6 +2385,7 @@ export function OpsPage() {
       setGateStatus(gst ?? null);
       setGateDecisions(gdc ?? null);
       setAutomations(autoInv ?? null);
+      setAutomationCatalog(autoCat ?? null);
       setGoals(gls ?? null);
       setHarnessRun(hr ?? null);
       setRunHistory(rhist ?? null);
@@ -2425,6 +2493,7 @@ export function OpsPage() {
         <WorkflowsCard doc={workflows} />
         <CardFreshnessBadge file="automation_runtime_inventory.json" freshness={freshness} />
         <AutomationInventoryCard doc={automations} />
+        <AutomationCatalogCard doc={automationCatalog} />
         <ProcessesCard doc={processes} />
         <ActionLauncherCard doc={campaigns} />
         <HarnessControlCard doc={harnessRun} />
@@ -3093,6 +3162,319 @@ function AutomationInventoryCard({ doc }: { doc: AutomationInventoryDoc | null }
           ) : null}
         </>
       )}
+    </section>
+  );
+}
+
+// Catalog-specific health labels not already in AUTOMATION_HEALTH_LABEL_HE.
+const CATALOG_HEALTH_LABEL_HE: Record<string, string> = {
+  ...AUTOMATION_HEALTH_LABEL_HE,
+  service: "שירות",
+};
+
+export type CatalogFilters = {
+  platform: string; // "" = all
+  type: string;
+  health: string;
+  query: string; // free text over id + name
+};
+
+export const EMPTY_CATALOG_FILTERS: CatalogFilters = {
+  platform: "",
+  type: "",
+  health: "",
+  query: "",
+};
+
+// Pure: distinct sorted non-empty values of a field across the rows.
+export function catalogDistinct(
+  rows: CatalogAutomation[],
+  pick: (a: CatalogAutomation) => string | undefined,
+): string[] {
+  const set = new Set<string>();
+  for (const r of rows) {
+    const v = pick(r);
+    if (v) set.add(v);
+  }
+  return Array.from(set).sort();
+}
+
+// Pure: apply platform/type/health/text filters. Text matches id OR name,
+// case-insensitive. Empty filter dimension ⇒ pass-through.
+export function filterCatalogAutomations(
+  rows: CatalogAutomation[],
+  f: CatalogFilters,
+): CatalogAutomation[] {
+  const q = f.query.trim().toLowerCase();
+  return rows.filter((a) => {
+    if (f.platform && (a.platform ?? "") !== f.platform) return false;
+    if (f.type && (a.type ?? "") !== f.type) return false;
+    if (f.health && (a.health ?? "") !== f.health) return false;
+    if (q) {
+      const hay = `${a.id} ${a.name ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+// Pure: freshness tier from the catalog's own _meta.source_generated_at (the
+// catalog is not in _freshness.json, so derive age here). Mirrors cardFreshLevel.
+export function catalogFreshLevel(
+  sourceGeneratedAt: string | undefined | null,
+  now: Date = new Date(),
+): CardFreshLevel {
+  if (!sourceGeneratedAt) return "unknown";
+  const t = new Date(sourceGeneratedAt).getTime();
+  if (Number.isNaN(t)) return "unknown";
+  const ageSeconds = Math.max(0, (now.getTime() - t) / 1000);
+  return cardFreshLevel(ageSeconds);
+}
+
+const CATALOG_ROW_CAP = 50;
+
+// Read-only "Automation Control Tower" catalog card. Summary + searchable/
+// filterable table + per-row health/freshness + canonical source refs +
+// human-verified findings. No mutation controls (act-plane is owner-gated).
+function AutomationCatalogCard({ doc }: { doc: AutomationCatalogDoc | null }) {
+  const [filters, setFilters] = useState<CatalogFilters>(EMPTY_CATALOG_FILTERS);
+
+  // Degraded/unavailable: fetch failed (null) or empty object / no rows.
+  const rows = doc?.automations ?? [];
+  const meta = doc?._meta;
+  const unavailable = doc === null || (!meta && rows.length === 0);
+
+  const freshLevel = catalogFreshLevel(meta?.source_generated_at);
+  const findings = doc?.linked_findings ?? [];
+
+  if (unavailable) {
+    return (
+      <section aria-label="מגדל בקרת אוטומציות" style={card}>
+        <div style={cardHead}>
+          <span style={{ fontWeight: 600 }}>מגדל בקרת אוטומציות</span>
+        </div>
+        <div role="status" style={errorBox}>
+          קטלוג האוטומציות אינו זמין — ייתכן שלא סונכרן מ-<code>/srv/ops-vault</code>.
+        </div>
+      </section>
+    );
+  }
+
+  const counts = meta?.counts;
+  const byPlatform = counts?.by_platform ?? {};
+  const byType = counts?.by_type ?? {};
+  const byHealth = counts?.by_health ?? {};
+  const total = counts?.total ?? rows.length;
+
+  const platforms = catalogDistinct(rows, (a) => a.platform);
+  const types = catalogDistinct(rows, (a) => a.type);
+  const healths = catalogDistinct(rows, (a) => a.health);
+
+  const filtered = filterCatalogAutomations(rows, filters);
+  const shown = filtered.slice(0, CATALOG_ROW_CAP);
+  const hidden = filtered.length - shown.length;
+
+  const nav = meta?.navigation ?? {};
+  const canonicalSources = meta?.canonical_sources ?? [];
+
+  const set = (patch: Partial<CatalogFilters>) =>
+    setFilters((prev) => ({ ...prev, ...patch }));
+
+  return (
+    <section aria-label="מגדל בקרת אוטומציות" style={card}>
+      <div style={cardHead}>
+        <span style={{ fontWeight: 600 }}>מגדל בקרת אוטומציות</span>
+        <span style={{ fontSize: 12, color: "#737373" }}>{total}</span>
+      </div>
+
+      {/* Card-level freshness from the catalog's own source_generated_at. */}
+      {freshLevel !== "fresh" && freshLevel !== "unknown" ? (
+        <div
+          role="status"
+          data-testid="catalog-freshness"
+          style={{
+            fontSize: 11,
+            fontWeight: 500,
+            color: freshLevel === "stale" ? driftPalette.red.fg : driftPalette.amber.fg,
+            background: freshLevel === "stale" ? driftPalette.red.bg : driftPalette.amber.bg,
+            border: `1px solid ${freshLevel === "stale" ? driftPalette.red.border : driftPalette.amber.border}`,
+            borderRadius: 8,
+            padding: "3px 9px",
+            marginBottom: 8,
+          }}
+        >
+          ⚠ מקור הקטלוג עודכן {meta?.source_generated_at ? relativeTimeHe(meta.source_generated_at) : "—"} — ייתכן שאינו עדכני
+        </div>
+      ) : null}
+
+      {/* Summary: breakdown chips. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+        {Object.entries(byPlatform)
+          .sort((a, b) => b[1] - a[1])
+          .map(([p, n]) => (
+            <span key={p} style={{ ...pill, background: "#525252" }}>
+              {p} {n}
+            </span>
+          ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+        {Object.entries(byType)
+          .sort((a, b) => b[1] - a[1])
+          .map(([t, n]) => (
+            <span key={t} style={{ ...pill, background: "#3730a3" }}>
+              {t} {n}
+            </span>
+          ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+        {Object.entries(byHealth)
+          .sort((a, b) => b[1] - a[1])
+          .map(([h, n]) => (
+            <span key={h} style={{ ...pill, background: automationHealthColor(h) }}>
+              {CATALOG_HEALTH_LABEL_HE[h] ?? h} {n}
+            </span>
+          ))}
+      </div>
+      <div style={{ ...subLine, marginBottom: 8 }}>
+        תחזית נגזרת (derived projection) · מקור:{" "}
+        {meta?.source_generated_at ?? "—"} · {findings.length} ממצאים ידניים
+      </div>
+
+      {/* Filter controls. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        <input
+          type="text"
+          aria-label="חיפוש לפי מזהה או שם"
+          placeholder="חיפוש (id / שם)"
+          value={filters.query}
+          onChange={(e) => set({ query: e.target.value })}
+          style={catalogInput}
+        />
+        <select
+          aria-label="סינון לפי פלטפורמה"
+          value={filters.platform}
+          onChange={(e) => set({ platform: e.target.value })}
+          style={catalogSelect}
+        >
+          <option value="">כל הפלטפורמות</option>
+          {platforms.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          aria-label="סינון לפי סוג"
+          value={filters.type}
+          onChange={(e) => set({ type: e.target.value })}
+          style={catalogSelect}
+        >
+          <option value="">כל הסוגים</option>
+          {types.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+        <select
+          aria-label="סינון לפי בריאות"
+          value={filters.health}
+          onChange={(e) => set({ health: e.target.value })}
+          style={catalogSelect}
+        >
+          <option value="">כל מצבי הבריאות</option>
+          {healths.map((h) => (
+            <option key={h} value={h}>{CATALOG_HEALTH_LABEL_HE[h] ?? h}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ ...subLine, marginBottom: 6 }} data-testid="catalog-filtered-count">
+        מציג {shown.length} מתוך {filtered.length} (סה״כ {rows.length})
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={emptyInline}>אין אוטומציות התואמות את הסינון</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+          {shown.map((a) => (
+            <li
+              key={a.id}
+              style={{ fontSize: 13, color: "#404040", overflowWrap: "anywhere", borderInlineStart: "3px solid #e5e5e5", paddingInlineStart: 8 }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 600, minWidth: 0, overflowWrap: "anywhere" }}>
+                  {a.name && a.name.trim() ? a.name : a.id}
+                </span>
+                <span style={{ ...pill, background: automationHealthColor(a.health) }}>
+                  {CATALOG_HEALTH_LABEL_HE[(a.health ?? "").toLowerCase()] ?? a.health ?? "?"}
+                </span>
+                <span style={{ ...pill, background: "#737373" }}>{a.platform ?? "?"}</span>
+                {a.type ? <span style={{ ...pill, background: "#3730a3" }}>{a.type}</span> : null}
+                {a.enabled === false ? (
+                  <span style={{ ...pill, background: "#a3a3a3" }}>מושבת</span>
+                ) : null}
+              </div>
+              <div style={{ ...subLine, marginTop: 2 }}>
+                {a.cadence ? `מחזוריות: ${a.cadence} · ` : ""}
+                ריצה אחרונה:{" "}
+                {a.last_run_at ? relativeTimeHe(a.last_run_at) : "—/לא ידוע"}
+                {a.project_ref ? ` · פרויקט: ${a.project_ref}` : " · פרויקט: —/לא ידוע"}
+              </div>
+              {a.source_ref ? (
+                <div style={{ ...subLine, marginTop: 1, color: "#737373" }}>
+                  מקור: <code style={{ userSelect: "all", overflowWrap: "anywhere" }}>{a.source_ref}</code>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {hidden > 0 ? (
+        <div style={{ ...subLine, marginTop: 6 }}>
+          +{hidden} שורות מוסתרות (תוצג עד {CATALOG_ROW_CAP}) — צמצם בעזרת סינון
+        </div>
+      ) : null}
+
+      {/* Human-verified findings — clearly separated from derived rows. */}
+      {findings.length > 0 ? (
+        <>
+          <div style={sectionLabel}>ממצאים שנבדקו ידנית ({findings.length})</div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+            {findings.map((fnd) => (
+              <li
+                key={fnd.id}
+                style={{ fontSize: 13, color: "#404040", overflowWrap: "anywhere", borderInlineStart: "3px solid #f59e0b", paddingInlineStart: 8 }}
+              >
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600 }}>{fnd.title ?? fnd.id}</span>
+                  {fnd.severity ? (
+                    <span style={{ ...pill, background: "#a16207" }}>{fnd.severity}</span>
+                  ) : null}
+                </div>
+                {fnd.disposition ? (
+                  <div style={{ ...subLine, marginTop: 1 }}>{fnd.disposition}</div>
+                ) : null}
+                {fnd.source_ref ? (
+                  <div style={{ ...subLine, marginTop: 1, color: "#737373" }}>
+                    מקור: <code style={{ userSelect: "all", overflowWrap: "anywhere" }}>{fnd.source_ref}</code>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {/* Provenance footer: canonical sources + navigation refs. */}
+      <div style={sectionLabel}>מקור / provenance</div>
+      <div style={{ ...subLine, color: "#737373", display: "grid", gap: 2 }}>
+        {canonicalSources.map((s) => (
+          <code key={s} style={{ userSelect: "all", overflowWrap: "anywhere" }}>{s}</code>
+        ))}
+        {nav.campaign_ref ? (
+          <code style={{ userSelect: "all", overflowWrap: "anywhere" }}>campaign: {nav.campaign_ref}</code>
+        ) : null}
+        {nav.concept_ref ? (
+          <code style={{ userSelect: "all", overflowWrap: "anywhere" }}>concept: {nav.concept_ref}</code>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -6319,6 +6701,23 @@ const overviewCount: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 400,
   color: "#92400e",
+};
+
+const catalogInput: React.CSSProperties = {
+  flex: "1 1 140px",
+  minWidth: 120,
+  fontSize: 13,
+  padding: "4px 8px",
+  border: "1px solid #d4d4d4",
+  borderRadius: 8,
+};
+
+const catalogSelect: React.CSSProperties = {
+  fontSize: 13,
+  padding: "4px 6px",
+  border: "1px solid #d4d4d4",
+  borderRadius: 8,
+  background: "#fff",
 };
 
 const overviewList: React.CSSProperties = {
