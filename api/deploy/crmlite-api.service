@@ -1,0 +1,32 @@
+# Deploy target: /etc/systemd/system/crmlite-api.service
+# NOT INSTALLED. See api/deploy/README.md for the apply procedure.
+[Unit]
+Description=crm-lite internal queue-actions API (MN-OS S3, A')
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devuser
+Group=ops-vault
+WorkingDirectory=/home/elron/services/crm-lite/api
+Environment=CRMLITE_API_HOST=127.0.0.1
+Environment=CRMLITE_API_PORT=8211
+Environment=OPSVAULT_DIR=/srv/ops-vault
+ExecStart=/usr/bin/node /home/elron/services/crm-lite/api/server.js
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+# Minimal hardening — service writes only to the spool dir + reducer output
+# under /srv/ops-vault/state/. Everything else is read-only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/ops-vault/state
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
