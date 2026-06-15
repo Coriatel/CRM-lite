@@ -2180,6 +2180,169 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   }
 }
 
+// ── Control Tower L0 — the shared read model ────────────────────────────────
+// control_tower_packet.json is the SINGLE common read model for both this web
+// Mission view and the Telegram shift manager. Built by
+// automation-registry/scripts/build-control-tower-packet.py (read-only fold).
+type CtSection = {
+  confidence?: "FACT" | "INFERENCE";
+  route?: string;
+  actions?: string[];
+};
+type ControlTowerPacket = {
+  _meta?: { computed_at?: string; freshness?: string };
+  now?: CtSection & { label?: string | null; rationale?: string; owner_gate?: boolean };
+  needs_you?: CtSection & {
+    count?: number;
+    oldest_age_days?: number | null;
+    gates?: { id?: string; kind?: string; summary?: string; age_days?: number | null }[];
+    owner_blockers?: { id?: string; summary?: string; age_days?: number | null }[];
+  };
+  next?: CtSection & {
+    items?: { rank?: number; label?: string; campaign_id?: string }[];
+  };
+  health?: CtSection & {
+    verdict?: string;
+    surfaces_total?: number;
+    surfaces_degraded?: number;
+    producer_violations?: number;
+  };
+};
+
+// Action verb → Hebrew label. Same verbs the Telegram manager renders, so the
+// two surfaces speak one vocabulary.
+const ACTION_HE: Record<string, string> = {
+  continue: "המשך",
+  inspect: "בדוק",
+  approve: "אשר",
+  reject: "דחה",
+  answer_false_gate: "ענה לשער שגוי",
+  open_session: "פתח סשן",
+  close_ready: "סגור מוכנים",
+};
+
+function healthColor(verdict?: string): string {
+  if (verdict === "OK") return "#22c55e";
+  if (verdict === "DEGRADED") return "#f59e0b";
+  return "#a3a3a3"; // UNKNOWN
+}
+
+function MissionCard({ packet }: { packet: ControlTowerPacket | null }) {
+  if (!packet) return null;
+  const now = packet.now;
+  const needs = packet.needs_you;
+  const next = packet.next;
+  const health = packet.health;
+
+  const Conf = ({ c }: { c?: string }) =>
+    c ? (
+      <span style={confChip} title={c === "FACT" ? "מקור דטרמיניסטי" : "נגזר/מתוכנן"}>
+        {c === "FACT" ? "עובדה" : "הסקה"}
+      </span>
+    ) : null;
+
+  const Actions = ({ verbs }: { verbs?: string[] }) =>
+    verbs && verbs.length ? (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+        {verbs.slice(0, 4).map((v) => (
+          <span key={v} style={actionChip}>
+            {ACTION_HE[v] ?? v}
+          </span>
+        ))}
+      </div>
+    ) : null;
+
+  const oldest = needs?.oldest_age_days;
+  return (
+    <section style={missionCard} aria-label="משימה — מבט על">
+      <div style={missionHead}>
+        <span>🛰️ משימה — מבט על</span>
+        <a href="#producer-health" style={{ textDecoration: "none" }}>
+          <span style={{ ...pill, background: healthColor(health?.verdict) }}>
+            {health?.verdict ?? "—"}
+          </span>
+        </a>
+      </div>
+
+      {/* NOW */}
+      <a href={now?.route || "#operational-queue"} style={missionRowLink}>
+        <div style={sectionLabel}>עכשיו · NOW</div>
+      </a>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "#111" }}>
+        {now?.label ?? "—"} <Conf c={now?.confidence} />
+      </div>
+      {now?.rationale && <div style={subLine}>{now.rationale}</div>}
+      <Actions verbs={now?.actions} />
+
+      {/* NEEDS YOU */}
+      <a href="#owner-gates" style={missionRowLink}>
+        <div style={sectionLabel}>
+          צריך אותך · NEEDS YOU{" "}
+          <span style={{ color: "#92400e" }}>
+            {needs?.count ?? 0}
+            {oldest != null ? ` · ותיק ${oldest} ימים` : ""}
+          </span>
+        </div>
+      </a>
+      {needs && needs.count ? (
+        <ul style={blockerList}>
+          {(needs.gates ?? []).slice(0, 2).map((g) => (
+            <li key={g.id} style={blockerItem}>
+              {g.summary ?? g.kind}
+              {g.age_days != null ? <span style={subLine}> · {g.age_days}י</span> : null}
+            </li>
+          ))}
+          {(needs.owner_blockers ?? []).slice(0, 1).map((b) => (
+            <li key={b.id} style={{ ...blockerItem, borderInlineStartColor: "#ef4444" }}>
+              {b.summary}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div style={emptyInline}>אין פריטים שדורשים אותך ✓</div>
+      )}
+      <Actions verbs={needs?.actions} />
+
+      {/* NEXT */}
+      <a href="#operational-queue" style={missionRowLink}>
+        <div style={sectionLabel}>הבא · NEXT</div>
+      </a>
+      {next?.items && next.items.length ? (
+        <ol style={{ ...overviewList, listStylePosition: "inside" }}>
+          {next.items.map((it) => (
+            <li key={it.rank} style={overviewItem}>
+              {it.label}
+              {it.campaign_id ? <span style={subLine}> · {it.campaign_id}</span> : null}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div style={emptyInline}>אין עבודה מתוכננת</div>
+      )}
+      <Actions verbs={next?.actions} />
+
+      {/* HEALTH */}
+      <a href="#producer-health" style={missionRowLink}>
+        <div style={sectionLabel}>
+          תקינות · HEALTH{" "}
+          <span style={{ color: healthColor(health?.verdict) }}>
+            {health?.verdict ?? "—"} · {health?.surfaces_degraded ?? 0}/
+            {health?.surfaces_total ?? 0} מושבתים
+            {health?.producer_violations
+              ? ` · ${health.producer_violations} הפרות`
+              : ""}
+          </span>
+        </div>
+      </a>
+
+      <div style={{ ...subLine, marginTop: 8 }}>
+        מודל קריאה משותף · עודכן{" "}
+        {packet._meta?.computed_at ?? "—"} · Telegram + Web אותו packet
+      </div>
+    </section>
+  );
+}
+
 function parseProjects(doc: ProjectsDoc | null): ProjectRow[] {
   if (!doc) return [];
   const out: ProjectRow[] = [];
@@ -2309,6 +2472,7 @@ export function OpsPage() {
   const [runGovernance, setRunGovernance] = useState<RunGovernanceDoc | null>(null);
   const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [ctPacket, setCtPacket] = useState<ControlTowerPacket | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2350,7 +2514,11 @@ export function OpsPage() {
         fetchJson<RunGovernanceDoc>("/ops-data/run_governance.json"),
         fetchJson<AutomationCatalogDoc>("/ops-data/automation_catalog.json"),
       ]);
+      const ctp = await fetchJson<ControlTowerPacket>(
+        "/ops-data/projections/control-tower/control_tower_packet.json",
+      );
       if (cancelled) return;
+      setCtPacket(ctp ?? null);
       if (!pd && !bd && !sd && !hd && !ld && !rm) {
         setLoadError("ops-data unavailable — was the page built without /srv/ops-vault?");
       }
@@ -2438,6 +2606,8 @@ export function OpsPage() {
         <div role="alert" style={errorBox}>{loadError}</div>
       )}
 
+      <MissionCard packet={ctPacket} />
+
       <StalenessBanner stale={stalenessEntries(freshness, 6)} />
 
       {/* Section grouping (MN-OS Slice 1): tame the flat 28-card scroll into
@@ -2466,6 +2636,7 @@ export function OpsPage() {
         <HybridBlockersCard doc={attentionSynthesis} />
 
         <CardFreshnessBadge file="operational_queue.json" freshness={freshness} />
+        <div id="operational-queue" />
         <OperationalQueueCard
           doc={operationalQueue}
           routes={queueRoutes}
@@ -2476,6 +2647,7 @@ export function OpsPage() {
         />
 
         <CardFreshnessBadge file="session_index.json" freshness={freshness} />
+        <div id="owner-gates" />
         <OwnerGatesCard gates={ownerGates} />
         <CardFreshnessBadge file="owner_gate_status.json" freshness={freshness} />
         <OwnerGateQueueCard statusDoc={gateStatus} decisionsDoc={gateDecisions} />
@@ -2517,6 +2689,7 @@ export function OpsPage() {
         <CardFreshnessBadge file="orchestrator_integrity.json" freshness={freshness} />
         <OrchestratorIntegrityCard doc={orchestratorIntegrity} />
         <CardFreshnessBadge file="producer_contract_violations.json" freshness={freshness} />
+        <div id="producer-health" />
         <ProducerHealthCard doc={producerHealth} />
         <CardFreshnessBadge file="health.json" freshness={freshness} />
         <HealthOverview health={health} />
@@ -6677,6 +6850,50 @@ const emptyBox: React.CSSProperties = {
   color: "#737373",
   border: "1px dashed #d4d4d4",
   borderRadius: 10,
+};
+
+// ── Mission (L0) card styling — the tower's top pane ────────────────────────
+const missionCard: React.CSSProperties = {
+  border: "1px solid #c7d2fe",
+  background: "linear-gradient(180deg,#eef2ff 0%,#fff 60%)",
+  borderRadius: 12,
+  padding: 14,
+  marginBottom: 16,
+};
+
+const missionHead: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  fontWeight: 700,
+  fontSize: 15,
+  color: "#312e81",
+  marginBottom: 6,
+};
+
+const missionRowLink: React.CSSProperties = {
+  textDecoration: "none",
+  color: "inherit",
+  display: "block",
+};
+
+const confChip: React.CSSProperties = {
+  fontSize: 10,
+  padding: "1px 6px",
+  borderRadius: 999,
+  background: "#e0e7ff",
+  color: "#3730a3",
+  marginInlineStart: 6,
+  verticalAlign: "middle",
+};
+
+const actionChip: React.CSSProperties = {
+  fontSize: 12,
+  padding: "3px 10px",
+  borderRadius: 999,
+  background: "#fff",
+  border: "1px solid #c7d2fe",
+  color: "#3730a3",
 };
 
 const overviewCard: React.CSSProperties = {
