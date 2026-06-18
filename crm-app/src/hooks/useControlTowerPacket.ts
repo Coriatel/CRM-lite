@@ -22,12 +22,16 @@ export interface CtGate {
   id?: string;
   kind?: string;
   summary?: string;
+  suggested_action?: string;
+  reversibility?: string;
+  status?: string;
   age_days?: number | null;
 }
 
 export interface CtOwnerBlocker {
   id?: string;
   summary?: string;
+  needs?: string;
   age_days?: number | null;
 }
 
