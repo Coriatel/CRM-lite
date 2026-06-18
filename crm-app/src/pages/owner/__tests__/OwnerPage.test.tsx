@@ -92,6 +92,10 @@ describe("OwnerPage — L0 + L1 over the folded packet", () => {
     expect(
       (screen.getByTestId("portal-needs-you") as HTMLAnchorElement).getAttribute("href"),
     ).toContain("/ops");
+    // blockers must target the REAL Ops card anchor (id="ops-card-blockers"), not #blockers
+    expect(
+      (screen.getByTestId("portal-blockers") as HTMLAnchorElement).getAttribute("href"),
+    ).toBe("/ops#ops-card-blockers");
   });
 
   it("renders a safe empty state when the packet is unavailable (degraded/missing)", () => {

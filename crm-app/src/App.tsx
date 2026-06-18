@@ -89,6 +89,7 @@ const ElronQueuePage = lazy(() =>
 
 import { AppShell } from "./components/layout/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ScrollToHash } from "./components/ScrollToHash";
 import { SortOption, AdvancedFilters } from "./types";
 
 const LAST_ROUTE_KEY = "crm_last_route";
@@ -160,6 +161,7 @@ function AppContent() {
   return (
     <>
       <RouteTracker />
+      <ScrollToHash />
       <Routes>
         <Route
           element={

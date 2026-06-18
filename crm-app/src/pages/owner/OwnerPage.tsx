@@ -198,7 +198,7 @@ export function OwnerPage() {
               count={blockerCount}
               countTone={blockerCount > 0 ? "danger" : "ok"}
               why="דברים שתקועים עד שתפעל"
-              to="/ops#blockers"
+              to="/ops#ops-card-blockers"
             />
             <PortalCard
               testId="portal-next"
