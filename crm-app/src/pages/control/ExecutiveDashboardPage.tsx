@@ -54,7 +54,11 @@ export function ExecutiveDashboardView({
     <div dir="rtl" style={pageStyle} data-testid="executive-dashboard">
       <ControlTowerHeader title="חדר בקרה" subtitle="מצב הארגון במבט אחד" freshness={inbox._meta.freshness} />
 
+      {/* all KPI counters grouped at the top: decisions/systems/risks, then system health */}
       <OwnerHero metrics={metrics} action={reco ? { title: reco.title, route: reco.route } : null} />
+      <div style={{ marginTop: 10 }}>
+        <PortfolioSummary rollup={rollup} />
+      </div>
 
       {topDecisions.length > 0 && (
         <DecisionSection title="הכרעות מובילות" count={inbox.header.needs_you_count}>
@@ -64,18 +68,15 @@ export function ExecutiveDashboardView({
         </DecisionSection>
       )}
 
-      <DecisionSection title="מצב המערכות">
-        <PortfolioSummary rollup={rollup} />
-        {attentionSystems.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+      {attentionSystems.length > 0 && (
+        <DecisionSection title="מערכות שדורשות אותך" count={attentionSystems.length}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {attentionSystems.map((s) => (
               <PortfolioRow key={s.system} system={s} />
             ))}
           </div>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--mn-success)", marginTop: 10 }}>✓ כל המערכות יציבות</p>
-        )}
-      </DecisionSection>
+        </DecisionSection>
+      )}
 
       <footer style={footerStyle}>קריאה בלבד · מאוחד מ-החלטות ו-תיק המערכות</footer>
     </div>

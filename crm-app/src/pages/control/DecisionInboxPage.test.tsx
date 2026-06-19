@@ -108,6 +108,16 @@ describe("DecisionInboxView", () => {
     expect(within(hero).getByText("מערכות דורשות אותך", { exact: false })).toBeTruthy();
   });
 
+  it("renders priority cards compact (no recommendation/detail) until tapped", () => {
+    renderView();
+    const cards = screen.getAllByTestId("decision-card");
+    expect(cards.length).toBeGreaterThan(0);
+    // collapsed: a priority card shows no recommendation block
+    expect(within(cards[0]).queryByTestId("card-recommendation")).toBeNull();
+    fireEvent.click(cards[0]);
+    expect(within(cards[0]).getByTestId("card-recommendation")).toBeTruthy();
+  });
+
   it("hides evidence by default and reveals it on disclosure", () => {
     renderView();
     expect(screen.queryByTestId("evidence-list")).toBeNull();

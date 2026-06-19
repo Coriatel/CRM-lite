@@ -16,6 +16,7 @@ import {
   type HeroMetric,
 } from "./decisionUi";
 import { isSameItem, sortByPriority } from "./decisionLogic";
+import { CONTROL_THEME } from "./controlTheme";
 import { useOpsPacket } from "./useOpsPacket";
 
 // E2 — "What needs me today" `/decisions` (flag OFF by default).
@@ -106,9 +107,11 @@ function DecisionInboxFetcher() {
 }
 
 export const pageStyle: React.CSSProperties = {
+  ...CONTROL_THEME,
   maxWidth: 760,
   margin: "0 auto",
-  padding: "12px 14px 32px",
+  // bottom padding clears the fixed 56px BottomNav so content scrolls behind it
+  padding: "12px 14px calc(84px + env(safe-area-inset-bottom))",
   fontFamily: "'Rubik', sans-serif",
   background: "var(--mn-surface-root)",
   minHeight: "100vh",

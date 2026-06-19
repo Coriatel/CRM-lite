@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { OwnerPortfolioView, OwnerPortfolioPage } from "./OwnerPortfolioPage";
 import { hasIdentifier, type PortfolioPacket } from "./decisionTypes";
@@ -68,10 +68,15 @@ describe("OwnerPortfolioView", () => {
     expect(within(cards[0]).getByTestId("portfolio-label").textContent).toBe("מגדל בקרה");
   });
 
-  it("surfaces risk and needs_me for a system that requires the owner", () => {
+  it("shows needs_me collapsed and reveals next-action/risk on expand (progressive disclosure)", () => {
     renderView();
+    // collapsed: the needs-you count is visible immediately
     expect(screen.getByText("14 פריטים דורשים אותך", { exact: false })).toBeTruthy();
-    expect(screen.getByText("עבור ל-החלטות", { exact: false })).toBeTruthy();
+    // next action is hidden by default, revealed on tap
+    expect(screen.queryByText("עבור ל-החלטות", { exact: false })).toBeNull();
+    const attentionCard = screen.getAllByTestId("portfolio-card")[0];
+    fireEvent.click(attentionCard);
+    expect(within(attentionCard).getByText("עבור ל-החלטות", { exact: false })).toBeTruthy();
   });
 
   it("contains ZERO technical identifiers in the default view (One Rule)", () => {
