@@ -17,7 +17,7 @@ import {
 } from "./decisionUi";
 import { isSameItem, sortByPriority } from "./decisionLogic";
 import { CONTROL_THEME } from "./controlTheme";
-import { useOpsPacket } from "./useOpsPacket";
+import { useDarkChrome, useOpsPacket } from "./useOpsPacket";
 
 // E2 — "What needs me today" `/decisions` (flag OFF by default).
 // Owner-first: glance the state in one second, see the single best move, focus on the
@@ -96,6 +96,7 @@ export function DecisionInboxPage() {
 }
 
 function DecisionInboxFetcher() {
+  useDarkChrome();
   const { doc } = useOpsPacket<DecisionInboxPacket>(DECISION_INBOX_URL);
   const { doc: portfolio } = useOpsPacket<PortfolioPacket>(PORTFOLIO_URL);
   return <DecisionInboxView doc={doc} portfolio={portfolio} />;

@@ -1,0 +1,22 @@
+/* E9 — Dark Navigation Consistency Fix.
+   Visual theme only for the global bottom nav, applied ONLY while a Control-Tower
+   (Midnight Command) surface is active — scoped via `body.ct-dark-chrome`, which the
+   control pages toggle on mount/unmount. Every other (light) screen is untouched.
+   No route/layout/behavior/touch-target changes; sticky + safe-area are inherited. */
+
+body.ct-dark-chrome .bottom-nav {
+  background: #0e1b24;
+  border-top: 1px solid #26384a;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* inactive items — light slate on dark navy (AA contrast) */
+body.ct-dark-chrome .bottom-nav-item {
+  color: #8ba2b1;
+}
+
+/* active / hover — bright teal, matches the cockpit accent */
+body.ct-dark-chrome .bottom-nav-item.active,
+body.ct-dark-chrome .bottom-nav-item:hover {
+  color: #2bb6cc;
+}

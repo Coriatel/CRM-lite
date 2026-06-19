@@ -15,7 +15,7 @@ import {
   type HeroMetric,
 } from "./decisionUi";
 import { isSameItem, rollupSystems, sortByPriority } from "./decisionLogic";
-import { useOpsPacket } from "./useOpsPacket";
+import { useDarkChrome, useOpsPacket } from "./useOpsPacket";
 import { footerStyle, pageStyle } from "./DecisionInboxPage";
 
 // E6 — Executive cockpit `/executive` (flag OFF by default).
@@ -89,6 +89,7 @@ export function ExecutiveDashboardPage() {
 }
 
 function ExecutiveDashboardFetcher() {
+  useDarkChrome();
   const { doc: inbox } = useOpsPacket<DecisionInboxPacket>(DECISION_INBOX_URL);
   const { doc: portfolio } = useOpsPacket<PortfolioPacket>(PORTFOLIO_URL);
   return <ExecutiveDashboardView inbox={inbox} portfolio={portfolio} />;

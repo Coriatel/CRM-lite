@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
 
+// Tag <body> while a Control-Tower surface is mounted so the scoped controlChrome.css
+// dark-themes the global bottom nav only here. Reverts on unmount → other screens stay light.
+export function useDarkChrome() {
+  useEffect(() => {
+    document.body.classList.add("ct-dark-chrome");
+    return () => document.body.classList.remove("ct-dark-chrome");
+  }, []);
+}
+
 // Read-only fetch of an /ops-data packet, mirroring ControlPanelPage's no-store +
 // 30s refresh pattern. No writes, no producer interaction.
 export function useOpsPacket<T>(url: string): { doc: T | null; loaded: boolean } {

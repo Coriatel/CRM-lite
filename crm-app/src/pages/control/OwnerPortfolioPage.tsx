@@ -1,7 +1,7 @@
 import { DECISIONS_ENABLED, PORTFOLIO_URL, type PortfolioPacket } from "./decisionTypes";
 import { ControlTowerHeader, PortfolioCardView, PortfolioSummary } from "./decisionUi";
 import { rollupSystems } from "./decisionLogic";
-import { useOpsPacket } from "./useOpsPacket";
+import { useDarkChrome, useOpsPacket } from "./useOpsPacket";
 import { footerStyle, pageStyle } from "./DecisionInboxPage";
 
 // E5 — Portfolio `/portfolio` (flag OFF by default).
@@ -46,6 +46,7 @@ export function OwnerPortfolioPage() {
 }
 
 function OwnerPortfolioFetcher() {
+  useDarkChrome();
   const { doc } = useOpsPacket<PortfolioPacket>(PORTFOLIO_URL);
   return <OwnerPortfolioView doc={doc} />;
 }

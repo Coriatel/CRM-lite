@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type React from "react";
 import { Link } from "react-router-dom";
+import "./controlChrome.css";
 import type { DecisionCard, PortfolioSystem, ResolvedCard } from "./decisionTypes";
 import { prominenceOf, type Prominence, type PortfolioRollup } from "./decisionLogic";
 
