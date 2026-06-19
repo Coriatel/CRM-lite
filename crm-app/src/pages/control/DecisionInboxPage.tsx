@@ -12,7 +12,7 @@ import {
   OwnerHero,
   PriorityList,
   RecommendationCard,
-  ResolvedRow,
+  ResolvedHistory,
   type HeroMetric,
 } from "./decisionUi";
 import { isSameItem, sortByPriority } from "./decisionLogic";
@@ -60,13 +60,15 @@ export function DecisionInboxView({
         freshness={doc._meta.freshness}
       />
 
-      <OwnerHero metrics={metrics} />
-
+      {/* the single most important next action is the first thing on screen */}
       {reco && (
-        <div style={{ marginTop: 14 }}>
+        <div style={{ marginTop: 12 }}>
           <RecommendationCard card={reco} />
         </div>
       )}
+
+      {/* one-glance context strip, below the action */}
+      <OwnerHero metrics={metrics} />
 
       {priorities.length > 0 && (
         <DecisionSection title="העדיפויות שלך" count={priorities.length}>
@@ -80,15 +82,8 @@ export function DecisionInboxView({
         </DecisionSection>
       )}
 
-      {doc.recently_resolved.length > 0 && (
-        <DecisionSection title="הוכרע לאחרונה" count={doc.recently_resolved.length}>
-          <div>
-            {doc.recently_resolved.map((c) => (
-              <ResolvedRow key={c.id} card={c} />
-            ))}
-          </div>
-        </DecisionSection>
-      )}
+      {/* history — not a decision; collapsed, expandable only */}
+      <ResolvedHistory items={doc.recently_resolved} />
 
       <footer style={footerStyle}>קריאה בלבד · רענון כל 30 שניות</footer>
     </div>

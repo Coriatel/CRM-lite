@@ -98,7 +98,7 @@ export function UrgencyChip({ urgency }: { urgency: string }) {
   return (
     <span
       data-testid="urgency-chip"
-      style={{ ...chipStyle, color: filled ? "#fff" : color, background: filled ? color : "transparent", borderColor: color }}
+      style={{ ...chipStyle, color: filled ? "var(--ct-on-critical)" : color, background: filled ? color : "transparent", borderColor: color }}
     >
       {URGENCY_LABEL[urgency] ?? urgency}
     </span>
@@ -188,17 +188,19 @@ export function DecisionCardView({ card }: { card: DecisionCard }) {
           {card.if_ignored && (
             <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--mn-text-muted)" }}>אם מתעלמים: {card.if_ignored}</p>
           )}
-          {typeof card.age_days === "number" && (
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--mn-text-muted)" }}>ממתין {Math.round(card.age_days)} ימים</div>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+            <ConfidenceChip confidence={card.confidence} />
+            {typeof card.age_days === "number" && (
+              <span style={{ fontSize: 12, color: "var(--mn-text-muted)" }}>ממתין {Math.round(card.age_days)} ימים</span>
+            )}
+          </div>
           <EvidenceDisclosure refs={card.evidence_refs} />
         </>
       )}
 
       <div style={cardFooterStyle}>
-        <ConfidenceChip confidence={card.confidence} />
-        <span style={{ display: "inline-flex", gap: 10, alignItems: "center", marginInlineStart: "auto" }}>
-          <span style={{ fontSize: 11.5, color: "var(--mn-text-muted)" }}>{open ? "פחות ▴" : "פרטים ▾"}</span>
+        <span style={{ fontSize: 11.5, color: "var(--mn-text-muted)" }}>{open ? "פחות ▴" : "פרטים ▾"}</span>
+        <span style={{ marginInlineStart: "auto" }}>
           <PrimaryAction route={card.route} />
         </span>
       </div>
@@ -313,7 +315,7 @@ export function PortfolioCardView({ system }: { system: PortfolioSystem }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <h3 data-testid="portfolio-label" style={cardTitleStyle}>{system.label}</h3>
-        <span data-testid="portfolio-status" style={{ ...chipStyle, color: attention ? "#fff" : color, background: attention ? color : "transparent", borderColor: color }}>
+        <span data-testid="portfolio-status" style={{ ...chipStyle, color: attention ? "var(--ct-on-critical)" : color, background: attention ? color : "transparent", borderColor: color }}>
           {system.status}
         </span>
       </div>
@@ -388,6 +390,26 @@ export function ResolvedRow({ card }: { card: ResolvedCard }) {
   );
 }
 
+// Recently-resolved is history, not a decision — collapsed by default (expandable only).
+export function ResolvedHistory({ items }: { items: ResolvedCard[] }) {
+  const [open, setOpen] = useState(false);
+  if (!items.length) return null;
+  return (
+    <section style={{ marginTop: 16 }}>
+      <button type="button" data-testid="resolved-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open} style={showMoreStyle}>
+        הוכרע לאחרונה ({items.length}) {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <div data-testid="resolved-body" style={{ marginTop: 8 }}>
+          {items.map((c) => (
+            <ResolvedRow key={c.id} card={c} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function FreshnessNote({ freshness }: { freshness: string }) {
   const degraded = freshness !== "FRESH" && freshness !== "OK";
   return (
@@ -415,7 +437,7 @@ const ctaButtonStyle: React.CSSProperties = {
   marginTop: 10,
   padding: "0 16px",
   background: "var(--mn-brand-teal)",
-  color: "#fff",
+  color: "var(--ct-on-accent)",
   fontWeight: 800,
   fontSize: 14.5,
   borderRadius: "var(--mn-radius-card)",
@@ -427,7 +449,7 @@ const primaryActionStyle: React.CSSProperties = {
   minHeight: 44,
   padding: "0 14px",
   background: "var(--mn-brand-teal)",
-  color: "#fff",
+  color: "var(--ct-on-accent)",
   fontWeight: 700,
   fontSize: 13,
   borderRadius: "var(--mn-radius-card)",
@@ -476,7 +498,7 @@ const showMoreStyle: React.CSSProperties = {
   font: "inherit",
 };
 const ctHeaderStyle: React.CSSProperties = { paddingBottom: 10, borderBottom: "2px solid var(--mn-brand-teal)" };
-const wordmarkStyle: React.CSSProperties = { fontSize: 12, fontWeight: 900, letterSpacing: 1, color: "#fff", background: "var(--mn-brand-teal)", borderRadius: 6, padding: "2px 7px" };
+const wordmarkStyle: React.CSSProperties = { fontSize: 12, fontWeight: 900, letterSpacing: 1, color: "var(--ct-on-accent)", background: "var(--mn-brand-teal)", borderRadius: 6, padding: "2px 7px" };
 const ctTitleStyle: React.CSSProperties = { margin: "8px 0 2px", fontSize: 22, fontWeight: 800, color: "var(--mn-text-strong)" };
 const heroWrapStyle: React.CSSProperties = { marginTop: 12, display: "flex", flexDirection: "column", gap: 10 };
 const heroMetricsStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(70px, 1fr))", gap: 8 };
@@ -497,7 +519,7 @@ const heroActionStyle: React.CSSProperties = {
   gap: 2,
   padding: "13px 15px",
   background: "var(--mn-brand-teal)",
-  color: "#fff",
+  color: "var(--ct-on-accent)",
   borderRadius: "var(--mn-radius-card)",
   textDecoration: "none",
   boxShadow: "var(--mn-shadow-card)",
