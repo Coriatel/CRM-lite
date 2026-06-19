@@ -3,7 +3,7 @@ import type React from "react";
 import { Link } from "react-router-dom";
 import "./controlChrome.css";
 import type { DecisionCard, PortfolioSystem, ResolvedCard } from "./decisionTypes";
-import { prominenceOf, type Prominence, type PortfolioRollup } from "./decisionLogic";
+import { decisionPath, prominenceOf, type Prominence, type PortfolioRollup } from "./decisionLogic";
 
 // ── shared owner-cognition primitives ─────────────────────────────────────────
 // A compact command center: collapsed cards show only what's needed to act or decide
@@ -85,6 +85,21 @@ export function OwnerHero({
   );
 }
 
+// One-line KPI strip — metrics as supporting context, not the headline.
+export function CompactKpiStrip({ metrics }: { metrics: HeroMetric[] }) {
+  return (
+    <div data-testid="kpi-strip" style={kpiStripStyle}>
+      {metrics.map((m, i) => (
+        <span key={i} data-testid="kpi-item" style={{ display: "inline-flex", alignItems: "baseline", gap: 5, whiteSpace: "nowrap" }}>
+          <span style={{ width: 7, height: 7, borderRadius: 999, background: SEV[m.severity], display: "inline-block", alignSelf: "center" }} />
+          <strong style={{ fontSize: 15, fontWeight: 800, color: SEV[m.severity] }}>{m.value}</strong>
+          <span style={{ fontSize: 11.5, color: "var(--mn-text-muted)" }}>{m.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── chips ─────────────────────────────────────────────────────────────────────
 const URGENCY_COLOR: Record<string, string> = {
   high: "var(--mn-critical)",
@@ -133,10 +148,11 @@ export function EvidenceDisclosure({ refs }: { refs: string[] }) {
   );
 }
 
-function PrimaryAction({ route, label = "טפל" }: { route?: string; label?: string }) {
-  if (!route) return null;
+// Routes to the cockpit-native decision view (/decision/:id), never the legacy /ops page.
+function PrimaryAction({ id, label = "פתח החלטה" }: { id?: string; label?: string }) {
+  if (!id) return null;
   return (
-    <Link to={route} data-testid="card-action" onClick={(e) => e.stopPropagation()} style={primaryActionStyle}>
+    <Link to={decisionPath(id)} data-testid="card-action" onClick={(e) => e.stopPropagation()} style={primaryActionStyle}>
       {label} ←
     </Link>
   );
@@ -202,7 +218,7 @@ export function DecisionCardView({ card }: { card: DecisionCard }) {
       <div style={cardFooterStyle}>
         <span style={{ fontSize: 11.5, color: "var(--mn-text-muted)" }}>{open ? "פחות ▴" : "פרטים ▾"}</span>
         <span style={{ marginInlineStart: "auto" }}>
-          <PrimaryAction route={card.route} />
+          <PrimaryAction id={card.id} />
         </span>
       </div>
     </article>
@@ -216,11 +232,7 @@ export function RecommendationCard({ card }: { card: DecisionCard }) {
       <div style={{ fontSize: 12, fontWeight: 800, color: "var(--mn-brand-teal)", marginBottom: 4 }}>★ הצעד הבא המומלץ</div>
       <h3 data-testid="card-title" style={{ ...cardTitleStyle, fontSize: 18, lineHeight: 1.25 }}>{card.title}</h3>
       <p data-testid="card-why" style={{ ...cardWhyStyle, ...clamp1, fontSize: 13.5 }}>{card.why_it_matters}</p>
-      {card.route ? (
-        <Link to={card.route} data-testid="reco-cta" style={ctaButtonStyle}>{card.recommendation} ←</Link>
-      ) : (
-        <div data-testid="card-recommendation" style={recommendationStyle}>{card.recommendation}</div>
-      )}
+      <Link to={decisionPath(card.id)} data-testid="reco-cta" style={ctaButtonStyle}>{card.recommendation} ←</Link>
       <div style={{ ...cardFooterStyle, marginTop: 10 }}>
         <ConfidenceChip confidence={card.confidence} />
         <span style={{ marginInlineStart: "auto" }}>
@@ -501,6 +513,17 @@ const showMoreStyle: React.CSSProperties = {
 const ctHeaderStyle: React.CSSProperties = { paddingBottom: 10, borderBottom: "2px solid var(--mn-brand-teal)" };
 const wordmarkStyle: React.CSSProperties = { fontSize: 12, fontWeight: 900, letterSpacing: 1, color: "var(--ct-on-accent)", background: "var(--mn-brand-teal)", borderRadius: 6, padding: "2px 7px" };
 const ctTitleStyle: React.CSSProperties = { margin: "8px 0 2px", fontSize: 22, fontWeight: 800, color: "var(--mn-text-strong)" };
+const kpiStripStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: 16,
+  marginTop: 12,
+  padding: "9px 13px",
+  background: "var(--mn-surface-guidance)",
+  border: "1px solid var(--mn-border-fold)",
+  borderRadius: "var(--mn-radius-card)",
+};
 const heroWrapStyle: React.CSSProperties = { marginTop: 12, display: "flex", flexDirection: "column", gap: 10 };
 const heroMetricsStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(70px, 1fr))", gap: 8 };
 const heroTileStyle: React.CSSProperties = {

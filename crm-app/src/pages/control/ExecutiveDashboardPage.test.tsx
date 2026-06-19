@@ -76,23 +76,27 @@ function renderView() {
 }
 
 describe("ExecutiveDashboardView", () => {
-  it("answers 'what next' in the hero, then synthesizes decisions + system health", () => {
-    renderView();
-    // the next move is the dominant hero action
-    expect(screen.getByTestId("hero-action").textContent).toContain("החל את שינוי המבנה");
-    // top decisions shown (capped), reco not duplicated among them
+  it("leads with the next action (decision-first), then decisions, then a compact KPI strip", () => {
+    const { container } = renderView();
+    // the next move is the first card on the screen
+    const reco = screen.getByTestId("recommendation-card");
+    expect(within(reco).getByTestId("reco-cta").textContent).toContain("להחיל את השינוי");
+    // recommendation appears before the KPI strip in DOM order (decision before metrics)
+    const recoIdx = Array.from(container.querySelectorAll("[data-testid]")).findIndex((n) => n.getAttribute("data-testid") === "recommendation-card");
+    const kpiIdx = Array.from(container.querySelectorAll("[data-testid]")).findIndex((n) => n.getAttribute("data-testid") === "kpi-strip");
+    expect(recoIdx).toBeGreaterThanOrEqual(0);
+    expect(recoIdx).toBeLessThan(kpiIdx);
+    // top decisions + attention systems still present
     expect(screen.getAllByTestId("decision-card").length).toBeGreaterThan(0);
-    // health summary + only attention systems as compact rows
-    expect(screen.getByTestId("portfolio-summary")).toBeTruthy();
-    const rows = screen.getAllByTestId("portfolio-row");
-    expect(rows[0].textContent).toContain("מגדל בקרה");
+    expect(screen.getAllByTestId("portfolio-row")[0].textContent).toContain("מגדל בקרה");
   });
 
-  it("shows the one-glance hero metrics from both packets", () => {
+  it("shows metrics as a compact strip, not a tile stack", () => {
     renderView();
-    const hero = screen.getByTestId("owner-hero");
-    expect(within(hero).getAllByTestId("hero-metric").length).toBe(3);
-    expect(within(hero).getByText("מערכות דורשות אותך", { exact: false })).toBeTruthy();
+    const strip = screen.getByTestId("kpi-strip");
+    expect(within(strip).getAllByTestId("kpi-item").length).toBe(3);
+    expect(screen.queryByTestId("owner-hero")).toBeNull();
+    expect(screen.queryByTestId("hero-action")).toBeNull();
   });
 
   it("contains ZERO technical identifiers in the default view (One Rule)", () => {

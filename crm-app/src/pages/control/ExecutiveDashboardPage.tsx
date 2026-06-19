@@ -6,12 +6,12 @@ import {
   type PortfolioPacket,
 } from "./decisionTypes";
 import {
+  CompactKpiStrip,
   ControlTowerHeader,
   DecisionCardView,
   DecisionSection,
-  OwnerHero,
   PortfolioRow,
-  PortfolioSummary,
+  RecommendationCard,
   type HeroMetric,
 } from "./decisionUi";
 import { isSameItem, rollupSystems, sortByPriority } from "./decisionLogic";
@@ -54,11 +54,12 @@ export function ExecutiveDashboardView({
     <div dir="rtl" style={pageStyle} data-testid="executive-dashboard">
       <ControlTowerHeader title="חדר בקרה" subtitle="מצב הארגון במבט אחד" freshness={inbox._meta.freshness} />
 
-      {/* all KPI counters grouped at the top: decisions/systems/risks, then system health */}
-      <OwnerHero metrics={metrics} action={reco ? { title: reco.title, route: reco.route } : null} />
-      <div style={{ marginTop: 10 }}>
-        <PortfolioSummary rollup={rollup} />
-      </div>
+      {/* decision first: the single next action, then the top decisions — above the fold */}
+      {reco && (
+        <div style={{ marginTop: 12 }}>
+          <RecommendationCard card={reco} />
+        </div>
+      )}
 
       {topDecisions.length > 0 && (
         <DecisionSection title="הכרעות מובילות" count={inbox.header.needs_you_count}>
@@ -67,6 +68,9 @@ export function ExecutiveDashboardView({
           ))}
         </DecisionSection>
       )}
+
+      {/* metrics are supporting context, not the headline — one compact strip */}
+      <CompactKpiStrip metrics={metrics} />
 
       {attentionSystems.length > 0 && (
         <DecisionSection title="מערכות שדורשות אותך" count={attentionSystems.length}>

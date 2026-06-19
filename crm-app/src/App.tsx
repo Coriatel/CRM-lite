@@ -99,6 +99,11 @@ const ExecutiveDashboardPage = lazy(() =>
     default: m.ExecutiveDashboardPage,
   })),
 );
+const OwnerDecisionViewPage = lazy(() =>
+  import("./pages/control/OwnerDecisionViewPage").then((m) => ({
+    default: m.OwnerDecisionViewPage,
+  })),
+);
 
 import { AppShell } from "./components/layout/AppShell";
 import { DECISIONS_ENABLED } from "./pages/control/decisionTypes";
@@ -203,6 +208,7 @@ function AppContent() {
           {DECISIONS_ENABLED && (
             <>
               <Route path="decisions" element={<DecisionInboxPage />} />
+              <Route path="decision/:id" element={<OwnerDecisionViewPage />} />
               <Route path="portfolio" element={<OwnerPortfolioPage />} />
               <Route path="executive" element={<ExecutiveDashboardPage />} />
             </>

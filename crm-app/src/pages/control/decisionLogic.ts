@@ -13,6 +13,26 @@ export function isSameItem(a: DecisionCard, b: DecisionCard): boolean {
   return false;
 }
 
+// Cockpit-native decision-view route (NOT the legacy /ops page). Card ids can contain
+// ":" (e.g. "blocker:crm-lite-slice4-apply"), so encode for the URL.
+export function decisionPath(id: string): string {
+  return `/decision/${encodeURIComponent(id)}`;
+}
+
+// Best-effort "related system" for the decision view — derived from the route/id, honest
+// (returns null when we can't tell, never fabricates).
+export function relatedSystem(card: { id?: string; route?: string }): string | null {
+  const hay = `${card.id ?? ""} ${card.route ?? ""}`.toLowerCase();
+  if (/crm/.test(hay)) return "CRM";
+  if (/mayenotecha/.test(hay)) return "מעיינותך";
+  if (/heshbonot/.test(hay)) return "חשבונות";
+  if (/transcriptor|interaction/.test(hay)) return "תמלול";
+  if (/agent-registry|session|preflight|canonical|registry/.test(hay)) return "מגדל הבקרה";
+  if (/workflow|tuesday|reminder|yafutzu|pm2|distribution/.test(hay)) return "אוטומציות";
+  if (/owner-gate|gate/.test(hay)) return "שערי בעלים";
+  return null;
+}
+
 const URGENCY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 export function urgencyRank(u: string): number {

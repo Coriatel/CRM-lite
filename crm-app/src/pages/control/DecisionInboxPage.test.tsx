@@ -100,12 +100,21 @@ describe("DecisionInboxView", () => {
     expect(within(reco).getByTestId("reco-cta").textContent).toContain("להחיל את השינוי");
   });
 
-  it("shows the one-glance owner hero with three metrics", () => {
+  it("shows a compact KPI strip (supporting context, not the headline)", () => {
     renderView();
-    const hero = screen.getByTestId("owner-hero");
-    expect(within(hero).getAllByTestId("hero-metric").length).toBe(3);
-    expect(within(hero).getByText("החלטות ממתינות", { exact: false })).toBeTruthy();
-    expect(within(hero).getByText("מערכות דורשות אותך", { exact: false })).toBeTruthy();
+    const strip = screen.getByTestId("kpi-strip");
+    expect(within(strip).getAllByTestId("kpi-item").length).toBe(3);
+    expect(within(strip).getByText("החלטות ממתינות", { exact: false })).toBeTruthy();
+    expect(within(strip).getByText("מערכות דורשות אותך", { exact: false })).toBeTruthy();
+  });
+
+  it("primary card action routes to the cockpit decision view, never /ops", () => {
+    renderView();
+    const action = screen.getAllByTestId("card-action")[0];
+    expect(action.getAttribute("href")).toContain("/decision/");
+    expect(action.getAttribute("href")).not.toContain("/ops");
+    // the recommended CTA also goes to the decision view
+    expect(screen.getByTestId("reco-cta").getAttribute("href")).toContain("/decision/");
   });
 
   it("renders priority cards compact (no recommendation/detail) until tapped", () => {

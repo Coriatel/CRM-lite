@@ -9,7 +9,7 @@ import {
 import {
   ControlTowerHeader,
   DecisionSection,
-  OwnerHero,
+  CompactKpiStrip,
   PriorityList,
   RecommendationCard,
   ResolvedHistory,
@@ -67,8 +67,8 @@ export function DecisionInboxView({
         </div>
       )}
 
-      {/* one-glance context strip, below the action */}
-      <OwnerHero metrics={metrics} />
+      {/* one-glance context strip, below the action — metrics are supporting context */}
+      <CompactKpiStrip metrics={metrics} />
 
       {priorities.length > 0 && (
         <DecisionSection title="העדיפויות שלך" count={priorities.length}>
