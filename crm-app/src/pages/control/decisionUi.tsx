@@ -2,27 +2,100 @@ import { useState } from "react";
 import type React from "react";
 import { Link } from "react-router-dom";
 import type { DecisionCard, PortfolioSystem, ResolvedCard } from "./decisionTypes";
+import { prominenceOf, type Prominence, type PortfolioRollup } from "./decisionLogic";
 
-// ── shared presentational primitives for the owner decision surfaces ───────────
-// Pure render — no fetch, no derivation. Reused by Decision Inbox (E2), Portfolio
-// (E5) and Executive Dashboard (E6) so the three surfaces are visually and
-// semantically identical for the same fact (E7 consistency by construction).
+// ── shared owner-cognition primitives ─────────────────────────────────────────
+// Pure render — no fetch, no derivation. The visual hierarchy here is the product:
+// critical must dominate, informational must recede, and the single next action must
+// be unmissable. Reused across Decision Inbox (E2), Portfolio (E5), Executive (E6) so
+// the surfaces stay consistent for the same fact (E7).
 
+// ── identity: this is the MN-OS Control Tower, not another CRM screen ──────────
+export function ControlTowerHeader({
+  title,
+  subtitle,
+  freshness,
+}: {
+  title: string;
+  subtitle?: string;
+  freshness?: string;
+}) {
+  return (
+    <header style={ctHeaderStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={wordmarkStyle}>MN-OS</span>
+        <span style={{ fontSize: 12, color: "var(--mn-text-muted)" }}>מגדל בקרה</span>
+      </div>
+      <h1 style={ctTitleStyle}>{title}</h1>
+      {subtitle && <div style={{ fontSize: 13, color: "var(--mn-text-body)" }}>{subtitle}</div>}
+      {freshness && <FreshnessNote freshness={freshness} />}
+    </header>
+  );
+}
+
+// ── owner hero: understand the org state in one second ────────────────────────
+export interface HeroMetric {
+  value: number | string;
+  label: string;
+  severity: "critical" | "warn" | "ok" | "muted";
+}
+const SEV: Record<HeroMetric["severity"], string> = {
+  critical: "var(--mn-critical)",
+  warn: "var(--mn-warning)",
+  ok: "var(--mn-success)",
+  muted: "var(--mn-text-muted)",
+};
+
+export function OwnerHero({
+  metrics,
+  action,
+}: {
+  metrics: HeroMetric[];
+  action?: { title: string; route?: string } | null;
+}) {
+  return (
+    <section data-testid="owner-hero" style={heroWrapStyle}>
+      <div style={heroMetricsStyle}>
+        {metrics.map((m, i) => (
+          <div key={i} style={heroTileStyle} data-testid="hero-metric">
+            <span style={{ fontSize: 26, fontWeight: 800, color: SEV[m.severity], lineHeight: 1 }}>
+              {m.value}
+            </span>
+            <span style={{ fontSize: 11.5, color: "var(--mn-text-body)", marginTop: 3 }}>{m.label}</span>
+          </div>
+        ))}
+      </div>
+      {action && (
+        <Link to={action.route ?? "#"} data-testid="hero-action" style={heroActionStyle}>
+          <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.85 }}>הצעד הבא המומלץ</span>
+          <span style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.25 }}>{action.title} ←</span>
+        </Link>
+      )}
+    </section>
+  );
+}
+
+// ── chips ─────────────────────────────────────────────────────────────────────
 const URGENCY_COLOR: Record<string, string> = {
   high: "var(--mn-critical)",
   medium: "var(--mn-warning)",
   low: "var(--mn-text-muted)",
 };
-const URGENCY_LABEL: Record<string, string> = {
-  high: "דחוף",
-  medium: "בינוני",
-  low: "נמוך",
-};
+const URGENCY_LABEL: Record<string, string> = { high: "דחוף", medium: "בינוני", low: "מידע" };
 
 export function UrgencyChip({ urgency }: { urgency: string }) {
   const color = URGENCY_COLOR[urgency] ?? "var(--mn-text-muted)";
+  const filled = urgency === "high";
   return (
-    <span data-testid="urgency-chip" style={{ ...chipStyle, color, borderColor: color }}>
+    <span
+      data-testid="urgency-chip"
+      style={{
+        ...chipStyle,
+        color: filled ? "#fff" : color,
+        background: filled ? color : "transparent",
+        borderColor: color,
+      }}
+    >
       {URGENCY_LABEL[urgency] ?? urgency}
     </span>
   );
@@ -36,9 +109,7 @@ export function ConfidenceChip({ confidence }: { confidence: string }) {
   );
 }
 
-// Evidence is hidden by default (progressive disclosure). Collapsed evidence is NOT
-// rendered into the DOM, so the default-view forbidden-token scan never sees the
-// technical refs kept here as honest residual.
+// Evidence stays out of the DOM until disclosed (default-view forbidden-token safety).
 export function EvidenceDisclosure({ refs }: { refs: string[] }) {
   const [open, setOpen] = useState(false);
   if (!refs?.length) return null;
@@ -68,7 +139,6 @@ export function EvidenceDisclosure({ refs }: { refs: string[] }) {
 
 function RouteLink({ route }: { route?: string }) {
   if (!route) return null;
-  // route is an internal href, never displayed as text (exempt from the One Rule).
   return (
     <Link to={route} data-testid="card-route" style={routeLinkStyle}>
       פתח ←
@@ -76,11 +146,35 @@ function RouteLink({ route }: { route?: string }) {
   );
 }
 
+// ── decision card, tiered by prominence ───────────────────────────────────────
+const TIER: Record<Prominence, React.CSSProperties> = {
+  critical: {
+    borderInlineStartColor: "var(--mn-critical)",
+    borderInlineStartWidth: 5,
+    background: "#fef4f4",
+  },
+  important: {
+    borderInlineStartColor: "var(--mn-warning)",
+    borderInlineStartWidth: 4,
+  },
+  info: {
+    borderInlineStartColor: "var(--mn-border-fold)",
+    borderInlineStartWidth: 3,
+    opacity: 0.92,
+  },
+};
+
 export function DecisionCardView({ card }: { card: DecisionCard }) {
+  const tier = prominenceOf(String(card.urgency));
+  const titleSize = tier === "critical" ? 16.5 : tier === "important" ? 15 : 14;
   return (
-    <article data-testid="decision-card" style={cardStyle}>
+    <article
+      data-testid="decision-card"
+      data-prominence={tier}
+      style={{ ...cardStyle, borderInlineStartStyle: "solid", ...TIER[tier] }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <h3 data-testid="card-title" style={cardTitleStyle}>
+        <h3 data-testid="card-title" style={{ ...cardTitleStyle, fontSize: titleSize }}>
           {card.title}
         </h3>
         <UrgencyChip urgency={String(card.urgency)} />
@@ -100,9 +194,7 @@ export function DecisionCardView({ card }: { card: DecisionCard }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
         <ConfidenceChip confidence={card.confidence} />
         {typeof card.age_days === "number" && (
-          <span style={{ fontSize: 12, color: "var(--mn-text-muted)" }}>
-            ממתין {Math.round(card.age_days)} ימים
-          </span>
+          <span style={{ fontSize: 12, color: "var(--mn-text-muted)" }}>ממתין {Math.round(card.age_days)} ימים</span>
         )}
         <RouteLink route={card.route} />
       </div>
@@ -111,33 +203,67 @@ export function DecisionCardView({ card }: { card: DecisionCard }) {
   );
 }
 
-// The single recommended next move — visually elevated (E3 recommendation engine output).
+// The single highest-value move — dominates the screen.
 export function RecommendationCard({ card }: { card: DecisionCard }) {
   return (
     <article data-testid="recommendation-card" style={{ ...cardStyle, ...recoCardStyle }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--mn-brand-teal)", marginBottom: 4 }}>
-        הצעד הבא המומלץ
+      <div style={{ fontSize: 12, fontWeight: 800, color: "var(--mn-brand-teal)", marginBottom: 4 }}>
+        ★ הצעד הבא המומלץ
       </div>
-      <h3 data-testid="card-title" style={{ ...cardTitleStyle, fontSize: 18 }}>
+      <h3 data-testid="card-title" style={{ ...cardTitleStyle, fontSize: 19, lineHeight: 1.25 }}>
         {card.title}
       </h3>
-      <p data-testid="card-why" style={cardWhyStyle}>
+      <p data-testid="card-why" style={{ ...cardWhyStyle, fontSize: 14 }}>
         {card.why_it_matters}
       </p>
-      <div data-testid="card-recommendation" style={recommendationStyle}>
-        {card.recommendation}
-      </div>
+      {card.route && (
+        <Link to={card.route} data-testid="reco-cta" style={ctaButtonStyle}>
+          {card.recommendation} ←
+        </Link>
+      )}
+      {!card.route && <div data-testid="card-recommendation" style={recommendationStyle}>{card.recommendation}</div>}
       {card.if_ignored && (
-        <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--mn-text-muted)" }}>
+        <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--mn-text-muted)" }}>
           אם מתעלמים: {card.if_ignored}
         </p>
       )}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
         <ConfidenceChip confidence={card.confidence} />
-        <RouteLink route={card.route} />
       </div>
       <EvidenceDisclosure refs={card.evidence_refs} />
     </article>
+  );
+}
+
+// ── Top-N + "show remaining" — focus the owner, don't dump 16 cards ───────────
+export function PriorityList({
+  cards,
+  top = 3,
+}: {
+  cards: DecisionCard[];
+  top?: number;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const head = cards.slice(0, top);
+  const rest = cards.slice(top);
+  return (
+    <div data-testid="priority-list" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {head.map((c) => (
+        <DecisionCardView key={c.id} card={c} />
+      ))}
+      {rest.length > 0 && !showAll && (
+        <button type="button" data-testid="show-remaining" onClick={() => setShowAll(true)} style={showMoreStyle}>
+          הצג עוד {rest.length} פריטים ▾
+        </button>
+      )}
+      {showAll &&
+        rest.map((c) => <DecisionCardView key={c.id} card={c} />)}
+      {showAll && rest.length > 0 && (
+        <button type="button" data-testid="show-less" onClick={() => setShowAll(false)} style={showMoreStyle}>
+          הצג פחות ▴
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -161,6 +287,25 @@ export function DecisionSection({
   );
 }
 
+// ── portfolio: summary first, then the list ───────────────────────────────────
+export function PortfolioSummary({ rollup }: { rollup: PortfolioRollup }) {
+  const tiles: Array<{ n: number; label: string; color: string; testid: string }> = [
+    { n: rollup.attention, label: "דורש אותך", color: "var(--mn-critical)", testid: "sum-attention" },
+    { n: rollup.warning, label: "בעבודה", color: "var(--mn-warning)", testid: "sum-warning" },
+    { n: rollup.healthy, label: "תקין", color: "var(--mn-success)", testid: "sum-healthy" },
+  ];
+  return (
+    <section data-testid="portfolio-summary" style={heroMetricsStyle}>
+      {tiles.map((t) => (
+        <div key={t.testid} data-testid={t.testid} style={heroTileStyle}>
+          <span style={{ fontSize: 26, fontWeight: 800, color: t.color, lineHeight: 1 }}>{t.n}</span>
+          <span style={{ fontSize: 11.5, color: "var(--mn-text-body)", marginTop: 3 }}>{t.label}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 const STATUS_COLOR: Record<string, string> = {
   תקין: "var(--mn-success)",
   בעבודה: "var(--mn-warning)",
@@ -170,23 +315,28 @@ const STATUS_COLOR: Record<string, string> = {
 
 export function PortfolioCardView({ system }: { system: PortfolioSystem }) {
   const color = STATUS_COLOR[system.status] ?? "var(--mn-text-muted)";
+  const attention = system.status === "דורש אותך" || system.needs_me > 0;
   return (
     <article
       data-testid="portfolio-card"
-      style={{ ...cardStyle, borderInlineStartWidth: 4, borderInlineStartStyle: "solid", borderInlineStartColor: color }}
+      style={{
+        ...cardStyle,
+        borderInlineStartWidth: attention ? 5 : 4,
+        borderInlineStartStyle: "solid",
+        borderInlineStartColor: color,
+        ...(attention ? { background: "#fef4f4" } : null),
+      }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <h3 data-testid="portfolio-label" style={cardTitleStyle}>
           {system.label}
         </h3>
-        <span data-testid="portfolio-status" style={{ ...chipStyle, color, borderColor: color }}>
+        <span data-testid="portfolio-status" style={{ ...chipStyle, color: attention ? "#fff" : color, background: attention ? color : "transparent", borderColor: color }}>
           {system.status}
         </span>
       </div>
       <p style={{ ...cardWhyStyle, color: "var(--mn-text-body)" }}>{system.headline}</p>
-      {system.risk && (
-        <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--mn-warning)" }}>⚠ {system.risk}</p>
-      )}
+      {system.risk && <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--mn-warning)" }}>⚠ {system.risk}</p>}
       {system.next_action && (
         <div style={recommendationStyle}>
           <span style={{ color: "var(--mn-text-muted)", fontSize: 12 }}>הצעד הבא: </span>
@@ -203,7 +353,7 @@ export function PortfolioCardView({ system }: { system: PortfolioSystem }) {
         </div>
       )}
       {system.needs_me > 0 && (
-        <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--mn-critical)", fontWeight: 600 }}>
+        <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--mn-critical)", fontWeight: 700 }}>
           {system.needs_me} פריטים דורשים אותך
         </div>
       )}
@@ -212,14 +362,26 @@ export function PortfolioCardView({ system }: { system: PortfolioSystem }) {
   );
 }
 
+// compact one-line system row for the cockpit (less scroll than full cards)
+export function PortfolioRow({ system }: { system: PortfolioSystem }) {
+  const color = STATUS_COLOR[system.status] ?? "var(--mn-text-muted)";
+  return (
+    <div data-testid="portfolio-row" style={portfolioRowStyle}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: color, display: "inline-block" }} />
+        <span style={{ color: "var(--mn-text-strong)", fontWeight: 600 }}>{system.label}</span>
+      </span>
+      <span style={{ color: "var(--mn-text-muted)", fontSize: 12.5, whiteSpace: "nowrap" }}>
+        {system.needs_me > 0 ? `${system.needs_me} דורשים אותך` : system.status}
+      </span>
+    </div>
+  );
+}
+
 export function ResolvedRow({ card }: { card: ResolvedCard }) {
   const decided = (() => {
     try {
-      return new Date(card.decided_at).toLocaleDateString("he-IL", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
+      return new Date(card.decided_at).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
     } catch {
       return "";
     }
@@ -238,10 +400,7 @@ export function ResolvedRow({ card }: { card: ResolvedCard }) {
 export function FreshnessNote({ freshness }: { freshness: string }) {
   const degraded = freshness !== "FRESH" && freshness !== "OK";
   return (
-    <div
-      data-testid="freshness-note"
-      style={{ fontSize: 12, color: degraded ? "var(--mn-warning)" : "var(--mn-text-muted)", marginTop: 2 }}
-    >
+    <div data-testid="freshness-note" style={{ fontSize: 12, color: degraded ? "var(--mn-warning)" : "var(--mn-text-muted)", marginTop: 2 }}>
       {degraded ? "חלק מהמקורות אינם עדכניים — מסומן ביושר, ללא ניחוש." : "המקורות עדכניים."}
     </div>
   );
@@ -250,10 +409,10 @@ export function FreshnessNote({ freshness }: { freshness: string }) {
 // ── styles ─────────────────────────────────────────────────────────────────────
 const chipStyle: React.CSSProperties = {
   fontSize: 11,
-  fontWeight: 600,
+  fontWeight: 700,
   border: "1px solid",
   borderRadius: 999,
-  padding: "2px 8px",
+  padding: "2px 9px",
   whiteSpace: "nowrap",
 };
 const cardStyle: React.CSSProperties = {
@@ -265,7 +424,20 @@ const cardStyle: React.CSSProperties = {
 };
 const recoCardStyle: React.CSSProperties = {
   background: "var(--mn-brand-teal-soft)",
-  borderColor: "var(--mn-brand-teal)",
+  border: "2px solid var(--mn-brand-teal)",
+};
+const ctaButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 46,
+  marginTop: 10,
+  padding: "0 16px",
+  background: "var(--mn-brand-teal)",
+  color: "#fff",
+  fontWeight: 800,
+  fontSize: 14.5,
+  borderRadius: "var(--mn-radius-card)",
+  textDecoration: "none",
 };
 const cardTitleStyle: React.CSSProperties = {
   margin: 0,
@@ -344,4 +516,73 @@ const resolvedRowStyle: React.CSSProperties = {
   fontSize: 12.5,
   padding: "7px 0",
   borderBottom: "1px solid var(--mn-border-fold)",
+};
+const portfolioRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 10,
+  padding: "10px 12px",
+  background: "var(--mn-surface-guidance)",
+  border: "1px solid var(--mn-border-fold)",
+  borderRadius: "var(--mn-radius-card)",
+  fontSize: 13.5,
+};
+const showMoreStyle: React.CSSProperties = {
+  minHeight: 46,
+  border: "1px dashed var(--mn-border-fold)",
+  background: "var(--mn-surface-sheet)",
+  borderRadius: "var(--mn-radius-card)",
+  color: "var(--mn-brand-teal)",
+  fontWeight: 700,
+  fontSize: 13.5,
+  cursor: "pointer",
+  font: "inherit",
+};
+const ctHeaderStyle: React.CSSProperties = {
+  paddingBottom: 10,
+  borderBottom: "1px solid var(--mn-border-fold)",
+};
+const wordmarkStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 900,
+  letterSpacing: 1,
+  color: "#fff",
+  background: "var(--mn-brand-teal)",
+  borderRadius: 6,
+  padding: "2px 7px",
+};
+const ctTitleStyle: React.CSSProperties = {
+  margin: "8px 0 2px",
+  fontSize: 23,
+  fontWeight: 800,
+  color: "var(--mn-text-strong)",
+};
+const heroWrapStyle: React.CSSProperties = { marginTop: 14, display: "flex", flexDirection: "column", gap: 10 };
+const heroMetricsStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+  gap: 8,
+};
+const heroTileStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "12px 6px",
+  background: "var(--mn-surface-guidance)",
+  border: "1px solid var(--mn-border-fold)",
+  borderRadius: "var(--mn-radius-card)",
+  boxShadow: "var(--mn-shadow-card)",
+};
+const heroActionStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  padding: "13px 15px",
+  background: "var(--mn-brand-teal)",
+  color: "#fff",
+  borderRadius: "var(--mn-radius-card)",
+  textDecoration: "none",
+  boxShadow: "var(--mn-shadow-card)",
 };

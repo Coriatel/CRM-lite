@@ -2,21 +2,33 @@ import type React from "react";
 import {
   DECISIONS_ENABLED,
   DECISION_INBOX_URL,
+  PORTFOLIO_URL,
   type DecisionInboxPacket,
+  type PortfolioPacket,
 } from "./decisionTypes";
 import {
-  DecisionCardView,
+  ControlTowerHeader,
   DecisionSection,
-  FreshnessNote,
+  OwnerHero,
+  PriorityList,
   RecommendationCard,
   ResolvedRow,
+  type HeroMetric,
 } from "./decisionUi";
+import { isSameItem, sortByPriority } from "./decisionLogic";
 import { useOpsPacket } from "./useOpsPacket";
 
-// E2 — Decision Inbox `/decisions` (flag OFF by default).
-// One owner-grade view of "what needs you", over the frozen decision_inbox_packet.
+// E2 — "What needs me today" `/decisions` (flag OFF by default).
+// Owner-first: glance the state in one second, see the single best move, focus on the
+// top 3, reveal the rest only on demand.
 
-export function DecisionInboxView({ doc }: { doc: DecisionInboxPacket | null }) {
+export function DecisionInboxView({
+  doc,
+  portfolio,
+}: {
+  doc: DecisionInboxPacket | null;
+  portfolio: PortfolioPacket | null;
+}) {
   if (!doc) {
     return (
       <div dir="rtl" style={pageStyle}>
@@ -24,45 +36,46 @@ export function DecisionInboxView({ doc }: { doc: DecisionInboxPacket | null }) 
       </div>
     );
   }
-  const { header } = doc;
+  const reco = doc.recommended_next;
+  // The 16 owner items = decisions + blocked, minus whatever is already the hero action.
+  const priorities = sortByPriority(
+    [...doc.requires_decision, ...doc.blocked_waiting].filter((c) => !reco || !isSameItem(c, reco)),
+  );
+  const metrics: HeroMetric[] = [
+    { value: doc.header.needs_you_count, label: "החלטות ממתינות", severity: doc.header.needs_you_count > 0 ? "critical" : "ok" },
+    {
+      value: portfolio?.header.needs_you_systems ?? "—",
+      label: "מערכות דורשות אותך",
+      severity: (portfolio?.header.needs_you_systems ?? 0) > 0 ? "warn" : "ok",
+    },
+    { value: doc.high_risk.length, label: "סיכונים פעילים", severity: doc.high_risk.length > 0 ? "critical" : "ok" },
+  ];
+
   return (
     <div dir="rtl" style={pageStyle} data-testid="decision-inbox">
-      <header style={headerStyle}>
-        <h1 style={h1Style}>החלטות</h1>
-        <div style={{ fontSize: 13, color: "var(--mn-text-body)" }}>
-          {header.needs_you_count} פריטים דורשים אותך
-          {header.oldest_age_days ? ` · הוותיק ממתין ${Math.round(header.oldest_age_days)} ימים` : ""}
-        </div>
-        <FreshnessNote freshness={doc._meta.freshness} />
-      </header>
+      <ControlTowerHeader
+        title="מה דורש אותך היום"
+        subtitle={doc.header.oldest_age_days ? `הוותיק ממתין ${Math.round(doc.header.oldest_age_days)} ימים` : undefined}
+        freshness={doc._meta.freshness}
+      />
 
-      {doc.recommended_next && (
+      <OwnerHero metrics={metrics} />
+
+      {reco && (
         <div style={{ marginTop: 14 }}>
-          <RecommendationCard card={doc.recommended_next} />
+          <RecommendationCard card={reco} />
         </div>
       )}
 
-      {doc.requires_decision.length > 0 && (
-        <DecisionSection title="דורש הכרעה" count={doc.requires_decision.length}>
-          {doc.requires_decision.map((c) => (
-            <DecisionCardView key={c.id} card={c} />
-          ))}
-        </DecisionSection>
-      )}
-
-      {doc.blocked_waiting.length > 0 && (
-        <DecisionSection title="חסום וממתין" count={doc.blocked_waiting.length}>
-          {doc.blocked_waiting.map((c) => (
-            <DecisionCardView key={c.id} card={c} />
-          ))}
+      {priorities.length > 0 && (
+        <DecisionSection title="העדיפויות שלך" count={priorities.length}>
+          <PriorityList cards={priorities} top={3} />
         </DecisionSection>
       )}
 
       {doc.high_risk.length > 0 && (
-        <DecisionSection title="סיכון גבוה" count={doc.high_risk.length}>
-          {doc.high_risk.map((c) => (
-            <DecisionCardView key={c.id} card={c} />
-          ))}
+        <DecisionSection title="סיכונים פעילים" count={doc.high_risk.length}>
+          <PriorityList cards={sortByPriority(doc.high_risk)} top={3} />
         </DecisionSection>
       )}
 
@@ -82,15 +95,14 @@ export function DecisionInboxView({ doc }: { doc: DecisionInboxPacket | null }) 
 }
 
 export function DecisionInboxPage() {
-  // flag OFF → nothing renders and no fetch fires (flag is a build constant,
-  // so this early return is consistent across every render — hook order is stable).
-  if (!DECISIONS_ENABLED) return null;
+  if (!DECISIONS_ENABLED) return null; // flag OFF → nothing renders, no fetch
   return <DecisionInboxFetcher />;
 }
 
 function DecisionInboxFetcher() {
   const { doc } = useOpsPacket<DecisionInboxPacket>(DECISION_INBOX_URL);
-  return <DecisionInboxView doc={doc} />;
+  const { doc: portfolio } = useOpsPacket<PortfolioPacket>(PORTFOLIO_URL);
+  return <DecisionInboxView doc={doc} portfolio={portfolio} />;
 }
 
 export const pageStyle: React.CSSProperties = {
@@ -100,16 +112,6 @@ export const pageStyle: React.CSSProperties = {
   fontFamily: "'Rubik', sans-serif",
   background: "var(--mn-surface-root)",
   minHeight: "100vh",
-};
-export const headerStyle: React.CSSProperties = {
-  paddingBottom: 8,
-  borderBottom: "1px solid var(--mn-border-fold)",
-};
-export const h1Style: React.CSSProperties = {
-  margin: 0,
-  fontSize: 22,
-  fontWeight: 800,
-  color: "var(--mn-text-strong)",
 };
 export const footerStyle: React.CSSProperties = {
   marginTop: 20,

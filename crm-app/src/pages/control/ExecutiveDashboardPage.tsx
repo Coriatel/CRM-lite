@@ -6,19 +6,22 @@ import {
   type PortfolioPacket,
 } from "./decisionTypes";
 import {
+  ControlTowerHeader,
   DecisionCardView,
   DecisionSection,
-  FreshnessNote,
-  PortfolioCardView,
-  RecommendationCard,
+  OwnerHero,
+  PortfolioRow,
+  PortfolioSummary,
+  type HeroMetric,
 } from "./decisionUi";
+import { isSameItem, rollupSystems, sortByPriority } from "./decisionLogic";
 import { useOpsPacket } from "./useOpsPacket";
-import { footerStyle, h1Style, headerStyle, pageStyle } from "./DecisionInboxPage";
+import { footerStyle, pageStyle } from "./DecisionInboxPage";
 
-// E6 — Executive Dashboard `/executive` (flag OFF by default).
-// A one-screen owner overview that COMPOSES the same packets and components as E2/E5
-// and the E3 recommendation — no separate derivation, so it can never disagree with
-// the Inbox or Portfolio (E7 consistency by construction).
+// E6 — Executive cockpit `/executive` (flag OFF by default).
+// One screen, maximum synthesis: glance the org, see the next move, scan the top
+// decisions and the system health — without scrolling through every card. Composes the
+// same packets + components as /decisions and /portfolio (E7 consistency by construction).
 
 export function ExecutiveDashboardView({
   inbox,
@@ -34,25 +37,24 @@ export function ExecutiveDashboardView({
       </div>
     );
   }
-  // top decisions: same cards the Inbox shows, capped for an at-a-glance view.
-  const topDecisions = [...inbox.requires_decision, ...inbox.blocked_waiting, ...inbox.high_risk].slice(0, 3);
-  const needsYouSystems = portfolio.systems.filter((s) => s.status === "דורש אותך" || s.needs_me > 0);
+  const reco = inbox.recommended_next;
+  const rollup = rollupSystems(portfolio.systems);
+  const topDecisions = sortByPriority(
+    [...inbox.requires_decision, ...inbox.blocked_waiting].filter((c) => !reco || !isSameItem(c, reco)),
+  ).slice(0, 3);
+  const attentionSystems = rollup.ordered.filter((s) => s.status === "דורש אותך" || s.needs_me > 0);
+
+  const metrics: HeroMetric[] = [
+    { value: inbox.header.needs_you_count, label: "החלטות ממתינות", severity: inbox.header.needs_you_count > 0 ? "critical" : "ok" },
+    { value: rollup.attention, label: "מערכות דורשות אותך", severity: rollup.attention > 0 ? "warn" : "ok" },
+    { value: inbox.high_risk.length, label: "סיכונים פעילים", severity: inbox.high_risk.length > 0 ? "critical" : "ok" },
+  ];
 
   return (
     <div dir="rtl" style={pageStyle} data-testid="executive-dashboard">
-      <header style={headerStyle}>
-        <h1 style={h1Style}>סקירת מנהל</h1>
-        <div style={{ fontSize: 13, color: "var(--mn-text-body)" }}>
-          {inbox.header.needs_you_count} החלטות ממתינות · {portfolio.header.needs_you_systems} מערכות דורשות אותך
-        </div>
-        <FreshnessNote freshness={inbox._meta.freshness} />
-      </header>
+      <ControlTowerHeader title="חדר בקרה" subtitle="מצב הארגון במבט אחד" freshness={inbox._meta.freshness} />
 
-      {inbox.recommended_next && (
-        <div style={{ marginTop: 14 }}>
-          <RecommendationCard card={inbox.recommended_next} />
-        </div>
-      )}
+      <OwnerHero metrics={metrics} action={reco ? { title: reco.title, route: reco.route } : null} />
 
       {topDecisions.length > 0 && (
         <DecisionSection title="הכרעות מובילות" count={inbox.header.needs_you_count}>
@@ -62,11 +64,16 @@ export function ExecutiveDashboardView({
         </DecisionSection>
       )}
 
-      <DecisionSection title="מערכות שדורשות אותך" count={needsYouSystems.length}>
-        {needsYouSystems.length > 0 ? (
-          needsYouSystems.map((s) => <PortfolioCardView key={s.system} system={s} />)
+      <DecisionSection title="מצב המערכות">
+        <PortfolioSummary rollup={rollup} />
+        {attentionSystems.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+            {attentionSystems.map((s) => (
+              <PortfolioRow key={s.system} system={s} />
+            ))}
+          </div>
         ) : (
-          <p style={{ fontSize: 13, color: "var(--mn-success)" }}>✓ כל המערכות תקינות</p>
+          <p style={{ fontSize: 13, color: "var(--mn-success)", marginTop: 10 }}>✓ כל המערכות יציבות</p>
         )}
       </DecisionSection>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ExecutiveDashboardView, ExecutiveDashboardPage } from "./ExecutiveDashboardPage";
 import { hasIdentifier, type DecisionInboxPacket, type PortfolioPacket } from "./decisionTypes";
@@ -76,17 +76,23 @@ function renderView() {
 }
 
 describe("ExecutiveDashboardView", () => {
-  it("composes the recommendation, top decisions and needs-you systems", () => {
+  it("answers 'what next' in the hero, then synthesizes decisions + system health", () => {
     renderView();
-    expect(screen.getByTestId("recommendation-card")).toBeTruthy();
+    // the next move is the dominant hero action
+    expect(screen.getByTestId("hero-action").textContent).toContain("החל את שינוי המבנה");
+    // top decisions shown (capped), reco not duplicated among them
     expect(screen.getAllByTestId("decision-card").length).toBeGreaterThan(0);
-    // only the needs-you system is shown in the systems section
-    expect(screen.getByTestId("portfolio-label").textContent).toBe("מגדל בקרה");
+    // health summary + only attention systems as compact rows
+    expect(screen.getByTestId("portfolio-summary")).toBeTruthy();
+    const rows = screen.getAllByTestId("portfolio-row");
+    expect(rows[0].textContent).toContain("מגדל בקרה");
   });
 
-  it("shows the unified needs-you headline from both packets", () => {
+  it("shows the one-glance hero metrics from both packets", () => {
     renderView();
-    expect(screen.getByText("16 החלטות ממתינות", { exact: false })).toBeTruthy();
+    const hero = screen.getByTestId("owner-hero");
+    expect(within(hero).getAllByTestId("hero-metric").length).toBe(3);
+    expect(within(hero).getByText("מערכות דורשות אותך", { exact: false })).toBeTruthy();
   });
 
   it("contains ZERO technical identifiers in the default view (One Rule)", () => {

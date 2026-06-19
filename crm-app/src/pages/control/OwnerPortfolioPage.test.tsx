@@ -53,12 +53,19 @@ function renderView(doc: PortfolioPacket | null = FIXTURE) {
 }
 
 describe("OwnerPortfolioView", () => {
-  it("renders one card per system with label + status", () => {
+  it("shows a health summary first, then one card per system", () => {
+    renderView();
+    const summary = screen.getByTestId("portfolio-summary");
+    expect(within(summary).getByTestId("sum-attention").textContent).toContain("1");
+    expect(within(summary).getByTestId("sum-warning").textContent).toContain("1");
+    expect(within(summary).getByTestId("sum-healthy").textContent).toContain("1");
+    expect(screen.getAllByTestId("portfolio-card").length).toBe(3);
+  });
+
+  it("orders attention systems first", () => {
     renderView();
     const cards = screen.getAllByTestId("portfolio-card");
-    expect(cards.length).toBe(3);
-    expect(within(cards[0]).getByTestId("portfolio-label").textContent).toBe("טלגרם");
-    expect(within(cards[0]).getByTestId("portfolio-status").textContent).toBe("תקין");
+    expect(within(cards[0]).getByTestId("portfolio-label").textContent).toBe("מגדל בקרה");
   });
 
   it("surfaces risk and needs_me for a system that requires the owner", () => {
