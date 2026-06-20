@@ -7,6 +7,7 @@ import {
   createInteraction,
   getTags,
   setContactTags,
+  getProjectContacts,
   DirectusContact,
   DirectusTag,
 } from "../services/directus";
@@ -97,6 +98,10 @@ export function useContacts(
   searchQuery: string,
   sortBy: SortOption,
   advancedFilters?: AdvancedFilters,
+  // Active project id. When set together with advancedFilters.campaignStatus,
+  // the list is narrowed to contacts holding that campaign status in this
+  // project. Null/undefined ⇒ campaignStatus is ignored (no active project).
+  activeProjectId?: string | null,
 ) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,6 +129,8 @@ export function useContacts(
     JSON.stringify(advancedFilters?.groupTags),
     advancedFilters?.lifecycleStageSlug,
     advancedFilters?.donationType,
+    advancedFilters?.campaignStatus,
+    activeProjectId,
   ]);
 
   const loadAll = useCallback(() => {
@@ -160,7 +167,14 @@ export function useContacts(
     // Map quick filter to call statuses
     const statuses = QUICK_FILTER_STATUSES[quickFilter];
 
-    fetchContacts({
+    // Campaign-status filter is project-scoped: only honored when a project is
+    // active. It ANDs on top of the existing query via an allow-set of contact
+    // ids drawn from the same source CampaignStatsGrid uses (getProjectContacts).
+    const campaignStatus = activeProjectId
+      ? advancedFilters?.campaignStatus
+      : undefined;
+
+    const contactsP = fetchContacts({
       callStatuses: statuses || undefined,
       callStatus: statusFilter !== "all" ? statusFilter : undefined,
       search: searchQuery || undefined,
@@ -174,10 +188,29 @@ export function useContacts(
       groupTags: advancedFilters?.groupTags,
       lifecycleStageSlug: advancedFilters?.lifecycleStageSlug,
       donationType: advancedFilters?.donationType,
-    })
-      .then((data) => {
+    });
+
+    const allowSetP =
+      campaignStatus && activeProjectId
+        ? getProjectContacts(activeProjectId, { campaignStatus }).then(
+            (pcs) =>
+              new Set(
+                pcs.map((pc) =>
+                  typeof pc.contact_id === "object" && pc.contact_id !== null
+                    ? (pc.contact_id as DirectusContact).id
+                    : (pc.contact_id as string),
+                ),
+              ),
+          )
+        : Promise.resolve(null);
+
+    Promise.all([contactsP, allowSetP])
+      .then(([data, allowSet]) => {
         if (!cancelled) {
-          const mapped = data.map(mapDirectusToContact);
+          let mapped = data.map(mapDirectusToContact);
+          if (allowSet) {
+            mapped = mapped.filter((c) => allowSet.has(c.id));
+          }
           setContacts(mapped);
           setLoading(false);
         }
@@ -207,6 +240,8 @@ export function useContacts(
     JSON.stringify(advancedFilters?.groupTags),
     advancedFilters?.lifecycleStageSlug,
     advancedFilters?.donationType,
+    advancedFilters?.campaignStatus,
+    activeProjectId,
   ]);
 
   const hasMore = contacts.length >= currentLimit;

@@ -152,4 +152,129 @@ describe("PeopleHubPage (Slice A)", () => {
       donationType: "recurring",
     });
   });
+
+  it("ignores campaignStatus + hides its chip when no active project", async () => {
+    renderPeopleHubPage({ campaignStatus: "paid" });
+    await screen.findByRole("heading", { name: /אנשי קשר — כל הקהילה/ });
+    // No project active ⇒ the campaign-status chip must not be offered, and the
+    // (single) contact is shown unfiltered.
+    expect(screen.queryByRole("list", { name: "מסננים פעילים" })).toBeNull();
+    await waitFor(() => expect(screen.getByText(/טסט קונטקט/)).toBeTruthy());
+  });
+});
+
+// P-B4: campaign-status filter — active-project scoped, in-memory.
+const PROJECT_ID = "00000000-0000-4000-8000-0000000000aa";
+const CONTACT_A = {
+  ...CONTACT_ROW,
+  id: "aaaaaaaa-0000-4000-8000-00000000aaaa",
+  full_name: "פעיל בקמפיין",
+};
+const CONTACT_B = {
+  ...CONTACT_ROW,
+  id: "bbbbbbbb-0000-4000-8000-00000000bbbb",
+  full_name: "מחוץ לקמפיין",
+};
+
+function renderWithActiveProject(
+  filters: AdvancedFilters,
+  setFilters: (f: AdvancedFilters) => void = () => {},
+) {
+  localStorage.setItem("crm_active_project", PROJECT_ID);
+  return render(
+    <MemoryRouter initialEntries={["/people"]}>
+      <AuthProvider>
+        <ProjectProvider>
+          <Routes>
+            <Route
+              element={<Outlet context={{ setAdvancedFilters: setFilters }} />}
+            >
+              <Route
+                path="/people"
+                element={
+                  <PeopleHubPage sortBy="full_name" advancedFilters={filters} />
+                }
+              />
+            </Route>
+          </Routes>
+        </ProjectProvider>
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("PeopleHubPage — campaign-status filter (P-B4)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/items/projects"))
+        return jsonResponse({
+          data: [
+            {
+              id: PROJECT_ID,
+              name: "קמפיין בדיקה",
+              goal_amount: 1000,
+              raised_amount: 0,
+              status: "active",
+              date_created: "2026-05-01T00:00:00Z",
+            },
+          ],
+        });
+      // Campaign-status source: only CONTACT_A holds status "paid" in project.
+      if (url.includes("/items/project_contacts"))
+        return jsonResponse({
+          data: [
+            {
+              id: "pc-a",
+              project_id: PROJECT_ID,
+              contact_id: CONTACT_A,
+              campaign_status: "paid",
+              link_send_count: 0,
+              date_created: "2026-05-01T00:00:00Z",
+              date_updated: "2026-05-01T00:00:00Z",
+            },
+          ],
+        });
+      if (url.includes("/items/contacts"))
+        return jsonResponse({ data: [CONTACT_A, CONTACT_B] });
+      if (url.includes("/items/tags")) return jsonResponse({ data: [] });
+      if (url.includes("/items/lifecycle_stages"))
+        return jsonResponse({ data: [] });
+      return jsonResponse({ data: [] });
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("narrows the list to contacts with the selected campaign status", async () => {
+    renderWithActiveProject({ campaignStatus: "paid" });
+    await waitFor(() => expect(screen.getByText(/פעיל בקמפיין/)).toBeTruthy());
+    // CONTACT_B is not in the paid allow-set ⇒ filtered out.
+    expect(screen.queryByText(/מחוץ לקמפיין/)).toBeNull();
+  });
+
+  it("renders a removable campaign-status chip showing the status label", async () => {
+    const setFilters = vi.fn();
+    renderWithActiveProject({ campaignStatus: "paid" }, setFilters);
+    await screen.findByRole("list", { name: "מסננים פעילים" });
+    expect(screen.getByText(/מסונן: סטטוס קמפיין: שילמו/)).toBeTruthy();
+    const btn = screen.getByRole("button", {
+      name: "הסר סינון סטטוס קמפיין: שילמו",
+    });
+    fireEvent.click(btn);
+    expect(setFilters).toHaveBeenCalledTimes(1);
+    expect(setFilters.mock.calls[0][0]).toEqual({ campaignStatus: undefined });
+  });
+
+  it("composes (AND) campaignStatus with an existing filter", async () => {
+    renderWithActiveProject({
+      campaignStatus: "paid",
+      lifecycleStageSlug: "donor",
+    });
+    await screen.findByRole("list", { name: "מסננים פעילים" });
+    expect(screen.getByText(/מסונן: סטטוס קמפיין: שילמו/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/פעיל בקמפיין/)).toBeTruthy());
+    expect(screen.queryByText(/מחוץ לקמפיין/)).toBeNull();
+  });
 });
