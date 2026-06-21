@@ -8,10 +8,13 @@ import {
   XCircle,
   TrendingUp,
 } from "lucide-react";
+import type React from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   CampaignStatus,
   CAMPAIGN_STATUS_LABELS,
   CAMPAIGN_STATUS_COLORS,
+  AdvancedFilters,
 } from "../../types";
 
 interface CampaignStatsGridProps {
@@ -39,6 +42,34 @@ export function CampaignStatsGrid({
 }: CampaignStatsGridProps) {
   const progress =
     goalAmount > 0 ? Math.min((totalDonated / goalAmount) * 100, 100) : 0;
+
+  const navigate = useNavigate();
+  const { setAdvancedFilters } = useOutletContext<{
+    setAdvancedFilters: (f: AdvancedFilters) => void;
+  }>();
+  // B4 (KPI-as-navigation): a campaign-status card drills into the people list
+  // filtered by that status; the total card clears it. Sets only campaignStatus
+  // (the P-B4 filter) and navigates — no URL params. Active-project scoping is
+  // enforced downstream by PeopleHubPage/useContacts (campaignStatus is ignored
+  // when no project is active), so no extra wiring is needed here.
+  const drill = (status?: CampaignStatus) => {
+    setAdvancedFilters({ campaignStatus: status });
+    navigate("/people");
+  };
+  const portal = (label: string, status?: CampaignStatus) => ({
+    className: "stat-card",
+    role: "button",
+    tabIndex: 0,
+    style: { padding: "8px", cursor: "pointer" },
+    onClick: () => drill(status),
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        drill(status);
+      }
+    },
+    "aria-label": `${label} — אנשי קשר`,
+  });
 
   return (
     <div>
@@ -95,7 +126,7 @@ export function CampaignStatsGrid({
         className="stats"
         style={{ gridTemplateColumns: "repeat(4, 1fr)", gap: "6px" }}
       >
-        <div className="stat-card" style={{ padding: "8px" }}>
+        <div {...portal('סה"כ')}>
           <Users
             size={18}
             style={{ color: "var(--color-primary)", marginBottom: "4px" }}
@@ -121,11 +152,7 @@ export function CampaignStatsGrid({
           const Icon = STATUS_ICONS[status];
           const count = byStatus[status] || 0;
           return (
-            <div
-              key={status}
-              className="stat-card"
-              style={{ padding: "8px" }}
-            >
+            <div key={status} {...portal(CAMPAIGN_STATUS_LABELS[status], status)}>
               <Icon
                 size={18}
                 style={{
