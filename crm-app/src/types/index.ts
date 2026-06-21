@@ -95,6 +95,9 @@ export interface AdvancedFilters {
   // Lifecycle stage slug; "__unset__" filters contacts with NULL lifecycle_stage_id.
   lifecycleStageSlug?: string;
   donationType?: "recurring" | "one_time";
+  // Campaign status within the active project. Meaningful only when a project
+  // is active; ignored otherwise. ANDs with the other advanced filters.
+  campaignStatus?: CampaignStatus;
 }
 
 export type SortOption =

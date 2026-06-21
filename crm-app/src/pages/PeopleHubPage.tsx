@@ -3,6 +3,8 @@ import { useOutletContext } from "react-router-dom";
 import { Search, X, Loader2 } from "lucide-react";
 import { useContacts } from "../hooks/useContacts";
 import { useDebounce } from "../hooks/useDebounce";
+import { useProjectContext } from "../contexts/ProjectContext";
+import { CAMPAIGN_STATUS_LABELS } from "../types";
 import { ContactCard } from "../components/ContactCard";
 import { ContactDetailModal } from "../components/ContactDetailModal";
 import { AddNoteModal } from "../components/AddNoteModal";
@@ -23,6 +25,7 @@ const FILTER_CHIP_LABELS: Partial<Record<keyof AdvancedFilters, string>> = {
   followUpBefore: "צריך חיזוק",
   neverCalled: "לא נוצר קשר",
   donationType: "תורמים קבועים",
+  campaignStatus: "סטטוס קמפיין",
 };
 const FILTER_CHIP_KEYS = Object.keys(FILTER_CHIP_LABELS) as Array<
   keyof typeof FILTER_CHIP_LABELS
@@ -32,9 +35,18 @@ export function PeopleHubPage({ sortBy, advancedFilters }: PeopleHubPageProps) {
   const { setAdvancedFilters } = useOutletContext<{
     setAdvancedFilters: (f: AdvancedFilters) => void;
   }>();
+  const { activeProject } = useProjectContext();
+  // campaignStatus is project-scoped: only show/offer its chip when a project
+  // is active. Other chips are always eligible.
   const activeChipKeys = FILTER_CHIP_KEYS.filter(
-    (k) => advancedFilters[k] !== undefined,
+    (k) =>
+      advancedFilters[k] !== undefined &&
+      (k !== "campaignStatus" || !!activeProject),
   );
+  const chipText = (k: keyof typeof FILTER_CHIP_LABELS) =>
+    k === "campaignStatus" && advancedFilters.campaignStatus
+      ? `${FILTER_CHIP_LABELS.campaignStatus}: ${CAMPAIGN_STATUS_LABELS[advancedFilters.campaignStatus]}`
+      : FILTER_CHIP_LABELS[k];
   const [quickFilter] = useState<QuickFilterTab>("all");
   const [statusFilter] = useState<ContactStatus | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -49,6 +61,7 @@ export function PeopleHubPage({ sortBy, advancedFilters }: PeopleHubPageProps) {
     debouncedSearch,
     sortBy,
     advancedFilters,
+    activeProject?.id ?? null,
   );
 
   return (
@@ -122,13 +135,13 @@ export function PeopleHubPage({ sortBy, advancedFilters }: PeopleHubPageProps) {
                 fontSize: 13,
               }}
             >
-              מסונן: {FILTER_CHIP_LABELS[k]}
+              מסונן: {chipText(k)}
               <button
                 type="button"
                 onClick={() =>
                   setAdvancedFilters({ ...advancedFilters, [k]: undefined })
                 }
-                aria-label={`הסר סינון ${FILTER_CHIP_LABELS[k]}`}
+                aria-label={`הסר סינון ${chipText(k)}`}
                 style={{
                   background: "none",
                   border: "none",
