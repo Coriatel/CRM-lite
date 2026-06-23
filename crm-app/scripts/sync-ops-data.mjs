@@ -51,6 +51,8 @@ const files = [
   "run_governance.json",
   // Automation Control Tower catalog — NESTED source, flat dest name (read-only).
   { src: "projections/control-tower/automation_catalog.json", dst: "automation_catalog.json" },
+  // Control Tower packet — NESTED source AND nested dest (OpsPage fetches the nested /ops-data path).
+  { src: "projections/control-tower/control_tower_packet.json", dst: "projections/control-tower/control_tower_packet.json" },
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
@@ -324,6 +326,7 @@ function syncAll() {
     const f = typeof entry === "string" ? entry : entry.dst;
     const src = `${vaultState}/${srcRel}`;
     const dst = `${out}/${f}`;
+    mkdirSync(dirname(dst), { recursive: true });
     if (existsSync(src)) {
       writeFileSync(dst, readFileSync(src));
       console.log(`[ops-data] copied ${f}`);
