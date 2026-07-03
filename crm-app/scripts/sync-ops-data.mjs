@@ -53,6 +53,8 @@ const files = [
   { src: "projections/control-tower/automation_catalog.json", dst: "automation_catalog.json" },
   // Control Tower packet — NESTED source AND nested dest (OpsPage fetches the nested /ops-data path).
   { src: "projections/control-tower/control_tower_packet.json", dst: "projections/control-tower/control_tower_packet.json" },
+  { src: "projections/control-tower/decision_inbox_packet.json", dst: "projections/control-tower/decision_inbox_packet.json" },
+  { src: "projections/control-tower/owner_portfolio_packet.json", dst: "projections/control-tower/owner_portfolio_packet.json" },
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
