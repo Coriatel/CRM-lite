@@ -2,6 +2,7 @@ import { DECISIONS_ENABLED, PORTFOLIO_URL, type PortfolioPacket } from "./decisi
 import { ControlTowerHeader, PortfolioCardView, PortfolioSummary } from "./decisionUi";
 import { rollupSystems } from "./decisionLogic";
 import { useDarkChrome, useOpsPacket } from "./useOpsPacket";
+import { MissionProgressSection } from "./MissionProgressSection";
 import { footerStyle, pageStyle } from "./DecisionInboxPage";
 
 // E5 — Portfolio `/portfolio` (flag OFF by default).
@@ -34,6 +35,8 @@ export function OwnerPortfolioView({ doc }: { doc: PortfolioPacket | null }) {
           <PortfolioCardView key={s.system} system={s} />
         ))}
       </div>
+
+      <MissionProgressSection />
 
       <footer style={footerStyle}>קריאה בלבד · רענון כל 30 שניות</footer>
     </div>

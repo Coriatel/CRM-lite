@@ -55,6 +55,7 @@ const files = [
   { src: "projections/control-tower/control_tower_packet.json", dst: "projections/control-tower/control_tower_packet.json" },
   { src: "projections/control-tower/decision_inbox_packet.json", dst: "projections/control-tower/decision_inbox_packet.json" },
   { src: "projections/control-tower/owner_portfolio_packet.json", dst: "projections/control-tower/owner_portfolio_packet.json" },
+  { src: "projections/control-tower/mission_progress.json", dst: "projections/control-tower/mission_progress.json" },
 ];
 
 // Truthful empty envelope for files OpsPage consumes via parseReceipts or the
