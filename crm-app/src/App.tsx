@@ -83,8 +83,30 @@ const ElronQueuePage = lazy(() =>
     default: m.ElronQueuePage,
   })),
 );
+// Phase E owner-decision surfaces — flag OFF by default (VITE_DECISIONS_ENABLED).
+const DecisionInboxPage = lazy(() =>
+  import("./pages/control/DecisionInboxPage").then((m) => ({
+    default: m.DecisionInboxPage,
+  })),
+);
+const OwnerPortfolioPage = lazy(() =>
+  import("./pages/control/OwnerPortfolioPage").then((m) => ({
+    default: m.OwnerPortfolioPage,
+  })),
+);
+const ExecutiveDashboardPage = lazy(() =>
+  import("./pages/control/ExecutiveDashboardPage").then((m) => ({
+    default: m.ExecutiveDashboardPage,
+  })),
+);
+const OwnerDecisionViewPage = lazy(() =>
+  import("./pages/control/OwnerDecisionViewPage").then((m) => ({
+    default: m.OwnerDecisionViewPage,
+  })),
+);
 
 import { AppShell } from "./components/layout/AppShell";
+import { DECISIONS_ENABLED } from "./pages/control/decisionTypes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SortOption, AdvancedFilters } from "./types";
 
@@ -183,6 +205,14 @@ function AppContent() {
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="ops" element={<OpsPage />} />
           <Route path="control" element={<ControlPanelPage />} />
+          {DECISIONS_ENABLED && (
+            <>
+              <Route path="decisions" element={<DecisionInboxPage />} />
+              <Route path="decision/:id" element={<OwnerDecisionViewPage />} />
+              <Route path="portfolio" element={<OwnerPortfolioPage />} />
+              <Route path="executive" element={<ExecutiveDashboardPage />} />
+            </>
+          )}
           <Route path="ops/issues/:id" element={<OpsIssuePage />} />
           <Route path="ops/blockers/:id" element={<OpsBlockerPage />} />
           <Route path="ops/gates/:id" element={<OpsGatePage />} />
