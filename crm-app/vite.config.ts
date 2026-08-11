@@ -4,6 +4,17 @@ import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   base: "/",
+  // /ops/secrets talks to secretsd (loopback only, owner-authenticated). In dev
+  // the SPA and the API are on different ports, so proxy the one route rather
+  // than teaching the page an absolute URL.
+  server: {
+    proxy: {
+      "/api/secrets": {
+        target: "http://127.0.0.1:8091",
+        changeOrigin: false,
+      },
+    },
+  },
   build: {
     outDir: "dist",
     sourcemap: false,
