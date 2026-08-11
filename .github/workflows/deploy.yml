@@ -36,29 +36,53 @@ jobs:
             crm-app/dist/ \
             deploy@${{ secrets.DEPLOY_HOST }}:/home/elron/services/crm-lite/crm-app/dist-prod-staging/
 
-      - name: Atomic swap + container refresh + prune
-        # docker restart is required: Caddy's bind-mount holds the original
-        # inode of dist-prod, so `mv dist-prod ...` leaves the container
-        # serving the stale tree until the mount re-resolves on restart.
-        # Sudoers drop-in /etc/sudoers.d/deploy-crmlite-restart authorises
-        # only `docker restart crmlite-web` for the deploy user (least
-        # privilege). Prune is non-fatal: legacy backups owned by other
-        # users may resist rm and that should not fail the deploy.
+      - name: Atomic swap + container refresh + local readiness + prune
+        # A container refresh is required: Caddy's bind-mount holds the original
+        # inode of dist-prod, so `mv dist-prod ...` leaves the container serving
+        # the stale tree until the mount re-resolves.
+        #
+        # The refresh goes through /usr/local/sbin/crmlite-web-refresh (root
+        # owned, argument-less, runs `docker compose up -d --no-build --pull
+        # never crmlite-web`). Unlike the previous `docker restart`, this
+        # RECREATES the container if it is missing — the 2026-08-01 failure mode,
+        # where the container was lost and every deploy still reported success.
+        # Sudoers drop-in /etc/sudoers.d/deploy-crmlite-refresh authorises only
+        # that wrapper, with no arguments (least privilege).
+        #
+        # Statements are newline-separated under `set -e`, NOT an `&&` chain:
+        # the old chain ended in `|| echo`, which swallowed a failed refresh and
+        # let the step exit 0 while production was down. Only the prune is
+        # non-fatal, and its error handling is isolated to its own statement so
+        # it cannot mask an earlier failure.
         run: |
           ssh -o StrictHostKeyChecking=no \
             deploy@${{ secrets.DEPLOY_HOST }} \
-            "set -e; \
-             cd /home/elron/services/crm-lite/crm-app && \
-             STAMP=\$(date -u +%Y%m%d-%H%M%SZ) && \
-             SHA=\$(echo '${{ github.sha }}' | cut -c1-7) && \
-             test -f dist-prod-staging/index.html || { echo 'staging missing index.html — abort'; exit 1; } && \
-             ls dist-prod-staging/assets/index-*.js >/dev/null || { echo 'staging missing main bundle — abort'; exit 1; } && \
-             if [ -d dist-prod ]; then mv dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi && \
-             mv dist-prod-staging dist-prod && \
-             echo \"swapped; live SHA=\${SHA}\" && \
-             sudo -n /usr/bin/docker restart crmlite-web && \
-             echo 'container refreshed' && \
-             { ls -dt dist-prod.bak-* 2>/dev/null | tail -n +4 | xargs -r rm -rf 2>/dev/null && echo 'pruned to last 3 backups'; } || echo '(prune partial — non-fatal: some legacy backups not owned by deploy user)'"
+            "set -eu
+             cd /home/elron/services/crm-lite/crm-app
+             STAMP=\$(date -u +%Y%m%d-%H%M%SZ)
+             SHA=\$(echo '${{ github.sha }}' | cut -c1-7)
+             test -f dist-prod-staging/index.html || { echo 'staging missing index.html — abort'; exit 1; }
+             ls dist-prod-staging/assets/index-*.js >/dev/null || { echo 'staging missing main bundle — abort'; exit 1; }
+             if [ -d dist-prod ]; then mv dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi
+             mv dist-prod-staging dist-prod
+             echo \"swapped; live SHA=\${SHA}\"
+             sudo -n /usr/local/sbin/crmlite-web-refresh
+             echo 'container refreshed'
+             ok=0
+             for i in 1 2 3 4 5 6 7 8 9 10; do
+               code=\$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ || echo 000)
+               if [ \"\$code\" = 200 ]; then echo \"local readiness OK: 127.0.0.1:8090 -> 200\"; ok=1; break; fi
+               echo \"local readiness retry \$i: got \$code\"
+               sleep 2
+             done
+             if [ \"\$ok\" -ne 1 ]; then echo 'local readiness FAILED on 127.0.0.1:8090'; exit 1; fi
+             if ls -dt dist-prod.bak-* >/dev/null 2>&1; then
+               if ls -dt dist-prod.bak-* | tail -n +4 | xargs -r rm -rf 2>/dev/null; then
+                 echo 'pruned to last 3 backups'
+               else
+                 echo '(prune partial — non-fatal: some legacy backups not owned by deploy user)'
+               fi
+             fi"
 
       - name: Smoke test live URL
         run: |
