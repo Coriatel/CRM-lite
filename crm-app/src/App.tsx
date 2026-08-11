@@ -58,6 +58,9 @@ const OpsBlockerPage = lazy(() =>
 const OpsGatePage = lazy(() =>
   import("./pages/OpsGatePage").then((m) => ({ default: m.OpsGatePage })),
 );
+const OpsSecretsPage = lazy(() =>
+  import("./pages/OpsSecretsPage").then((m) => ({ default: m.OpsSecretsPage })),
+);
 const OpsAutomationPage = lazy(() =>
   import("./pages/OpsAutomationPage").then((m) => ({
     default: m.OpsAutomationPage,
@@ -216,6 +219,7 @@ function AppContent() {
           <Route path="ops/issues/:id" element={<OpsIssuePage />} />
           <Route path="ops/blockers/:id" element={<OpsBlockerPage />} />
           <Route path="ops/gates/:id" element={<OpsGatePage />} />
+          <Route path="ops/secrets" element={<OpsSecretsPage />} />
           <Route path="ops/queue/:id" element={<OpsQueueItemPage />} />
           <Route
             path="ops/workflows/:workflow_key"
