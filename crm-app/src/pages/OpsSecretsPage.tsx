@@ -36,6 +36,7 @@ export type SecretMeta = {
   consumer: string;
   owner: string;
   created: string;
+  updated: string;
   expiry: string | null;
   status: SecretStatus;
 };
@@ -57,6 +58,7 @@ export function sanitizeSecret(raw: Record<string, unknown>): SecretMeta {
     consumer: String(raw.consumer ?? ""),
     owner: String(raw.owner ?? ""),
     created: String(raw.created ?? ""),
+    updated: String(raw.updated ?? raw.created ?? ""),
     expiry: raw.expiry == null ? null : String(raw.expiry),
     status: (["active", "disabled", "expired"].includes(String(raw.status))
       ? String(raw.status)
@@ -194,8 +196,8 @@ export function OpsSecretsPage() {
                 </div>
                 <div style={subLine}>{s.purpose}</div>
                 <div style={subLine}>
-                  צרכן: {s.consumer} · בעלים: {s.owner} · נוצר: {s.created} · תפוגה:{" "}
-                  {s.expiry ?? "ללא"}
+                  צרכן: {s.consumer} · בעלים: {s.owner} · נוצר: {s.created} · עודכן:{" "}
+                  {s.updated ? s.updated.slice(0, 10) : "—"} · תפוגה: {s.expiry ?? "ללא"}
                 </div>
               </li>
             ))}

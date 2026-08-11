@@ -53,8 +53,30 @@ Values are stored **verbatim and opaque**: never parsed, trimmed, or interpreted
 
 `status: expired` is **derived** at read time from `expiry`, never written back.
 
+`updated` is an ISO timestamp advanced by `add`, `replace` and `disable`.
+
+### Name and path validation
+
 Names must match `^[a-z0-9][a-z0-9._-]{1,63}$` and are rejected — not sanitised —
 if they contain `..`, a separator, or anything that resolves outside `values/`.
+A name that needs rewriting is a name the owner mistyped.
+
+Three further guards run before any write:
+
+- **Duplicate names** — `add` refuses an existing name; changing a value is
+  `replace`, which is explicit.
+- **Symlink escape** — refuses when the value file, or the `values/` directory
+  itself, is a symlink or resolves elsewhere. Otherwise a planted link could
+  redirect a `0600` write to a world-readable path or another account's file.
+- **Repository paths** — refuses a store inside a git working tree unless
+  `git check-ignore` confirms the path is ignored. Asked of git rather than
+  inferred from `.gitignore`, so nested ignore files and negations are honoured.
+
+> **This host:** `/home/devuserp` *is* a git repository, so `~/.secrets` lives
+> inside a working tree and was visible to `git status` with no `.gitignore`
+> present at all. A `git add -A` at home would have staged the registry. The
+> store is now covered by `/.secrets/` in `/home/devuserp/.gitignore`, which the
+> guard verifies on every write.
 
 ## Usage
 
@@ -160,3 +182,10 @@ The historical exposure is **not** certified remediated. The source file is
 absent now, but whether it was copied before its removal is unknown.
 
 `/working/up.txt/` is left untouched.
+
+## Out of lane
+
+`~/.config/windmill/` exists on this account (`activeWorkspace`, `remotes.ndjson`,
+both `0664 devuserp:devuserp`). It is **outside this lane**: inspected for name and
+mode only, never opened, and not migrated. Bringing any Windmill-related credential
+into this store requires an explicit transfer from its owner.

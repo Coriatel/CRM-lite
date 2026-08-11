@@ -11,9 +11,10 @@
 //
 // SECRET_STORE_ROOT exists so tests never touch the owner's real store.
 
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 export const DIR_MODE = 0o700;
 export const FILE_MODE = 0o600;
@@ -59,8 +60,57 @@ export function valuePathFor(name) {
   return full;
 }
 
+// A store inside a working tree is one `git add -A` away from committing every
+// secret. This is not hypothetical on this host: /home/devuserp is itself a git
+// repository, so ~/.secrets lives inside a working tree.
+//
+// Being inside a repo is therefore tolerated ONLY when git itself confirms the
+// path is ignored — asked of `git check-ignore`, not inferred by reading
+// .gitignore, so nested ignore files and negation rules are honoured. An
+// unignored store inside a repo is refused outright.
+export function assertNotInsideRepository(root = storeRoot()) {
+  let dir = resolve(root);
+  for (;;) {
+    if (existsSync(join(dir, ".git"))) {
+      const ignored = spawnSync("git", ["-C", dir, "check-ignore", "-q", resolve(root)], {
+        stdio: "ignore",
+      });
+      if (ignored.status === 0) return;
+      throw new Error(
+        `refusing to use a secret store inside a git repository unless it is gitignored: ` +
+        `${resolve(root)} is inside ${dir}. Add it to ${join(dir, ".gitignore")}.`,
+      );
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
+}
+
+// Symlink escape: a value path that is (or sits behind) a symlink can redirect
+// a 0600 write to somewhere world-readable, or to a file another account owns.
+// Check the link itself and the realpath of its parent.
+export function assertNoSymlinkEscape(name) {
+  const dir = resolve(valuesDir());
+  if (existsSync(dir)) {
+    if (lstatSync(dir).isSymbolicLink()) {
+      throw new Error("refusing to write: the values directory is a symlink");
+    }
+    if (realpathSync(dir) !== dir) {
+      throw new Error("refusing to write: the values directory resolves elsewhere");
+    }
+  }
+  const full = join(dir, name);
+  if (existsSync(full) || lstatSync(full, { throwIfNoEntry: false })) {
+    if (lstatSync(full).isSymbolicLink()) {
+      throw new Error(`refusing to write through a symlink: ${name}`);
+    }
+  }
+}
+
 export function initStore() {
   const root = storeRoot();
+  assertNotInsideRepository(root);
   mkdirSync(root, { recursive: true, mode: DIR_MODE });
   mkdirSync(valuesDir(), { recursive: true, mode: DIR_MODE });
   // mkdir's mode is masked by umask; restate it unconditionally.
@@ -110,6 +160,7 @@ export function toMetadata(entry) {
     consumer: entry.consumer,
     owner: entry.owner,
     created: entry.created,
+    updated: entry.updated ?? entry.created,
     expiry: entry.expiry ?? null,
     status: entry.status,
     path: entry.path,
@@ -138,10 +189,12 @@ export function addSecret(meta, rawValue, { now = new Date() } = {}) {
     throw new Error(`secret already exists: ${meta.name} (use replace)`);
   }
   const path = valuePathFor(meta.name);
+  assertNoSymlinkEscape(meta.name);
   writePrivateFile(path, rawValue);
   const entry = toMetadata({
     ...meta,
     created: now.toISOString().slice(0, 10),
+    updated: now.toISOString(),
     status: "active",
     path,
   });
@@ -149,7 +202,7 @@ export function addSecret(meta, rawValue, { now = new Date() } = {}) {
   return entry;
 }
 
-export function replaceSecret(name, rawValue) {
+export function replaceSecret(name, rawValue, { now = new Date() } = {}) {
   initStore();
   if (typeof rawValue !== "string" || rawValue.length === 0) {
     throw new Error("refusing to store an empty value");
@@ -157,7 +210,10 @@ export function replaceSecret(name, rawValue) {
   const registry = readRegistry();
   const entry = registry.find((s) => s.name === name);
   if (!entry) throw new Error(`no such secret: ${name}`);
+  assertNoSymlinkEscape(name);
   writePrivateFile(valuePathFor(name), rawValue);
+  entry.updated = now.toISOString();
+  writeRegistry(registry);
   return entry;
 }
 
@@ -165,12 +221,13 @@ export function replaceSecret(name, rawValue) {
 // MVP has no rotation authority. Disabling marks the secret unusable to the
 // launcher contract and flags it in /ops; revoking it at the provider stays
 // a manual owner action.
-export function disableSecret(name) {
+export function disableSecret(name, { now = new Date() } = {}) {
   initStore();
   const registry = readRegistry();
   const entry = registry.find((s) => s.name === name);
   if (!entry) throw new Error(`no such secret: ${name}`);
   entry.status = "disabled";
+  entry.updated = now.toISOString();
   writeRegistry(registry);
   return entry;
 }

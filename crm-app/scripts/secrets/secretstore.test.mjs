@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, statSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   addSecret,
+  assertNoSymlinkEscape,
+  assertNotInsideRepository,
   auditModes,
   disableSecret,
   isValidSecretName,
@@ -197,7 +200,7 @@ describe("listSecrets / opsProjection", () => {
     const proj = opsProjection();
     expect(proj.secrets[0]).not.toHaveProperty("path");
     expect(Object.keys(proj.secrets[0]).sort()).toEqual(
-      ["consumer", "created", "expiry", "name", "owner", "purpose", "status", "type"],
+      ["consumer", "created", "expiry", "name", "owner", "purpose", "status", "type", "updated"],
     );
   });
 
@@ -212,6 +215,126 @@ describe("listSecrets / opsProjection", () => {
   it("returns an empty list for a fresh store", () => {
     expect(listSecrets()).toEqual([]);
     expect(opsProjection().secrets).toEqual([]);
+  });
+});
+
+describe("symlink escape", () => {
+  it("refuses to write through a symlinked value file", () => {
+    addSecret(META, SYNTHETIC);
+    const target = join(tmp, "outside-target");
+    writeFileSync(target, "pre-existing");
+    rmSync(join(valuesDir(), META.name));
+    symlinkSync(target, join(valuesDir(), META.name));
+    expect(() => replaceSecret(META.name, SYNTHETIC_2)).toThrow(/symlink/);
+    expect(readFileSync(target, "utf8")).toBe("pre-existing");
+  });
+
+  it("refuses when the values directory itself is a symlink", () => {
+    const realRoot = mkdtempSync(join(tmpdir(), "secretstore-real-"));
+    const elsewhere = mkdtempSync(join(tmpdir(), "secretstore-elsewhere-"));
+    try {
+      process.env.SECRET_STORE_ROOT = realRoot;
+      mkdirSync(join(elsewhere, "values"), { recursive: true });
+      symlinkSync(join(elsewhere, "values"), join(realRoot, "values"));
+      expect(() => assertNoSymlinkEscape("x")).toThrow(/symlink/);
+    } finally {
+      process.env.SECRET_STORE_ROOT = tmp;
+      rmSync(realRoot, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("repository-path rejection", () => {
+  it("refuses a store located inside a git working tree", () => {
+    const repo = mkdtempSync(join(tmpdir(), "secretstore-repo-"));
+    try {
+      mkdirSync(join(repo, ".git"), { recursive: true });
+      mkdirSync(join(repo, "nested", "deep"), { recursive: true });
+      expect(() => assertNotInsideRepository(join(repo, "nested", "deep"))).toThrow(
+        /inside a git repository/,
+      );
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a store outside any repository", () => {
+    expect(() => assertNotInsideRepository(tmp)).not.toThrow();
+  });
+
+  // The real store on this host lives inside the /home/devuserp repo, so the
+  // gitignored escape hatch is load-bearing, not decorative.
+  it("tolerates a store inside a repository when git confirms it is ignored", () => {
+    const repo = mkdtempSync(join(tmpdir(), "secretstore-realrepo-"));
+    try {
+      spawnSync("git", ["init", "-q", repo]);
+      const store = join(repo, ".secrets");
+      mkdirSync(store, { recursive: true });
+
+      expect(() => assertNotInsideRepository(store)).toThrow(/gitignored/);
+
+      writeFileSync(join(repo, ".gitignore"), "/.secrets/\n");
+      expect(() => assertNotInsideRepository(store)).not.toThrow();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("updated timestamp", () => {
+  it("is set on create and advanced by replace and disable", () => {
+    const t0 = new Date("2026-01-01T00:00:00Z");
+    addSecret(META, SYNTHETIC, { now: t0 });
+    expect(readRegistry()[0].updated).toBe(t0.toISOString());
+
+    const t1 = new Date("2026-02-02T00:00:00Z");
+    replaceSecret(META.name, SYNTHETIC_2, { now: t1 });
+    expect(readRegistry()[0].updated).toBe(t1.toISOString());
+    expect(readRegistry()[0].created).toBe("2026-01-01");
+
+    const t2 = new Date("2026-03-03T00:00:00Z");
+    disableSecret(META.name, { now: t2 });
+    expect(readRegistry()[0].updated).toBe(t2.toISOString());
+  });
+});
+
+// Item 8: prove a synthetic value cannot surface on any operator-visible
+// channel. stdout/stderr are captured rather than trusted by inspection.
+describe("no synthetic value reaches an observable channel", () => {
+  it("never appears in registry, projection, or the store's own listing output", () => {
+    addSecret(META, SYNTHETIC);
+    expect(readFileSync(registryPath(), "utf8")).not.toContain(SYNTHETIC);
+    expect(JSON.stringify(opsProjection())).not.toContain(SYNTHETIC);
+    expect(JSON.stringify(listSecrets())).not.toContain(SYNTHETIC);
+  });
+
+  it("never appears in an error message, even when the value causes the failure", () => {
+    addSecret(META, SYNTHETIC);
+    try {
+      addSecret(META, SYNTHETIC);
+      throw new Error("expected a duplicate-name rejection");
+    } catch (e) {
+      expect(e.message).not.toContain(SYNTHETIC);
+      expect(e.stack ?? "").not.toContain(SYNTHETIC);
+    }
+  });
+
+  it("is absent from this suite's own console output", () => {
+    const seen = [];
+    const origLog = console.log;
+    const origErr = console.error;
+    console.log = (...a) => seen.push(a.join(" "));
+    console.error = (...a) => seen.push(a.join(" "));
+    try {
+      addSecret(META, SYNTHETIC);
+      listSecrets();
+      opsProjection();
+    } finally {
+      console.log = origLog;
+      console.error = origErr;
+    }
+    expect(seen.join("\n")).not.toContain(SYNTHETIC);
   });
 });
 

@@ -51,7 +51,7 @@ describe("sanitizeSecret", () => {
   it("keeps only the metadata allowlist", () => {
     const out = sanitizeSecret({ ...META, value: SYNTHETIC_VALUE, path: "/home/x/.secrets/values/a" });
     expect(Object.keys(out).sort()).toEqual(
-      ["consumer", "created", "expiry", "name", "owner", "purpose", "status", "type"],
+      ["consumer", "created", "expiry", "name", "owner", "purpose", "status", "type", "updated"],
     );
     expect(JSON.stringify(out)).not.toContain(SYNTHETIC_VALUE);
     expect(JSON.stringify(out)).not.toContain(".secrets/values");
