@@ -1,7 +1,8 @@
 # Owner-operated secrets MVP
 
 One owner, one host. Replaces ad-hoc plaintext credential files with a private
-per-account store, a metadata registry, and a read-only `/ops` screen.
+per-account store, a metadata registry, an owner-authenticated backend, and an
+`/ops/secrets` screen that can create, list, replace and disable.
 
 This is **not** a vault product, a multi-user platform, or a rotation system.
 
@@ -9,9 +10,11 @@ This is **not** a vault product, a multi-user platform, or a rotation system.
 
 | Piece | Path | Notes |
 |---|---|---|
-| Store library | `crm-app/scripts/secrets/secretstore.mjs` | name validation, modes, registry |
-| Owner CLI | `crm-app/scripts/secrets/secretsctl.mjs` | the only write path |
-| `/ops` screen | `crm-app/src/pages/OpsSecretsPage.tsx` | metadata only, read-only |
+| Store library | `crm-app/scripts/secrets/secretstore.mjs` | validation, modes, locking, atomic writes, expiry enforcement |
+| HTTP API | `crm-app/scripts/secrets/secretsapi.mjs` | authn + authz + CSRF; metadata out, value in once |
+| API server | `crm-app/scripts/secrets/secretsd.mjs` | loopback-only daemon |
+| Owner CLI | `crm-app/scripts/secrets/secretsctl.mjs` | host-side administration and recovery |
+| `/ops` screen | `crm-app/src/pages/OpsSecretsPage.tsx` | metadata only; create/replace/disable |
 | Store root | `~/.secrets/` on the consumer account | `0700` |
 
 ## Layout
@@ -21,12 +24,12 @@ This is **not** a vault product, a multi-user platform, or a rotation system.
 ~/.secrets/values/          0700  devuserp:devuserp
 ~/.secrets/values/<name>    0600  one opaque raw value per file
 ~/.secrets/registry.json    0600  metadata only — never a value
+~/.secrets/.lock            0600  bounded mutation lock
 ```
 
 **One value per file, not a shared `.env`.** A `source`-able env file leaks every
 secret into the environment of every child process that touches it — precisely
-the exposure this store removes. One file per secret lets a launcher read the
-single secret its operation needs and nothing else.
+the exposure this store removes.
 
 Values are stored **verbatim and opaque**: never parsed, trimmed, or interpreted.
 
@@ -41,44 +44,149 @@ Values are stored **verbatim and opaque**: never parsed, trimmed, or interpreted
       "type": "password|token|api_key|connection_string|other",
       "purpose": "why this credential exists",
       "consumer": "what uses it",
-      "owner": "OS account that owns the value file",
+      "owner": "derived from the authenticated session (API) or the OS user (CLI)",
       "created": "YYYY-MM-DD",
+      "updated": "ISO timestamp",
       "expiry": "YYYY-MM-DD | null",
-      "status": "active|disabled|expired",
+      "status": "active|disabled",
       "path": "/home/<owner>/.secrets/values/<name>"
     }
   ]
 }
 ```
 
-`status: expired` is **derived** at read time from `expiry`, never written back.
+`status: expired` is **derived** at read time from `expiry`, never written back —
+and, critically, it is **enforced** as well as displayed (see below).
 
-`updated` is an ISO timestamp advanced by `add`, `replace` and `disable`.
+## Why there is no static projection
 
-### Name and path validation
+The first cut of this MVP published a metadata projection to
+`crm-app/public/ops-data/secrets.json` and had the page fetch
+`/ops-data/secrets.json`. Independent review established that this was wrong in
+two compounding ways:
 
-Names must match `^[a-z0-9][a-z0-9._-]{1,63}$` and are rejected — not sanitised —
-if they contain `..`, a separator, or anything that resolves outside `values/`.
-A name that needs rewriting is a name the owner mistyped.
+1. `/ops-data/*` is a Caddy `handle_path` static route rooted at
+   `/srv/ops-vault/state`, on **two public domains**, with **no authentication
+   of any kind**. An anonymous request returns `200` even while the application
+   itself is down. Publishing there would have put the full credential
+   inventory — every name, purpose, consumer and expiry — on the open internet.
+2. Because `handle_path` never falls through to the app, a file published into
+   the SPA's own `public/ops-data/` could never be served at that URL anyway.
+   The page could not have displayed a published projection at all.
 
-Three further guards run before any write:
+There is therefore **no `publish` verb and no static projection**. Metadata is
+reachable only through the authenticated API. A regression test asserts that no
+source file fetches `/ops-data/secrets.json`.
 
-- **Duplicate names** — `add` refuses an existing name; changing a value is
-  `replace`, which is explicit.
-- **Symlink escape** — refuses when the value file, or the `values/` directory
-  itself, is a symlink or resolves elsewhere. Otherwise a planted link could
-  redirect a `0600` write to a world-readable path or another account's file.
-- **Repository paths** — refuses a store inside a git working tree unless
-  `git check-ignore` confirms the path is ignored. Asked of git rather than
-  inferred from `.gitignore`, so nested ignore files and negations are honoured.
+## The API
 
-> **This host:** `/home/devuserp` *is* a git repository, so `~/.secrets` lives
-> inside a working tree and was visible to `git status` with no `.gitignore`
-> present at all. A `git add -A` at home would have staged the registry. The
-> store is now covered by `/.secrets/` in `/home/devuserp/.gitignore`, which the
-> guard verifies on every write.
+`secretsd` binds **127.0.0.1 only** and is reached through a reverse-proxy route.
 
-## Usage
+| Method | Route | Effect |
+|---|---|---|
+| `GET` | `/api/secrets` | metadata list |
+| `POST` | `/api/secrets` | create; body carries the value exactly once |
+| `PUT` | `/api/secrets/<name>` | replace the value |
+| `POST` | `/api/secrets/<name>/disable` | disable (metadata only) |
+
+Configuration is entirely environment-driven; **no path, owner or store location
+is ever taken from a request**:
+
+```
+SECRETS_API_PORT         default 8091
+SECRETS_OWNER_EMAILS     comma-separated allowlist — REQUIRED, no default
+SECRETS_ALLOWED_ORIGINS  comma-separated origin allowlist
+VITE_DIRECTUS_URL        identity provider
+SECRET_STORE_ROOT        store location (defaults to ~/.secrets)
+```
+
+`secretsd` refuses to start with an empty owner allowlist.
+
+### Authentication, authorisation, CSRF
+
+Authentication **reuses the app's existing session** rather than adding a second
+one. The SPA already holds a Directus access token; every request here is
+validated by asking Directus who the bearer is. Expiry and revocation are
+therefore authoritative at the identity provider, and no signing key lives in
+this process. Authorisation is an explicit owner-email allowlist.
+
+Everything fails closed: unauthenticated → `401`, expired/revoked → `401`,
+authenticated non-owner → `403`, identity provider unreachable → `503`. Every
+mutation is refused *before* anything is written.
+
+CSRF is handled as appropriate to a bearer-token session:
+
+- authority comes **only** from the `Authorization` header. Cookies are never
+  read, so no request carries ambient authority and a cross-site form or `<img>`
+  cannot act as the owner — browsers do not attach `Authorization` cross-site;
+- mutating requests must carry `Content-Type: application/json`, which blocks
+  simple cross-site form posts;
+- when the browser sends an `Origin`, it must be on the allowlist.
+
+### What never crosses the boundary
+
+Outbound: no raw value, no prefix, no length, no digest or other recoverable
+derivative, and no filesystem path. The response is built from a nine-field
+metadata allowlist, so `path` is absent by construction rather than deleted.
+
+Inbound: no owner and no storage location. Both are derived server-side; anything
+the client sends for either is discarded. Routes call the store library directly
+and **never spawn a process** — a regression test asserts the API source contains
+no child-process API at all.
+
+## Durability and containment
+
+### Expiry is enforced, not just displayed
+
+`assertUsable()` is the single predicate at the value-access boundary, and it
+checks the **current time**, not only the stored status. A secret whose expiry
+has passed is stored as `active`, displays as `expired`, and is **refused** by
+`readSecretValue`. Previously it displayed as expired and was still returned in
+full.
+
+### Atomic writes, one bounded lock, defined rollback
+
+- Every mutation holds one bounded store lock (`~/.secrets/.lock`, `O_EXCL`).
+  Concurrent writers serialise or fail loudly with "store is busy"; there are no
+  reported-success lost updates. A lock older than 60s is treated as stale.
+- **Nothing is written in place.** Content goes to a private `0600` temp file in
+  the same directory, is `fsync`'d, then `rename()`d over the target, and the
+  directory is `fsync`'d. An interrupted write leaves the previous valid file
+  untouched.
+- `create` stages the value **without publishing it**, writes the registry, then
+  promotes the value. A registry failure discards the staged file, so it can
+  never leave an unregistered secret on disk. A promotion failure restores the
+  registry preimage.
+- `replace` copies the current value aside first, so a later failure restores it
+  byte for byte.
+- Operator rollback primitives: `removeSecret`, `restoreRegistryBytesPublic`,
+  `copyValueAside`, `restoreValueFrom`. Rollback for create, replace and disable
+  is tested against a byte-exact preimage snapshot.
+
+### Hardlink and symlink containment
+
+A hardlink *is* the file, so `lstat` cannot see it; the old in-place write put
+the value straight into an external hardlinked inode. Two defences now:
+
+- `assertSafeTargetFile` refuses a target that is not a regular file or whose
+  link count is not 1;
+- the temp-file + `rename` write replaces the **directory entry**, so an external
+  hardlink keeps pointing at the untouched old inode. A test asserts the inode
+  number changes on replace.
+
+Existing symlink and traversal defences are preserved: a symlinked value file or
+`values/` directory is refused, a **symlinked store root is now refused too**
+(it used to be followed and chmod'd), and names are rejected — never sanitised —
+if they contain `..`, a separator, or anything resolving outside `values/`.
+
+### Bounded registry reads
+
+`registry.json` is `lstat`'d before reading: a symlink or non-regular file is
+refused, and anything over 1 MB is refused rather than parsed. An unbounded read
+of a same-UID symlink to a character device would otherwise allocate until the
+process was OOM-killed.
+
+## CLI
 
 ```bash
 cd crm-app
@@ -88,66 +196,56 @@ node scripts/secrets/secretsctl.mjs add --name my-token --type token \
 node scripts/secrets/secretsctl.mjs replace --name my-token
 node scripts/secrets/secretsctl.mjs disable --name my-token
 node scripts/secrets/secretsctl.mjs list
-node scripts/secrets/secretsctl.mjs audit                 # assert owner-only modes
-node scripts/secrets/secretsctl.mjs publish --out public/ops-data/secrets.json
+node scripts/secrets/secretsctl.mjs audit
 ```
 
-The value is typed at a prompt with echo off, or piped on stdin. It is **never** an
-argv token — `/proc/<pid>/cmdline` is world-readable — and therefore never lands
-in shell history.
+The value is typed at a prompt with echo off, or piped on stdin. It is **never**
+an argv token — and an **unknown flag is now rejected**, so a mistaken
+`--value <secret>` fails loudly instead of being silently ignored while the value
+sits in world-readable `/proc/<pid>/cmdline`. `--owner` is gone: the owner is
+derived from the OS identity.
+
+Errors never quote an argument back. An invalid name is reported as exactly
+`invalid secret name`, because the old message echoed the first 40 characters of
+the input and a value pasted into `--name` would have been disclosed.
 
 `disable` is **metadata only**. It does not revoke anything at the provider.
-This MVP has no rotation authority; revoking is a manual owner action.
 
-## Why the `/ops` screen is read-only
+## Deployment (owner-gated, NOT applied)
 
-The brief asked for an owner-only add-secret form on `/ops`. It is not built,
-because the surface cannot host one:
+The code-level flow is complete and tested. Serving it needs one reverse-proxy
+route, which is a production Caddy change and therefore an owner decision — it
+was deliberately **not** applied by the branch that wrote this:
 
-- `Caddyfile` is `root * /srv` + `file_server` — a **static** file server.
-- `api/` contains only `node_modules` and a lockfile. There is no backend.
-- Every `/ops` card reads a static `/ops-data/*.json` projection.
-- Auth is Directus JWT in `localStorage`, terminated in the SPA.
+```
+# inside the crmphone site block, BEFORE the /ops-data handler
+handle /api/secrets* {
+    reverse_proxy 127.0.0.1:8091
+}
+```
 
-A form would require standing up a new writable service — out of scope, and it
-would drag raw values through HTTP, a JS heap, and a server log on the way to a
-file that lives on this account anyway. The CLI removes that path entirely.
+and `secretsd` running under the owner's account with `SECRETS_OWNER_EMAILS` set.
+Until that route exists, `/ops/secrets` renders its unauthorised/error state
+rather than silently showing stale or public data.
 
-The screen therefore lists metadata and names the CLI verbs as disabled chips,
-matching the existing `OpsGatePage` precedent ("כתיבה תוטמע בסליס נפרד").
-
-Owner-gating is **inherited**: `App.tsx` renders `LoginPage` for any
-unauthenticated user before `/ops/secrets` is reachable. No second auth system.
-
-### Publishing the projection
-
-`secretsctl publish` writes `crm-app/public/ops-data/secrets.json` — the registry
-minus every value **and** minus `path`. The filesystem layout is not the
-browser's business.
-
-`secrets.json` is deliberately **absent** from the `files[]` list in
-`scripts/sync-ops-data.mjs`: that script stubs missing vault files at prebuild,
-which would silently overwrite a published projection with an empty one. The page
-treats a 404 as its empty state, so an unpublished registry renders
-"אין סודות רשומים עדיין" rather than an error.
+In development `vite.config.ts` proxies `/api/secrets` to `127.0.0.1:8091`, so
+the flow is exercisable locally without touching production.
 
 ## Future fixed launcher (documented, NOT implemented)
 
 When an approved operation exists, the launcher contract is:
 
-1. A **fixed allowlist** in the launcher source maps an operation id to a hardcoded
-   argv and exactly one secret name. Nothing is taken from the caller.
-2. The agent-facing contract is only `run approved operation <id>`. No secret path,
-   no command, no arguments cross that boundary.
-3. The launcher calls `readSecretValue(name)` — the one seam in `secretstore.mjs`
-   that returns secret material — and passes it to the child **via its environment
-   or stdin only**, never argv.
-4. It refuses to run when `status !== "active"`.
-5. It disables shell tracing, never echoes the value, and returns only the child's
-   exit code plus non-secret output.
-
-`readSecretValue` already exists and is unit-tested; no CLI verb and no HTTP route
-calls it.
+1. A **fixed allowlist** in the launcher source maps an operation id to a
+   hardcoded argv and exactly one secret name. Nothing is taken from the caller.
+2. The agent-facing contract is only `run approved operation <id>`. No secret
+   path, no command, no arguments cross that boundary.
+3. The launcher calls `readSecretValue(name)` — the one seam that returns secret
+   material — and passes it to the child **via its environment or stdin only**,
+   never argv.
+4. It refuses to run unless `assertUsable()` passes, which now covers **both**
+   disabled status and date expiry.
+5. It disables shell tracing, never echoes the value, and returns only the
+   child's exit code plus non-secret output.
 
 ## Honest security boundary
 
@@ -155,8 +253,9 @@ This MVP protects against:
 
 - accidental leakage — group/world-readable files, values in git, logs, browser,
   API responses, shell history, process argv;
+- unauthenticated and non-owner access to the metadata inventory;
 - unprivileged identities — other OS accounts and the `ops-vault`/`mnos` groups;
-- casual over-broad reads — one file per secret instead of a shared env blob.
+- interrupted writes, concurrent writers, and hardlink/symlink escape.
 
 It does **not** protect against:
 
@@ -175,17 +274,20 @@ Expiry-Alert email/password pair. That path is now an empty root-owned directory
 so the script is broken (`EISDIR`).
 
 Deliberately **not** addressed here: no credential was migrated, requested, or
-invented. When the owner supplies the value through `secretsctl`, the script
-should be repointed at the store in a separate slice.
+invented. When the owner supplies the value, the script should be repointed at
+the store in a separate slice.
 
 The historical exposure is **not** certified remediated. The source file is
 absent now, but whether it was copied before its removal is unknown.
 
 `/working/up.txt/` is left untouched.
 
-## Out of lane
+## Residual LOWs (recorded, out of scope for this correction)
 
-`~/.config/windmill/` exists on this account (`activeWorkspace`, `remotes.ndjson`,
-both `0664 devuserp:devuserp`). It is **outside this lane**: inspected for name and
-mode only, never opened, and not migrated. Bringing any Windmill-related credential
-into this store requires an explicit transfer from its owner.
+- `writePrivateFileAtomic` sets the mode on a fresh temp inode before the
+  rename, so the pre-existing TOCTOU window is closed for value and registry
+  writes. The `.lock` file is created `0600` by `O_EXCL` and holds no secret.
+- `auditModes` still reports only mode drift, not ownership drift.
+- The store offers no rotation, no provider revocation and no audit log of reads.
+- `secretsd` has no rate limiting; it is loopback-only and single-owner, so the
+  exposure is a local denial of service at worst.

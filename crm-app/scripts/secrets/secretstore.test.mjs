@@ -1,27 +1,54 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   addSecret,
   assertNoSymlinkEscape,
   assertNotInsideRepository,
+  assertRootNotSymlinked,
+  assertSafeTargetFile,
+  assertUsable,
   auditModes,
+  copyValueAside,
+  derivedStatus,
   disableSecret,
+  isExpired,
   isValidSecretName,
   listSecrets,
-  opsProjection,
+  metadataList,
   readRegistry,
+  readRegistryBytes,
   readSecretValue,
   registryPath,
+  removeSecret,
   replaceSecret,
+  restoreRegistryBytesPublic,
+  restoreValueFrom,
   storeRoot,
   valuePathFor,
   valuesDir,
+  withStoreLock,
+  __faultHooks,
   DIR_MODE,
   FILE_MODE,
+  MAX_REGISTRY_BYTES,
 } from "./secretstore.mjs";
 
 // Every value in this file is synthetic. No real credential is read, written,
@@ -38,6 +65,8 @@ const META = {
   expiry: "2027-01-01",
 };
 
+const STORE_MODULE = join(dirname(fileURLToPath(import.meta.url)), "secretstore.mjs");
+
 let tmp;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "secretstore-test-"));
@@ -47,6 +76,18 @@ afterEach(() => {
   delete process.env.SECRET_STORE_ROOT;
   rmSync(tmp, { recursive: true, force: true });
 });
+
+// A byte-exact picture of the whole store, used to prove that a rollback
+// restores the preimage rather than something merely equivalent.
+function snapshotStore() {
+  const snap = { registry: readRegistryBytes(), values: {} };
+  if (existsSync(valuesDir())) {
+    for (const f of readdirSync(valuesDir()).sort()) {
+      snap.values[f] = readFileSync(join(valuesDir(), f), "utf8");
+    }
+  }
+  return snap;
+}
 
 describe("isValidSecretName", () => {
   it("accepts lowercase kebab/dot/underscore names", () => {
@@ -90,13 +131,20 @@ describe("valuePathFor", () => {
     expect(() => valuePathFor("/etc/passwd")).toThrow(/invalid secret name/);
   });
 
-  it("never leaks the attempted name in full in the error message", () => {
-    const long = "/etc/" + "x".repeat(200);
-    expect(() => valuePathFor(long)).toThrow();
+  // Review L2: the old message quoted the first 40 characters of the input, so
+  // a value pasted into --name was disclosed in stderr and stack traces.
+  it("never echoes any part of the rejected input", () => {
+    const pasted = `${SYNTHETIC}-pasted-into-the-name-field`;
     try {
-      valuePathFor(long);
+      valuePathFor(pasted);
+      throw new Error("expected a rejection");
     } catch (e) {
-      expect(e.message.length).toBeLessThan(80);
+      expect(e.message).toBe("invalid secret name");
+      expect(e.message).not.toContain(SYNTHETIC);
+      expect(e.stack ?? "").not.toContain(SYNTHETIC);
+      for (const n of [8, 12, 20, 40]) {
+        expect(e.message).not.toContain(pasted.slice(0, n));
+      }
     }
   });
 });
@@ -144,10 +192,11 @@ describe("addSecret", () => {
     expect(() => addSecret(META, undefined)).toThrow(/empty value/);
   });
 
-  it("validates type, purpose, consumer and expiry format", () => {
+  it("validates type, purpose, consumer, owner and expiry format", () => {
     expect(() => addSecret({ ...META, type: "bogus" }, SYNTHETIC)).toThrow(/invalid type/);
     expect(() => addSecret({ ...META, purpose: "  " }, SYNTHETIC)).toThrow(/purpose/);
     expect(() => addSecret({ ...META, consumer: "" }, SYNTHETIC)).toThrow(/consumer/);
+    expect(() => addSecret({ ...META, owner: "" }, SYNTHETIC)).toThrow(/owner/);
     expect(() => addSecret({ ...META, expiry: "01/01/2027" }, SYNTHETIC)).toThrow(/expiry/);
   });
 
@@ -155,10 +204,16 @@ describe("addSecret", () => {
     expect(() => addSecret({ ...META, name: "../escaped" }, SYNTHETIC)).toThrow(/invalid secret name/);
     expect(existsSync(join(tmp, "..", "escaped"))).toBe(false);
   });
+
+  it("leaves no stray temp file behind on success", () => {
+    addSecret(META, SYNTHETIC);
+    expect(readdirSync(valuesDir())).toEqual([META.name]);
+    expect(readdirSync(storeRoot()).filter((f) => f.startsWith(".tmp-"))).toEqual([]);
+  });
 });
 
 describe("replaceSecret", () => {
-  it("overwrites the value in place, keeping 0600 and the metadata", () => {
+  it("replaces the value, keeping 0600 and the metadata", () => {
     const before = addSecret(META, SYNTHETIC);
     replaceSecret(META.name, SYNTHETIC_2);
     expect(readSecretValue(META.name)).toBe(SYNTHETIC_2);
@@ -188,33 +243,327 @@ describe("disableSecret", () => {
   });
 });
 
-describe("listSecrets / opsProjection", () => {
+describe("listSecrets / metadataList", () => {
   it("derives expired status from the expiry date without mutating the registry", () => {
     addSecret({ ...META, expiry: "2020-01-01" }, SYNTHETIC);
     expect(listSecrets()[0].status).toBe("expired");
     expect(readRegistry()[0].status).toBe("active");
   });
 
-  it("omits the filesystem path from the browser-facing projection", () => {
+  it("omits the filesystem path from the API-facing metadata", () => {
     addSecret(META, SYNTHETIC);
-    const proj = opsProjection();
-    expect(proj.secrets[0]).not.toHaveProperty("path");
-    expect(Object.keys(proj.secrets[0]).sort()).toEqual(
+    const list = metadataList();
+    expect(list[0]).not.toHaveProperty("path");
+    expect(Object.keys(list[0]).sort()).toEqual(
       ["consumer", "created", "expiry", "name", "owner", "purpose", "status", "type", "updated"],
     );
   });
 
-  it("produces a projection containing no secret material at all", () => {
+  it("produces metadata containing no secret material at all", () => {
     addSecret(META, SYNTHETIC);
     addSecret({ ...META, name: "second" }, SYNTHETIC_2);
-    const serialised = JSON.stringify(opsProjection());
+    const serialised = JSON.stringify(metadataList());
     expect(serialised).not.toContain(SYNTHETIC);
     expect(serialised).not.toContain(SYNTHETIC_2);
   });
 
   it("returns an empty list for a fresh store", () => {
     expect(listSecrets()).toEqual([]);
-    expect(opsProjection().secrets).toEqual([]);
+    expect(metadataList()).toEqual([]);
+  });
+});
+
+// --- Review M1: expiry must be enforced, not merely displayed ---------------
+describe("M1 — expiry enforcement at the consumption boundary", () => {
+  const EXPIRED = { ...META, name: "expired-token", expiry: "2020-01-01" };
+
+  it("refuses to return a date-expired value even though the registry says active", () => {
+    addSecret(EXPIRED, SYNTHETIC);
+    // Precondition: this is exactly the state the old code returned a value for.
+    expect(readRegistry()[0].status).toBe("active");
+    expect(listSecrets()[0].status).toBe("expired");
+
+    expect(() => readSecretValue("expired-token")).toThrow(/expired/);
+  });
+
+  it("enforces against the CURRENT time, not the stored status", () => {
+    addSecret({ ...META, name: "future-token", expiry: "2027-01-01" }, SYNTHETIC);
+    expect(readSecretValue("future-token", { now: new Date("2026-01-01T00:00:00Z") })).toBe(SYNTHETIC);
+    expect(() => readSecretValue("future-token", { now: new Date("2030-01-01T00:00:00Z") })).toThrow(
+      /expired/,
+    );
+  });
+
+  it("treats the expiry day itself as still valid, and the next day as expired", () => {
+    addSecret({ ...META, name: "boundary", expiry: "2026-06-15" }, SYNTHETIC);
+    expect(readSecretValue("boundary", { now: new Date("2026-06-15T23:59:59Z") })).toBe(SYNTHETIC);
+    expect(() => readSecretValue("boundary", { now: new Date("2026-06-16T00:00:00Z") })).toThrow(/expired/);
+  });
+
+  it("still refuses a disabled secret, and a secret with no expiry never expires", () => {
+    addSecret({ ...META, name: "no-expiry", expiry: null }, SYNTHETIC);
+    expect(readSecretValue("no-expiry", { now: new Date("2099-01-01T00:00:00Z") })).toBe(SYNTHETIC);
+    disableSecret("no-expiry");
+    expect(() => readSecretValue("no-expiry")).toThrow(/not active/);
+  });
+
+  it("exposes one shared predicate so UI and enforcement cannot drift apart", () => {
+    const entry = { name: "x", status: "active", expiry: "2020-01-01" };
+    const now = new Date("2026-08-11T00:00:00Z");
+    expect(isExpired(entry, now)).toBe(true);
+    expect(derivedStatus(entry, now)).toBe("expired");
+    expect(() => assertUsable(entry, now)).toThrow(/expired/);
+  });
+
+  it("never discloses the value in the refusal", () => {
+    addSecret(EXPIRED, SYNTHETIC);
+    try {
+      readSecretValue("expired-token");
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect(e.message).not.toContain(SYNTHETIC);
+      expect(e.stack ?? "").not.toContain(SYNTHETIC);
+    }
+  });
+});
+
+// --- Review M2: atomicity, locking, rollback --------------------------------
+describe("M2 — atomic writes and crash safety", () => {
+  it("an interrupted registry write preserves the previous valid registry exactly", () => {
+    addSecret({ ...META, name: "keep-me" }, SYNTHETIC);
+    const preimage = snapshotStore();
+
+    // Fail at the exact moment a crash would: value staged, registry about to
+    // advance. This is the ordering that used to strand an unregistered secret.
+    __faultHooks.beforeRegistryWrite = () => {
+      throw new Error("simulated crash during the registry write");
+    };
+    let threw = false;
+    try {
+      addSecret({ ...META, name: "should-not-survive" }, SYNTHETIC_2);
+    } catch {
+      threw = true;
+    } finally {
+      __faultHooks.beforeRegistryWrite = null;
+    }
+
+    expect(threw).toBe(true);
+    expect(snapshotStore()).toEqual(preimage);
+    expect(() => readRegistry()).not.toThrow();
+  });
+
+  it("leaves NO unregistered secret when the registry write fails after staging", () => {
+    addSecret({ ...META, name: "keep-me" }, SYNTHETIC);
+    __faultHooks.beforeRegistryWrite = () => {
+      throw new Error("simulated crash during the registry write");
+    };
+    try {
+      addSecret({ ...META, name: "orphan-candidate" }, SYNTHETIC_2);
+    } catch {
+      /* expected */
+    } finally {
+      __faultHooks.beforeRegistryWrite = null;
+    }
+
+    // The old implementation left values/orphan-candidate on disk, invisible to
+    // list/audit/readSecretValue.
+    expect(existsSync(join(valuesDir(), "orphan-candidate"))).toBe(false);
+    expect(readdirSync(valuesDir())).toEqual(["keep-me"]);
+    expect(readRegistry().map((s) => s.name)).toEqual(["keep-me"]);
+
+    // And no staged temp file is left holding secret material under a name
+    // nothing will ever clean up.
+    expect(readdirSync(valuesDir()).filter((f) => f.startsWith(".tmp-"))).toEqual([]);
+    expect(readdirSync(storeRoot()).filter((f) => f.startsWith(".tmp-"))).toEqual([]);
+  });
+
+  it("a crash during replace restores the previous value byte for byte", () => {
+    addSecret(META, SYNTHETIC);
+    const preimage = snapshotStore();
+
+    __faultHooks.beforeRegistryWrite = () => {
+      throw new Error("simulated crash after the value was swapped");
+    };
+    let threw = false;
+    try {
+      replaceSecret(META.name, SYNTHETIC_2);
+    } catch {
+      threw = true;
+    } finally {
+      __faultHooks.beforeRegistryWrite = null;
+    }
+
+    expect(threw).toBe(true);
+    expect(snapshotStore()).toEqual(preimage);
+    expect(readSecretValue(META.name)).toBe(SYNTHETIC);
+    expect(readdirSync(valuesDir())).toEqual([META.name]);
+  });
+
+  it("survives a stray temp file from a killed writer — the registry stays valid", () => {
+    addSecret(META, SYNTHETIC);
+    const preimage = snapshotStore();
+    writeFileSync(join(storeRoot(), ".tmp-99999-1"), "{ truncated jso", { mode: 0o600 });
+    expect(() => readRegistry()).not.toThrow();
+    expect(readRegistry()).toHaveLength(1);
+    expect(readRegistryBytes()).toBe(preimage.registry);
+  });
+
+  it("refuses a registry that is not a regular file", () => {
+    addSecret(META, SYNTHETIC);
+    rmSync(registryPath());
+    symlinkSync("/dev/null", registryPath());
+    expect(() => readRegistry()).toThrow(/symlink/);
+  });
+
+  it("refuses an implausibly large registry rather than parsing it", () => {
+    addSecret(META, SYNTHETIC);
+    writeFileSync(registryPath(), "x".repeat(MAX_REGISTRY_BYTES + 1), { mode: 0o600 });
+    expect(() => readRegistry()).toThrow(/larger than/);
+  });
+
+  it("serialises mutations behind one bounded lock", () => {
+    addSecret(META, SYNTHETIC);
+    // While the lock is held, a second acquisition with a tiny budget must fail
+    // explicitly rather than proceed and lose an update.
+    withStoreLock(() => {
+      expect(() => withStoreLock(() => "inner", { timeoutMs: 50 })).toThrow(/busy/);
+    });
+    // The lock is released afterwards.
+    expect(withStoreLock(() => "ok")).toBe("ok");
+  });
+});
+
+describe("M2 — concurrency loses zero successful updates", () => {
+  it("records every add that reported success", async () => {
+    const N = 8;
+    const barrier = join(tmp, "go");
+    const script = `
+      import { addSecret } from ${JSON.stringify(STORE_MODULE)};
+      import { existsSync } from "node:fs";
+      const name = process.env.SECRET_NAME;
+      while (!existsSync(process.env.BARRIER)) {}
+      addSecret({
+        name, type: "token", purpose: "concurrency probe",
+        consumer: "none", owner: "test", expiry: null,
+      }, "synthetic-concurrent-" + name);
+    `;
+    const children = [];
+    for (let i = 0; i < N; i++) {
+      children.push(
+        spawn(process.execPath, ["--input-type=module", "-e", script], {
+          env: {
+            ...process.env,
+            SECRET_STORE_ROOT: tmp,
+            SECRET_NAME: `concurrent-${String(i).padStart(2, "0")}`,
+            BARRIER: barrier,
+          },
+          stdio: "ignore",
+        }),
+      );
+    }
+    writeFileSync(barrier, "go");
+    const exits = await Promise.all(
+      children.map((c) => new Promise((resolve) => c.once("close", (code) => resolve(code)))),
+    );
+
+    const succeeded = exits.filter((code) => code === 0).length;
+    const registered = readRegistry().map((s) => s.name);
+
+    // The contract is not "all 8 succeed" — it is "every success is durable".
+    // The old unlocked read-modify-write reported 6 successes and kept 1.
+    expect(registered).toHaveLength(succeeded);
+    expect(new Set(registered).size).toBe(registered.length);
+    expect(succeeded).toBeGreaterThan(1);
+    // Nothing was corrupted along the way.
+    expect(() => readRegistry()).not.toThrow();
+  }, 30_000);
+});
+
+describe("M2 — defined rollback for create, replace and disable", () => {
+  it("create rolls back to the exact preimage", () => {
+    addSecret({ ...META, name: "pre-existing" }, SYNTHETIC);
+    const preimage = snapshotStore();
+
+    addSecret({ ...META, name: "added-then-rolled-back" }, SYNTHETIC_2);
+    expect(snapshotStore()).not.toEqual(preimage);
+
+    removeSecret("added-then-rolled-back");
+    restoreRegistryBytesPublic(preimage.registry);
+    expect(snapshotStore()).toEqual(preimage);
+  });
+
+  it("replace rolls back to the exact preimage", () => {
+    addSecret(META, SYNTHETIC);
+    const preimage = snapshotStore();
+    const aside = join(tmp, "value-preimage");
+    copyValueAside(META.name, aside);
+
+    replaceSecret(META.name, SYNTHETIC_2);
+    expect(readSecretValue(META.name)).toBe(SYNTHETIC_2);
+
+    restoreValueFrom(META.name, aside);
+    restoreRegistryBytesPublic(preimage.registry);
+    rmSync(aside);
+    expect(snapshotStore()).toEqual(preimage);
+    expect(readSecretValue(META.name)).toBe(SYNTHETIC);
+  });
+
+  it("disable rolls back to the exact preimage", () => {
+    addSecret(META, SYNTHETIC);
+    const preimage = snapshotStore();
+
+    disableSecret(META.name);
+    expect(listSecrets()[0].status).toBe("disabled");
+
+    restoreRegistryBytesPublic(preimage.registry);
+    expect(snapshotStore()).toEqual(preimage);
+    expect(readSecretValue(META.name)).toBe(SYNTHETIC);
+  });
+});
+
+// --- Review M3: hardlink containment ----------------------------------------
+describe("M3 — hardlink escape is contained", () => {
+  it("does not modify an external file hardlinked to a stored value", () => {
+    addSecret(META, SYNTHETIC);
+    const outside = join(tmp, "outside-hardlink-target");
+    writeFileSync(outside, "outside-baseline", { mode: 0o600 });
+
+    // Plant the hardlink exactly as the reviewer's probe did.
+    rmSync(valuePathFor(META.name));
+    linkSync(outside, valuePathFor(META.name));
+
+    // Either the write is refused outright (link count check) or it goes
+    // through a rename onto a fresh inode. Both outcomes leave `outside`
+    // untouched; the old code wrote the value straight into it.
+    try {
+      replaceSecret(META.name, SYNTHETIC_2);
+    } catch {
+      /* refusal is an acceptable outcome */
+    }
+    expect(readFileSync(outside, "utf8")).toBe("outside-baseline");
+    expect(readFileSync(outside, "utf8")).not.toContain(SYNTHETIC_2);
+  });
+
+  it("refuses a target whose link count is not 1", () => {
+    addSecret(META, SYNTHETIC);
+    const outside = join(tmp, "second-link");
+    linkSync(valuePathFor(META.name), outside);
+    expect(lstatSync(valuePathFor(META.name)).nlink).toBe(2);
+    expect(() => assertSafeTargetFile(valuePathFor(META.name))).toThrow(/link count/);
+    expect(() => replaceSecret(META.name, SYNTHETIC_2)).toThrow(/link count/);
+  });
+
+  it("refuses a target that is not a regular file", () => {
+    mkdirSync(valuesDir(), { recursive: true, mode: DIR_MODE });
+    mkdirSync(join(valuesDir(), "a-directory"), { mode: DIR_MODE });
+    expect(() => assertSafeTargetFile(join(valuesDir(), "a-directory"))).toThrow(/not a regular file/);
+  });
+
+  it("writes a fresh inode on replace, so old hardlinks keep the old content", () => {
+    addSecret(META, SYNTHETIC);
+    const inodeBefore = statSync(valuePathFor(META.name)).ino;
+    replaceSecret(META.name, SYNTHETIC_2);
+    expect(statSync(valuePathFor(META.name)).ino).not.toBe(inodeBefore);
   });
 });
 
@@ -241,6 +590,29 @@ describe("symlink escape", () => {
       process.env.SECRET_STORE_ROOT = tmp;
       rmSync(realRoot, { recursive: true, force: true });
       rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  // Review L3: initStore() used to follow a symlinked root, chmod the target to
+  // 0700 and create registry.json inside it.
+  it("refuses a symlinked store root outright", () => {
+    const parent = mkdtempSync(join(tmpdir(), "secretstore-rootlink-"));
+    try {
+      const target = join(parent, "target");
+      const link = join(parent, "store-link");
+      mkdirSync(target, { mode: 0o755 });
+      symlinkSync(target, link);
+      process.env.SECRET_STORE_ROOT = link;
+
+      expect(() => assertRootNotSymlinked(link)).toThrow(/symlink/);
+      expect(() => addSecret(META, SYNTHETIC)).toThrow(/symlink/);
+
+      // The target was not mutated.
+      expect(statSync(target).mode & 0o777).toBe(0o755);
+      expect(existsSync(join(target, "registry.json"))).toBe(false);
+    } finally {
+      process.env.SECRET_STORE_ROOT = tmp;
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });
@@ -299,13 +671,13 @@ describe("updated timestamp", () => {
   });
 });
 
-// Item 8: prove a synthetic value cannot surface on any operator-visible
-// channel. stdout/stderr are captured rather than trusted by inspection.
+// Prove a synthetic value cannot surface on any operator-visible channel.
+// stdout/stderr are captured rather than trusted by inspection.
 describe("no synthetic value reaches an observable channel", () => {
-  it("never appears in registry, projection, or the store's own listing output", () => {
+  it("never appears in registry, metadata, or the store's own listing output", () => {
     addSecret(META, SYNTHETIC);
     expect(readFileSync(registryPath(), "utf8")).not.toContain(SYNTHETIC);
-    expect(JSON.stringify(opsProjection())).not.toContain(SYNTHETIC);
+    expect(JSON.stringify(metadataList())).not.toContain(SYNTHETIC);
     expect(JSON.stringify(listSecrets())).not.toContain(SYNTHETIC);
   });
 
@@ -329,7 +701,7 @@ describe("no synthetic value reaches an observable channel", () => {
     try {
       addSecret(META, SYNTHETIC);
       listSecrets();
-      opsProjection();
+      metadataList();
     } finally {
       console.log = origLog;
       console.error = origErr;

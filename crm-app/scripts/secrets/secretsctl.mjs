@@ -1,17 +1,18 @@
 #!/usr/bin/env node
-// secretsctl — the owner's write path into the private secret store.
+// secretsctl — the owner's local write path into the private secret store.
 //
-// Why a CLI and not the /ops "add secret" form: the /ops surface is a static
-// Caddy file_server with no application backend (see docs/secrets-mvp.md).
-// A browser form would need a new writable service, and would drag the raw
-// value through HTTP, a JS heap and a server log on its way to a file that
-// lives on this account anyway. The CLI removes that whole path.
+// The browser flow (owner-authenticated /ops/secrets → secretsd) is the primary
+// surface. This CLI remains for host-side administration and recovery, where
+// there is no browser: `init`, `audit`, and direct add/replace/disable.
 //
 // Value handling rules enforced here:
-//   - never accepted as an argv token (argv is world-readable via /proc)
+//   - never accepted as an argv token (argv is world-readable via /proc), and
+//     an unknown flag is now REJECTED rather than silently ignored, so a
+//     mistaken `--value <secret>` fails loudly instead of leaking to /proc
 //   - never echoed to the terminal
 //   - never written to shell history (it is typed at a prompt, not in a command)
 //   - never logged, and never printed back after save
+//   - never quoted back in an error message
 //
 // Usage:
 //   secretsctl init
@@ -20,10 +21,9 @@
 //   secretsctl disable --name <n>
 //   secretsctl list
 //   secretsctl audit
-//   secretsctl publish [--out <path>]
 
-import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { userInfo } from "node:os";
 
 import {
   addSecret,
@@ -31,23 +31,44 @@ import {
   disableSecret,
   initStore,
   listSecrets,
-  opsProjection,
   replaceSecret,
   storeRoot,
   SECRET_TYPES,
 } from "./secretstore.mjs";
 
-function parseArgs(argv) {
-  const out = { _: [] };
+// Every flag each command accepts. An argument outside this set is an error:
+// silently ignoring `--value` is what let a mistyped secret sit in
+// /proc/<pid>/cmdline while the CLI waited at the prompt (review L1).
+const COMMAND_FLAGS = {
+  init: [],
+  add: ["name", "type", "purpose", "consumer", "expiry"],
+  replace: ["name"],
+  disable: ["name"],
+  list: [],
+  audit: [],
+};
+
+export function parseArgs(argv, allowedFlags) {
+  const out = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith("--")) {
-      const key = a.slice(2);
-      // A bare --flag consumes the next token unless that token is itself a flag.
-      const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) out[key] = true;
-      else { out[key] = next; i++; }
-    } else out._.push(a);
+    if (!a.startsWith("--")) {
+      throw new Error("unexpected positional argument");
+    }
+    const key = a.slice(2);
+    if (!allowedFlags.includes(key)) {
+      // Name the flag, never its argument — the argument may be a secret.
+      throw new Error(`unknown flag --${key} (allowed: ${allowedFlags.map((f) => `--${f}`).join(", ") || "none"})`);
+    }
+    if (Object.prototype.hasOwnProperty.call(out, key)) {
+      throw new Error(`repeated flag --${key}`);
+    }
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith("--")) {
+      throw new Error(`flag --${key} requires a value`);
+    }
+    out[key] = next;
+    i++;
   }
   return out;
 }
@@ -103,6 +124,17 @@ function printTable(rows) {
   }
 }
 
+// Derived from the OS identity, never from a flag: the registry's `owner` field
+// documents which account owns the value file, so letting the caller type it
+// made it a free-text claim (review L5).
+function currentOwner() {
+  try {
+    return userInfo().username;
+  } catch {
+    return "unknown";
+  }
+}
+
 const COMMANDS = {
   init() {
     const root = initStore();
@@ -115,7 +147,7 @@ const COMMANDS = {
       type: requireFlag(args, "type"),
       purpose: requireFlag(args, "purpose"),
       consumer: requireFlag(args, "consumer"),
-      owner: args.owner || process.env.USER || "unknown",
+      owner: currentOwner(),
       expiry: typeof args.expiry === "string" ? args.expiry : null,
     };
     if (!SECRET_TYPES.includes(meta.type)) {
@@ -124,7 +156,7 @@ const COMMANDS = {
     const value = await readSecretFromTty(`Value for "${meta.name}" (not echoed): `);
     const entry = addSecret(meta, value);
     // Metadata only. The value is never printed back, here or anywhere.
-    console.log(`saved: ${entry.name} → ${entry.path} (0600), status=${entry.status}`);
+    console.log(`saved: ${entry.name} (0600), status=${entry.status}`);
   },
 
   async replace(args) {
@@ -155,13 +187,6 @@ const COMMANDS = {
     for (const p of problems) console.error(`BAD MODE ${p.mode} (want ${p.expected}): ${p.path}`);
     process.exitCode = 1;
   },
-
-  publish(args) {
-    const out = typeof args.out === "string" ? args.out : "public/ops-data/secrets.json";
-    const proj = opsProjection();
-    writeFileSync(out, JSON.stringify(proj, null, 2) + "\n");
-    console.log(`wrote metadata-only projection: ${out} (${proj.secrets.length} secrets, 0 values)`);
-  },
 };
 
 async function main() {
@@ -173,12 +198,14 @@ async function main() {
     return;
   }
   try {
-    await fn(parseArgs(rest));
+    await fn(parseArgs(rest, COMMAND_FLAGS[cmd]));
   } catch (e) {
-    // Error messages are built from names and flags only — never from a value.
+    // Error messages are built from names and flags only — never from a value,
+    // and never by quoting an argument back.
     console.error(`error: ${e.message}`);
     process.exitCode = 1;
   }
 }
 
-main();
+// Importable for tests without executing the CLI.
+if (process.env.SECRETSCTL_NO_MAIN !== "1") main();
