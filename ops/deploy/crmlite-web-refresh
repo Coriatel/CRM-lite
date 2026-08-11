@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Fixed-purpose recovery wrapper for the crmlite-web container.
+#
+# Why this exists: the deploy previously ran `docker restart crmlite-web`, which
+# cannot recreate a container that no longer exists. On 2026-08-01 the container
+# was lost and every later deploy reported success while production served 502.
+# `docker compose up -d` converges instead: it starts a missing container and
+# leaves an already-correct one running.
+#
+# This wrapper is the ONLY docker authority granted to the deploy account. It
+# takes no arguments so sudoers can pin it exactly; every operand is hard-coded
+# below. Do not add parameters — doing so widens the sudo grant.
+set -euo pipefail
+IFS=$'\n\t'
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+readonly PROJECT_DIR=/home/elron/services/crm-lite
+readonly SERVICE=crmlite-web
+readonly DOCKER=/usr/bin/docker
+
+if [ "$#" -ne 0 ]; then
+  printf 'crmlite-web-refresh: takes no arguments (got %d)\n' "$#" >&2
+  exit 64
+fi
+
+if [ ! -x "$DOCKER" ]; then
+  printf 'crmlite-web-refresh: %s not executable\n' "$DOCKER" >&2
+  exit 69
+fi
+
+cd "$PROJECT_DIR"
+
+# --no-build / --pull never: this path may never build an image or reach a
+# registry. The image must already be present on the host.
+exec "$DOCKER" compose up -d --no-build --pull never "$SERVICE"

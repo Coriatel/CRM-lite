@@ -1,0 +1,13 @@
+# Allows the deploy user to converge ONLY the crmlite-web container, by way of a
+# fixed-purpose root-owned wrapper that accepts no arguments.
+#
+# Replaces the previous grant:
+#   deploy ALL=(root) NOPASSWD: /usr/bin/docker restart crmlite-web
+# which could not recreate a missing container (see ops/deploy/README.md).
+#
+# The trailing "" is load-bearing: it permits the command with NO arguments at
+# all. Without it, sudoers would allow the deploy user to append arbitrary
+# arguments to the wrapper invocation.
+#
+# Install as /etc/sudoers.d/deploy-crmlite-refresh, root:root 0440.
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/crmlite-web-refresh ""
