@@ -25,6 +25,8 @@
 //   - a client-supplied owner or storage location (both derived server-side)
 //   - a shell command: routes call the store library directly, never spawn.
 
+import { audit } from "./secretaudit.mjs";
+import { BrokerError, invokeCapability, listCapabilities } from "./secretbroker.mjs";
 import {
   SecretUnavailableError,
   SECRET_TYPES,
@@ -173,6 +175,8 @@ function requireName(raw) {
 const ROUTE_LIST = /^\/api\/secrets\/?$/;
 const ROUTE_ONE = /^\/api\/secrets\/([^/]+)$/;
 const ROUTE_DISABLE = /^\/api\/secrets\/([^/]+)\/disable$/;
+const ROUTE_CAPABILITIES = /^\/api\/secrets\/capabilities\/?$/;
+const ROUTE_INVOKE = /^\/api\/secrets\/capabilities\/([^/]+)\/invoke$/;
 
 export function createHandler({
   directusUrl,
@@ -215,6 +219,7 @@ export function createHandler({
       } catch (e) {
         throw new HttpError(/already exists/.test(e.message) ? 409 : 400, safeStoreMessage(e));
       }
+      audit({ actor: identity.email, operation: "add", secret: entry.name, outcome: "success" });
       return { status: 201, body: { secret: projectMetadata(entry) } };
     }
 
@@ -228,6 +233,7 @@ export function createHandler({
       } catch (e) {
         throw new HttpError(/no such secret/.test(e.message) ? 404 : 400, safeStoreMessage(e));
       }
+      audit({ actor: identity.email, operation: "disable", secret: entry.name, outcome: "success" });
       return { status: 200, body: { secret: projectMetadata(entry) } };
     }
 
@@ -243,6 +249,7 @@ export function createHandler({
       } catch (e) {
         throw new HttpError(/no such secret/.test(e.message) ? 404 : 400, safeStoreMessage(e));
       }
+      audit({ actor: identity.email, operation: "replace", secret: entry.name, outcome: "success" });
       return { status: 200, body: { secret: projectMetadata(entry) } };
     }
 
@@ -260,7 +267,35 @@ export function createHandler({
       }
       // Metadata of what was removed, through the same nine-field allowlist.
       // The value is gone and was never in this process's memory.
+      audit({ actor: identity.email, operation: "delete", secret: entry.name, outcome: "success" });
       return { status: 200, body: { deleted: projectMetadata(entry) } };
+    }
+
+    // --- Capability broker ---------------------------------------------------
+    //
+    // Still behind the same owner authentication: an AI caller reaches this
+    // through an owner-authorised session, it does not get its own identity in
+    // this MVP. What the broker adds is that even WITH that session, these two
+    // routes cannot return a value — there is no verb here that yields one.
+    if (req.method === "GET" && ROUTE_CAPABILITIES.test(path)) {
+      return { status: 200, body: { capabilities: listCapabilities() } };
+    }
+
+    const invokeMatch = ROUTE_INVOKE.exec(path);
+    if (req.method === "POST" && invokeMatch) {
+      assertCsrfSafe(req, { allowedOrigins });
+      const body = parseJson(await readBody(req));
+      const id = decodeURIComponent(invokeMatch[1]);
+      const challenge = typeof body.challenge === "string" ? body.challenge : null;
+      try {
+        const result = invokeCapability(id, { actor: identity.email, challenge });
+        return { status: 200, body: { result } };
+      } catch (e) {
+        if (e instanceof BrokerError) {
+          throw new HttpError(e.code === "unknown_capability" ? 404 : e.code === "bad_request" ? 400 : 409, e.message);
+        }
+        throw new HttpError(500, "internal error");
+      }
     }
 
     throw new HttpError(404, "not found");

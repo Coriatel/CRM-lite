@@ -41,6 +41,8 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
+import { decryptValue, encryptValue } from "./secretcrypto.mjs";
+
 export const DIR_MODE = 0o700;
 export const FILE_MODE = 0o600;
 
@@ -57,8 +59,34 @@ export const MAX_REGISTRY_BYTES = 1_000_000;
 export const LOCK_TIMEOUT_MS = 5_000;
 export const LOCK_STALE_MS = 60_000;
 
+// The production store is the default location and nothing else may claim it.
+export function productionStoreRoot() {
+  return join(homedir(), ".secrets");
+}
+
 export function storeRoot() {
-  return process.env.SECRET_STORE_ROOT || join(homedir(), ".secrets");
+  const root = process.env.SECRET_STORE_ROOT || productionStoreRoot();
+  assertStoreSeparation(root);
+  return root;
+}
+
+// Test and production stores are separated by a guard, not by convention.
+//
+// Every test in this suite sets SECRET_STORE_ROOT to a temp directory. The
+// failure mode this prevents is a test that forgets — it would then silently
+// exercise add/replace/delete against the owner's real secrets. Under a test
+// runner, resolving to the production root is refused outright.
+export function assertStoreSeparation(root = process.env.SECRET_STORE_ROOT || productionStoreRoot()) {
+  const underTest =
+    process.env.VITEST !== undefined ||
+    process.env.NODE_ENV === "test" ||
+    process.env.SECRET_STORE_ENV === "test";
+  if (underTest && resolve(root) === resolve(productionStoreRoot())) {
+    throw new Error(
+      "refusing to use the production secret store from a test run: set SECRET_STORE_ROOT",
+    );
+  }
+  return root;
 }
 
 export function valuesDir() {
@@ -454,7 +482,9 @@ export function addSecret(meta, rawValue, { now = new Date() } = {}) {
     // Stage the value first, but do NOT publish it. If the registry write
     // fails we discard the staged file, so a registry failure can never leave
     // an unregistered secret on disk (review M2).
-    const staged = stagePrivateFile(valuesDir(), rawValue);
+    // Encrypted before it is ever written. The plaintext exists only in this
+    // process's memory, never on disk, not even under a temp name.
+    const staged = stagePrivateFile(valuesDir(), encryptValue(rawValue, meta.name));
     const entry = toMetadata({
       ...meta,
       created: today(now),
@@ -511,7 +541,7 @@ export function replaceSecret(name, rawValue, { now = new Date() } = {}) {
       chmodSync(valuePreimage, FILE_MODE);
     }
 
-    const staged = stagePrivateFile(valuesDir(), rawValue);
+    const staged = stagePrivateFile(valuesDir(), encryptValue(rawValue, name));
     try {
       promoteStaged(staged, path);
     } catch (e) {
@@ -578,7 +608,30 @@ export function readSecretValue(name, { now = new Date() } = {}) {
   assertNoSymlinkEscape(name);
   const st = lstatSync(path, { throwIfNoEntry: false });
   if (!st || !st.isFile()) throw new Error(`no such secret: ${name}`);
+  // The name is the AAD, so a value file moved or renamed under another name
+  // fails here rather than returning the wrong secret.
+  return decryptValue(readFileSync(path, "utf8"), name);
+}
+
+// The raw envelope, for backup and rehearsal only. Ciphertext is not secret
+// material without the key, and this never decrypts.
+export function readSecretEnvelope(name) {
+  const path = valuePathFor(name);
+  assertNoSymlinkEscape(name);
+  assertSafeTargetFile(path);
   return readFileSync(path, "utf8");
+}
+
+// Write a pre-encrypted envelope back. Restore-only: it deliberately cannot
+// accept plaintext, so it can never be used to downgrade a secret.
+export function writeSecretEnvelope(name, envelope) {
+  if (typeof envelope !== "string" || !envelope.startsWith("v1.")) {
+    throw new Error("refusing to write a value that is not an encrypted envelope");
+  }
+  const dest = valuePathFor(name);
+  assertNoSymlinkEscape(name);
+  writePrivateFileAtomic(dest, envelope);
+  return dest;
 }
 
 export function auditModes() {

@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { generateKeyHex } from "./secretcrypto.mjs";
 import {
   addSecret,
   assertNoSymlinkEscape,
@@ -68,12 +69,17 @@ const META = {
 const STORE_MODULE = join(dirname(fileURLToPath(import.meta.url)), "secretstore.mjs");
 
 let tmp;
+let keyFile;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "secretstore-test-"));
   process.env.SECRET_STORE_ROOT = tmp;
+  keyFile = join(tmp, "test.key");
+  writeFileSync(keyFile, generateKeyHex() + "\n", { mode: 0o400 });
+  process.env.SECRET_KEY_FILE = keyFile;
 });
 afterEach(() => {
   delete process.env.SECRET_STORE_ROOT;
+  delete process.env.SECRET_KEY_FILE;
   rmSync(tmp, { recursive: true, force: true });
 });
 
