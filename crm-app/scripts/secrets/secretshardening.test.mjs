@@ -36,7 +36,7 @@ import {
 } from "./secretcrypto.mjs";
 import { audit, auditPath, auditRecord } from "./secretaudit.mjs";
 import { BrokerError, invokeCapability, listCapabilities, capabilitiesPath } from "./secretbroker.mjs";
-import { createBackup, readBackup, restoreBackup, writeBackup } from "./secretsbackup.mjs";
+import { createBackup, readBackup, restoreBackup, writeBackup, __restoreFaults } from "./secretsbackup.mjs";
 import {
   addSecret,
   assertStoreSeparation,
@@ -45,8 +45,11 @@ import {
   readSecretValue,
   removeSecret,
   replaceSecret,
+  registryPath,
   storeRoot,
+  valuePathFor,
   valuesDir,
+  writeSecretEnvelope,
   __faultHooks,
 } from "./secretstore.mjs";
 
@@ -83,6 +86,9 @@ afterEach(() => {
   delete process.env.SECRET_KEY_FILE;
   __faultHooks.beforeRegistryWrite = null;
   __faultHooks.afterRegistryWrite = null;
+  __restoreFaults.beforeMaterialize = null;
+  __restoreFaults.duringMaterialize = null;
+  __restoreFaults.afterMaterialize = null;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -558,5 +564,173 @@ describe("concurrent changes and recovery after interruption", () => {
     // The store still works afterwards.
     addSecret(meta("after"), canary);
     expect(readSecretValue("after")).toBe(canary);
+  });
+});
+
+// --- Atomic restore ----------------------------------------------------------
+//
+// The independent review of PR #191 found restoreBackup unlocked, non-atomic
+// and rollback-free: a bundle whose second entry was bad left the first value
+// already overwritten with no undo. These tests pin the fixed contract —
+// all entries restored, or the exact preimage back, and nothing in between.
+
+function snapshotStore() {
+  const snap = { registry: readFileSync(registryPath(), "utf8"), values: {} };
+  for (const f of readdirSync(valuesDir()).sort()) {
+    snap.values[f] = readFileSync(join(valuesDir(), f), "utf8");
+  }
+  return snap;
+}
+
+describe("restore is atomic, locked and rollback-safe", () => {
+  // A target store holding two real secrets, plus a bundle from a different
+  // store that would overwrite one of them.
+  function targetAndBundle() {
+    addSecret(meta("keep"), `${canary}-keep`);
+    addSecret(meta("clash"), `${canary}-target`);
+    const donor = mkdtempSync(join(tmpdir(), "secrets-donor-"));
+    const target = process.env.SECRET_STORE_ROOT;
+    process.env.SECRET_STORE_ROOT = donor;
+    addSecret(meta("clash"), `${canary}-donor`);
+    addSecret(meta("fresh"), `${canary}-fresh`);
+    const bundle = createBackup();
+    process.env.SECRET_STORE_ROOT = target;
+    rmSync(donor, { recursive: true, force: true });
+    return bundle;
+  }
+
+  it("restores every entry or none — fault BEFORE materialisation rolls back", () => {
+    const bundle = targetAndBundle();
+    const before = snapshotStore();
+    __restoreFaults.beforeMaterialize = () => {
+      throw new Error("injected: crash before materialisation");
+    };
+    expect(() => restoreBackup(bundle)).toThrow(/rolled back/);
+    expect(snapshotStore()).toEqual(before);
+  });
+
+  it("fault DURING materialisation restores the exact preimage, not a half store", () => {
+    const bundle = targetAndBundle();
+    const before = snapshotStore();
+    __restoreFaults.duringMaterialize = () => {
+      throw new Error("injected: crash after the first value landed");
+    };
+    expect(() => restoreBackup(bundle)).toThrow(/rolled back/);
+    // The precise defect the review reproduced: the first value must NOT be
+    // left overwritten by the donor's copy.
+    expect(readSecretValue("clash")).toBe(`${canary}-target`);
+    expect(snapshotStore()).toEqual(before);
+  });
+
+  it("fault AFTER materialisation, before the registry advances, rolls back", () => {
+    const bundle = targetAndBundle();
+    const before = snapshotStore();
+    __restoreFaults.afterMaterialize = () => {
+      throw new Error("injected: crash before the registry write");
+    };
+    expect(() => restoreBackup(bundle)).toThrow(/rolled back/);
+    expect(snapshotStore()).toEqual(before);
+  });
+
+  it("rollback deletes values that did not exist before the restore", () => {
+    const bundle = targetAndBundle();
+    expect(existsSync(valuePathFor("fresh"))).toBe(false);
+    __restoreFaults.afterMaterialize = () => {
+      throw new Error("injected");
+    };
+    expect(() => restoreBackup(bundle)).toThrow(/rolled back/);
+    // "fresh" was created by the failed restore; rollback must remove it
+    // rather than leave an orphan the registry does not know about.
+    expect(existsSync(valuePathFor("fresh"))).toBe(false);
+  });
+
+  it("validates the whole bundle before touching the target — a missing value changes nothing", () => {
+    const bundle = targetAndBundle();
+    delete bundle.values.fresh;
+    const before = snapshotStore();
+    expect(() => restoreBackup(bundle)).toThrow(/missing a value for: fresh/);
+    // Not "rolled back": validation ran first, so nothing was ever written.
+    expect(snapshotStore()).toEqual(before);
+  });
+
+  it("refuses a bundle naming an invalid secret name, before any write", () => {
+    const bundle = targetAndBundle();
+    bundle.registry.secrets.push({ ...bundle.registry.secrets[0], name: "../escape" });
+    bundle.values["../escape"] = "v1.a.b.c";
+    const before = snapshotStore();
+    expect(() => restoreBackup(bundle)).toThrow(/invalid secret name/);
+    expect(snapshotStore()).toEqual(before);
+  });
+
+  it("leaves no temporary residue after a rolled-back restore", () => {
+    const bundle = targetAndBundle();
+    __restoreFaults.duringMaterialize = () => {
+      throw new Error("injected");
+    };
+    expect(() => restoreBackup(bundle)).toThrow(/rolled back/);
+    const stray = [...readdirSync(valuesDir()), ...readdirSync(storeRoot())].filter((f) =>
+      f.startsWith(".tmp-"),
+    );
+    expect(stray).toEqual([]);
+    expect(existsSync(join(storeRoot(), ".lock"))).toBe(false);
+  });
+
+  it("preserves unrelated value files per the declared contract — restore never deletes", () => {
+    const bundle = targetAndBundle();
+    const keptBytes = readFileSync(valuePathFor("keep"), "utf8");
+    restoreBackup(bundle);
+    // "keep" is not in the bundle: its value file survives untouched, even
+    // though the bundle's registry replaced the target's.
+    expect(readFileSync(valuePathFor("keep"), "utf8")).toBe(keptBytes);
+    expect(readSecretValue("clash")).toBe(`${canary}-donor`);
+  });
+
+  it("holds the canonical store lock for the whole restore", () => {
+    const bundle = targetAndBundle();
+    const keptBytes = readFileSync(valuePathFor("keep"), "utf8");
+    let inner = "not attempted";
+    __restoreFaults.duringMaterialize = () => {
+      // A concurrent mutation mid-restore must be serialised out, not
+      // interleaved into a half-restored store.
+      try {
+        replaceSecret("keep", `${canary}-racer`);
+        inner = "succeeded";
+      } catch (e) {
+        inner = e.message;
+      }
+    };
+    restoreBackup(bundle);
+    expect(inner).not.toBe("succeeded");
+    expect(inner).toMatch(/busy|lock/i);
+    // The racing write was serialised out entirely: "keep"'s value file is
+    // byte-identical. (It is no longer *registered* — the bundle's registry
+    // replaced the target's, which is the declared contract.)
+    expect(readFileSync(valuePathFor("keep"), "utf8")).toBe(keptBytes);
+  }, 15_000);
+});
+
+describe("writeSecretEnvelope enforces the same target containment as every other value write", () => {
+  it("refuses to write an envelope over a hardlinked target", () => {
+    addSecret(meta("linked"), canary);
+    const outside = join(tmp, "outside.txt");
+    writeFileSync(outside, "external content", { mode: 0o600 });
+    rmSync(valuePathFor("linked"));
+    linkSync(outside, valuePathFor("linked"));
+    expect(() => writeSecretEnvelope("linked", encryptValue("x", "linked"))).toThrow(
+      /unexpected link count/,
+    );
+    // The external file is untouched, which is the property that matters.
+    expect(readFileSync(outside, "utf8")).toBe("external content");
+  });
+
+  it("refuses to write an envelope over a target that is not a regular file", () => {
+    addSecret(meta("fifo"), canary);
+    rmSync(valuePathFor("fifo"));
+    const r = spawnSync("mkfifo", ["-m", "600", valuePathFor("fifo")]);
+    expect(r.status).toBe(0);
+    expect(() => writeSecretEnvelope("fifo", encryptValue("x", "fifo"))).toThrow(
+      /not a regular file/,
+    );
+    rmSync(valuePathFor("fifo"), { force: true });
   });
 });

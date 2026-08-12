@@ -134,7 +134,13 @@ on this.
 - You, through the browser, signed in as the owner — you can *manage* metadata
   and set values. The API never returns a value back, not even to you.
 - `devuserp`, `devuser`, `elron`, and any Claude or Codex session running as
-  them — **no**. Different user, 0700 store, 0400 key.
+  them — **not as an ordinary process.** Different user, 0700 store, 0400 key,
+  and the filesystem refuses them. **But** `devuserp` currently has `NOPASSWD:
+  ALL` sudo on this host, and anything that can become root can read the key and
+  the store regardless of ownership. So today the real boundary against an agent
+  session is sudo policy, not file modes. Closing that means removing sudo from
+  the agent accounts — a separate change you have to authorise, which this work
+  deliberately did not make.
 - An AI caller — only named broker operations (`probe`, `sign-challenge`).
   There is no verb anywhere that returns a value to a caller.
 

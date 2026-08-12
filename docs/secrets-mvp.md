@@ -358,10 +358,20 @@ The service runs as a dedicated system user `crmsecrets`, from the stable path
 `/opt/crm-secrets/current` (a symlink to a timestamped release), with the store
 at `/var/lib/crm-secrets` and the key at `/etc/crm-secrets/secretsd.key`.
 
-This is the control that actually keeps values away from AI sessions: `devuserp`,
-`devuser`, `elron` and any Claude or Codex process running as them are a
-different UID than `crmsecrets`, and the store is 0700 with a 0400 key. No API
-call is involved — the filesystem refuses them.
+This is the control that keeps values away from **unprivileged** processes:
+`devuserp`, `devuser`, `elron` and any Claude or Codex process running as them
+are a different UID than `crmsecrets`, and the store is 0700 with a 0400 key. No
+API call is involved — the filesystem refuses them.
+
+**It does not stop an account with sudo.** On this host `devuserp` — the account
+agent sessions run as — currently holds `NOPASSWD: ALL`, and passwordless root
+reads a 0700 store and a 0400 key directly. So the honest statement is: UID
+ownership and file modes are the boundary against unprivileged code, and sudo
+policy is the boundary against an agent session. Hard isolation from Claude and
+Codex requires a separate owner-authorised sudo/access-policy change. That change
+is out of scope here and this PR deliberately does not weaken or modify live sudo
+policy. Treat the store as reachable by anything that can become root until that
+gate is closed.
 
 Unit: `ops/secrets/secretsd.service`. Installer: `ops/secrets/install-secretsd.sh`.
 `MemoryDenyWriteExecute` is deliberately absent — it is incompatible with V8's

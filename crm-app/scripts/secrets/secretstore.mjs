@@ -630,6 +630,12 @@ export function writeSecretEnvelope(name, envelope) {
   }
   const dest = valuePathFor(name);
   assertNoSymlinkEscape(name);
+  // Same containment boundary as readSecretEnvelope and every other value
+  // write: refuse a target that is not a regular file or that carries an
+  // external hardlink. The atomic rename already protects the linked inode,
+  // but a restore should refuse a suspicious target outright rather than
+  // silently succeed against it.
+  assertSafeTargetFile(dest);
   writePrivateFileAtomic(dest, envelope);
   return dest;
 }

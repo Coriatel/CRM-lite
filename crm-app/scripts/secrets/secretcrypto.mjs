@@ -7,10 +7,12 @@
 //   carry ciphertext only, and the key is not in them.
 //
 //   DOES NOT PROTECT: a process already running as the store's own service
-//   user. It can read the key file, so it can decrypt. Confidentiality against
-//   local readers is an OS-permission property (dedicated service identity,
-//   0700 store, 0400 key), not a cryptographic one. Encryption is the second
-//   lock, not the first.
+//   user, or as root, or as any account that can sudo to root — on this host
+//   that includes devuserp while it holds NOPASSWD: ALL. All of them can read
+//   the key file, so all of them can decrypt. Confidentiality against local
+//   readers is an OS-permission property (dedicated service identity, 0700
+//   store, 0400 key) bounded by sudo policy, not a cryptographic one.
+//   Encryption is the second lock, not the first.
 //
 // Envelope: v1.<iv>.<ciphertext>.<tag>, all base64url, ASCII only, so every
 // existing atomic-write/rename path keeps working unchanged.
