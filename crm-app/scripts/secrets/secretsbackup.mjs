@@ -94,6 +94,25 @@ export function readBackup(path) {
 // either happens entirely before or entirely after it, never interleaved.
 export const MAX_PREIMAGE_BYTES = MAX_BUNDLE_BYTES;
 
+// Distinct from an ordinary failed-and-rolled-back restore: the restore failed
+// AND the unwind could not fully undo it. `unreverted` carries symbolic names
+// only (plus the literal "(registry)"), never a value or a filesystem path, so
+// the message is safe to log. Retry is safe once the underlying cause is fixed:
+// restore is idempotent, so re-running the same bundle converges, and the named
+// entries are the only ones needing manual attention if it is not re-run.
+export class IncompleteRollbackError extends Error {
+  constructor(unreverted, cause) {
+    super(
+      `restore failed and rollback was INCOMPLETE — these entries may still hold the ` +
+        `bundle's value instead of their previous one: ${unreverted.join(", ")}. ` +
+        `Cause: ${cause}. Fix the underlying error, then re-run the same restore ` +
+        `(it is idempotent) or restore these entries individually.`,
+    );
+    this.name = "IncompleteRollbackError";
+    this.unreverted = unreverted;
+  }
+}
+
 // Fault-injection seam, null in every real path, set only by the test suite.
 // A rollback that has never been forced to run is a rollback you do not have.
 export const __restoreFaults = {
@@ -152,21 +171,29 @@ export function restoreBackup(bundle, { actor = "owner" } = {}) {
       preimage.values.set(name, prior);
     }
 
+    // Unwinds as far as it can and REPORTS what it could not do. Swallowing a
+    // rollback failure would let the caller be told "rolled back" while an
+    // entry still holds the bundle's value — a lie about the state of the
+    // store, which is worse than the failure itself. Only symbolic names are
+    // collected; a value never enters this list.
     const rollback = () => {
+      const unreverted = [];
       for (const [name, prior] of preimage.values) {
         const path = valuePathFor(name);
         try {
           if (prior === null) rmSync(path, { force: true });
           else writePrivateFileAtomic(path, prior);
         } catch {
-          /* keep unwinding: one unrecoverable entry must not strand the rest */
+          // Keep unwinding: one unrecoverable entry must not strand the rest.
+          unreverted.push(name);
         }
       }
       try {
         writePrivateFileAtomic(registryPath(), preimage.registry);
       } catch {
-        /* the registry preimage is the last thing we can do; report below */
+        unreverted.push("(registry)");
       }
+      return unreverted;
     };
 
     // --- 3. materialise, rolling back on any failure -------------------------
@@ -183,7 +210,23 @@ export function restoreBackup(bundle, { actor = "owner" } = {}) {
       restoreFault("afterMaterialize");
       writePrivateFileAtomic(registryPath(), registryBytes);
     } catch (e) {
-      rollback();
+      const unreverted = rollback();
+      if (unreverted.length > 0) {
+        // The rollback itself could not finish — typically a filesystem error
+        // (EPERM/ENOSPC/EIO) in the unwind window. Say so distinctly. The
+        // store is still internally consistent and the lock and temp files are
+        // cleaned up by the paths below, but these entries may hold the
+        // BUNDLE's value rather than their preimage, so the operator needs to
+        // know which ones before retrying.
+        audit({
+          actor,
+          operation: "restore",
+          secret: null,
+          outcome: "failure",
+          reason: "rollback incomplete",
+        });
+        throw new IncompleteRollbackError(unreverted, e.message);
+      }
       audit({ actor, operation: "restore", secret: null, outcome: "failure", reason: "rolled back" });
       // Truthful failure: the caller learns the restore did not happen, and
       // the store is the store it was before the call.

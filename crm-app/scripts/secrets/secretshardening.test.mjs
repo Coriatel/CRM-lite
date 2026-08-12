@@ -36,7 +36,14 @@ import {
 } from "./secretcrypto.mjs";
 import { audit, auditPath, auditRecord } from "./secretaudit.mjs";
 import { BrokerError, invokeCapability, listCapabilities, capabilitiesPath } from "./secretbroker.mjs";
-import { createBackup, readBackup, restoreBackup, writeBackup, __restoreFaults } from "./secretsbackup.mjs";
+import {
+  createBackup,
+  readBackup,
+  restoreBackup,
+  writeBackup,
+  IncompleteRollbackError,
+  __restoreFaults,
+} from "./secretsbackup.mjs";
 import {
   addSecret,
   assertStoreSeparation,
@@ -89,6 +96,13 @@ afterEach(() => {
   __restoreFaults.beforeMaterialize = null;
   __restoreFaults.duringMaterialize = null;
   __restoreFaults.afterMaterialize = null;
+  // A test that deliberately made a directory unwritable must not leave the
+  // temp tree undeletable.
+  try {
+    chmodSync(join(tmp, "values"), 0o700);
+  } catch {
+    /* the store may not exist in every test */
+  }
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -707,6 +721,104 @@ describe("restore is atomic, locked and rollback-safe", () => {
     // replaced the target's, which is the declared contract.)
     expect(readFileSync(valuePathFor("keep"), "utf8")).toBe(keptBytes);
   }, 15_000);
+});
+
+describe("a rollback that cannot finish reports itself honestly", () => {
+  // The delta review found the opposite: rollback swallowed its own failures
+  // and the caller was still told "rolled back". A message that lies about the
+  // state of the store is worse than the failure it hides.
+  function targetAndBundle() {
+    addSecret(meta("c1"), `${canary}-c1-old`);
+    addSecret(meta("c2"), `${canary}-c2-old`);
+    const bundle = createBackup();
+    // Move the store away from the bundle, so a preimage restore is observable.
+    replaceSecret("c1", `${canary}-c1-new`);
+    replaceSecret("c2", `${canary}-c2-new`);
+    return bundle;
+  }
+
+  it("says 'rolled back' ONLY when the exact preimage was restored", () => {
+    const bundle = targetAndBundle();
+    const before = snapshotStore();
+    __restoreFaults.afterMaterialize = () => {
+      throw new Error("injected");
+    };
+    expect(() => restoreBackup(bundle)).toThrow(/restore failed and was rolled back/);
+    expect(snapshotStore()).toEqual(before);
+  });
+
+  it("reports an INCOMPLETE rollback distinctly when the unwind fails (EPERM)", () => {
+    const bundle = targetAndBundle();
+    // The reviewer's exact scenario: make the values directory unwritable from
+    // inside the fault hook, so the rollback's own writes fail with EPERM.
+    __restoreFaults.duringMaterialize = () => {
+      chmodSync(valuesDir(), 0o500);
+      throw new Error("injected");
+    };
+    let err;
+    try {
+      restoreBackup(bundle);
+    } catch (e) {
+      err = e;
+    } finally {
+      chmodSync(valuesDir(), 0o700);
+    }
+    expect(err).toBeInstanceOf(IncompleteRollbackError);
+    expect(err.message).toMatch(/rollback was INCOMPLETE/);
+    // It must NOT claim a clean rollback.
+    expect(err.message).not.toMatch(/and was rolled back/);
+    // Actionable: it names the affected symbolic entries and how to recover.
+    expect(err.unreverted.length).toBeGreaterThan(0);
+    expect(err.message).toMatch(/re-run the same restore|individually/);
+  });
+
+  it("discloses no value in the incomplete-rollback report or the audit trail", () => {
+    const bundle = targetAndBundle();
+    __restoreFaults.duringMaterialize = () => {
+      chmodSync(valuesDir(), 0o500);
+      throw new Error("injected");
+    };
+    let err;
+    try {
+      restoreBackup(bundle);
+    } catch (e) {
+      err = e;
+    } finally {
+      chmodSync(valuesDir(), 0o700);
+    }
+    const text = `${err.message}\n${err.stack}\n${err.unreverted.join(",")}`;
+    expect(text).not.toContain(canary);
+    expect(text).not.toContain("v1.");
+    expect(readFileSync(auditPath(), "utf8")).not.toContain(canary);
+    expect(readFileSync(auditPath(), "utf8")).toContain("rollback incomplete");
+  });
+
+  it("leaves the store consistent, unlocked and residue-free after an incomplete rollback", () => {
+    const bundle = targetAndBundle();
+    __restoreFaults.duringMaterialize = () => {
+      chmodSync(valuesDir(), 0o500);
+      throw new Error("injected");
+    };
+    try {
+      restoreBackup(bundle);
+    } catch {
+      /* expected */
+    } finally {
+      chmodSync(valuesDir(), 0o700);
+      __restoreFaults.duringMaterialize = null;
+    }
+    // Lock released and no temp files, despite the failed unwind.
+    expect(existsSync(join(storeRoot(), ".lock"))).toBe(false);
+    const stray = [...readdirSync(valuesDir()), ...readdirSync(storeRoot())].filter((f) =>
+      f.startsWith(".tmp-"),
+    );
+    expect(stray).toEqual([]);
+    // The store is still usable: a retry of the same restore now converges.
+    const res = restoreBackup(bundle);
+    expect(res.restored).toBe(2);
+    expect(readSecretValue("c1")).toBe(`${canary}-c1-old`);
+    expect(readSecretValue("c2")).toBe(`${canary}-c2-old`);
+  });
 });
 
 describe("writeSecretEnvelope enforces the same target containment as every other value write", () => {
