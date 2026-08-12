@@ -88,6 +88,7 @@ source file fetches `/ops-data/secrets.json`.
 | `POST` | `/api/secrets` | create; body carries the value exactly once |
 | `PUT` | `/api/secrets/<name>` | replace the value |
 | `POST` | `/api/secrets/<name>/disable` | disable (metadata only) |
+| `DELETE` | `/api/secrets/<name>` | delete — removes the value file and the registry entry |
 
 Configuration is entirely environment-driven; **no path, owner or store location
 is ever taken from a request**:
@@ -195,6 +196,7 @@ node scripts/secrets/secretsctl.mjs add --name my-token --type token \
     --purpose "…" --consumer "…" [--expiry 2027-01-01]   # value prompted, not echoed
 node scripts/secrets/secretsctl.mjs replace --name my-token
 node scripts/secrets/secretsctl.mjs disable --name my-token
+node scripts/secrets/secretsctl.mjs delete --name my-token
 node scripts/secrets/secretsctl.mjs list
 node scripts/secrets/secretsctl.mjs audit
 ```
@@ -210,6 +212,60 @@ Errors never quote an argument back. An invalid name is reported as exactly
 the input and a value pasted into `--name` would have been disclosed.
 
 `disable` is **metadata only**. It does not revoke anything at the provider.
+
+## Delete
+
+`delete` is the supported way to remove a secret. Without it a created secret
+could only be disabled, which made the first production acceptance test
+irreversible through supported interfaces — the reason this verb exists.
+
+Contract:
+
+- **One named secret.** The name is the only selector. There is deliberately no
+  bulk, wildcard, by-path or by-filter form, no restore/undelete, and no generic
+  filesystem removal: the caller supplies a name, the store resolves the path.
+- **Same authority as create/replace/disable** — owner-authenticated. Non-owner
+  `403`, invalid or expired session `401`, IdP unreachable `503`, unknown secret
+  `404` (CLI: exit 1, `no such secret`). Caller-supplied `owner`, `path` or
+  `storage` fields have no effect on deletion authority.
+- **Both sides or neither.** Under the store lock: the value file is copied
+  aside and unlinked, then the registry entry is dropped. If the registry write
+  or the finalisation step fails, the value is restored byte-for-byte and the
+  registry bytes are rolled back to their exact preimage. No orphan value and no
+  orphan metadata.
+- **Ordering.** The value is removed *before* the registry, mirroring
+  `addSecret`. If the pair ever splits under a hard crash, orphan metadata is
+  preferred over an orphan value file: a repeat `delete` clears the former,
+  whereas the latter would be unreachable by name yet still hold secret material
+  on disk.
+- **Containment precedes existence.** The name is validated and resolved before
+  the registry is consulted, so a traversal or symlinked name is rejected as an
+  invalid name rather than as "no such secret" — the guard can never be bypassed
+  by a name that merely happens to be absent.
+- **Nothing is disclosed.** The deleted value is never read into memory, never
+  returned, never logged. The API responds with the same nine-field metadata
+  allowlist used everywhere else; the CLI prints the name only.
+
+There is one deletion mechanism — `removeSecret()` — shared by the CLI, the API
+and the operator rollback path. `mustExist: true` is what the owner-facing verbs
+pass; the rollback path leaves it `false` so it can clean up a half-finished
+create without knowing how far it got.
+
+## Replace on a disabled secret
+
+Replacing the value of a **disabled** secret is **allowed**, and the secret
+**stays disabled**. This is intentional, not an oversight: rotating a credential
+at the provider and recording the new value is a normal thing to do while the
+secret is parked, and forcing an enable first would mean the store briefly holds
+a live-but-unreviewed value.
+
+Consumption remains refused for as long as the status is `disabled` —
+`assertUsable()` is the single predicate at the value boundary, so
+`readSecretValue()` throws regardless of how fresh the value is.
+
+There is **no `enable` verb in this MVP**. Disable is therefore a one-way door
+until one is added; `delete` is the only other exit. A focused test pins this
+behaviour so it stays deliberate.
 
 ## Deployment (owner-gated, NOT applied)
 

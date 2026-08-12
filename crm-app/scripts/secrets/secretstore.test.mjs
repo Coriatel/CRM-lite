@@ -717,3 +717,203 @@ describe("readSecretValue", () => {
     expect(() => readSecretValue("ghost")).toThrow(/no such secret/);
   });
 });
+
+// --- delete: the canonical, supported removal verb ---------------------------
+//
+// Before this existed, a created secret could only be `disable`d — nothing in
+// the CLI or API could remove it, so the first production acceptance test would
+// have been irreversible through supported interfaces.
+describe("removeSecret — canonical delete", () => {
+  const OTHER = { ...META, name: "unrelated-secret", purpose: "must survive every delete" };
+
+  function seedTwo() {
+    addSecret(META, SYNTHETIC);
+    addSecret(OTHER, SYNTHETIC_2);
+    return readRegistryBytes();
+  }
+
+  function untouched(name) {
+    return {
+      inRegistry: readRegistry().some((s) => s.name === name),
+      valueExists: existsSync(valuePathFor(name)),
+    };
+  }
+
+  it("removes value file and registry entry, leaving the store empty", () => {
+    addSecret(META, SYNTHETIC);
+    expect(existsSync(valuePathFor(META.name))).toBe(true);
+
+    const meta = removeSecret(META.name, { mustExist: true });
+    expect(meta.name).toBe(META.name);
+
+    expect(readRegistry()).toHaveLength(0);
+    expect(existsSync(valuePathFor(META.name))).toBe(false);
+    expect(readdirSync(valuesDir())).toHaveLength(0);
+  });
+
+  it("deletes a disabled secret", () => {
+    addSecret(META, SYNTHETIC);
+    disableSecret(META.name);
+    expect(readRegistry()[0].status).toBe("disabled");
+
+    removeSecret(META.name, { mustExist: true });
+    expect(readRegistry()).toHaveLength(0);
+    expect(readdirSync(valuesDir())).toHaveLength(0);
+  });
+
+  it("fails truthfully on an unknown secret and changes nothing", () => {
+    const before = seedTwo();
+    expect(() => removeSecret("no-such-name", { mustExist: true })).toThrow(/no such secret/);
+    expect(readRegistryBytes()).toEqual(before);
+    expect(readdirSync(valuesDir()).sort()).toHaveLength(2);
+  });
+
+  it("still tolerates an unknown name for the operator rollback path", () => {
+    // mustExist defaults to false: `create` rollback calls this without knowing
+    // how far the half-finished create actually got.
+    expect(() => removeSecret("never-existed")).not.toThrow();
+  });
+
+  it("preserves unrelated secrets byte-for-byte", () => {
+    seedTwo();
+    const otherValueBefore = readFileSync(valuePathFor(OTHER.name));
+    const otherEntryBefore = JSON.stringify(readRegistry().find((s) => s.name === OTHER.name));
+
+    removeSecret(META.name, { mustExist: true });
+
+    expect(readFileSync(valuePathFor(OTHER.name))).toEqual(otherValueBefore);
+    expect(JSON.stringify(readRegistry().find((s) => s.name === OTHER.name))).toBe(otherEntryBefore);
+    expect(readSecretValue(OTHER.name)).toBe(SYNTHETIC_2);
+  });
+
+  it("rolls back completely when the registry write fails (no split state)", () => {
+    const before = seedTwo();
+    __faultHooks.beforeRegistryWrite = () => { throw new Error("injected registry failure"); };
+    try {
+      expect(() => removeSecret(META.name, { mustExist: true })).toThrow(/injected/);
+    } finally {
+      __faultHooks.beforeRegistryWrite = null;
+    }
+    // Neither an orphan value nor orphan metadata: exactly the preimage.
+    expect(readRegistryBytes()).toEqual(before);
+    expect(existsSync(valuePathFor(META.name))).toBe(true);
+    expect(readSecretValue(META.name)).toBe(SYNTHETIC);
+    expect(untouched(OTHER.name)).toEqual({ inRegistry: true, valueExists: true });
+  });
+
+  it("rolls back completely when finalisation fails after the registry write", () => {
+    const before = seedTwo();
+    __faultHooks.afterRegistryWrite = () => { throw new Error("injected finalisation failure"); };
+    try {
+      expect(() => removeSecret(META.name, { mustExist: true })).toThrow(/injected/);
+    } finally {
+      __faultHooks.afterRegistryWrite = null;
+    }
+    expect(readRegistryBytes()).toEqual(before);
+    expect(readSecretValue(META.name)).toBe(SYNTHETIC);
+  });
+
+  it("leaves no staged temp file behind on success or on failure", () => {
+    addSecret(META, SYNTHETIC);
+    removeSecret(META.name, { mustExist: true });
+    expect(readdirSync(valuesDir()).filter((f) => f.startsWith(".tmp-"))).toHaveLength(0);
+
+    addSecret(META, SYNTHETIC);
+    __faultHooks.beforeRegistryWrite = () => { throw new Error("injected"); };
+    try {
+      expect(() => removeSecret(META.name, { mustExist: true })).toThrow();
+    } finally {
+      __faultHooks.beforeRegistryWrite = null;
+    }
+    expect(readdirSync(valuesDir()).filter((f) => f.startsWith(".tmp-"))).toHaveLength(0);
+  });
+
+  it("is not a generic filesystem removal: traversal and absolute names are refused", () => {
+    addSecret(META, SYNTHETIC);
+    const outside = join(tmp, "bystander-file");
+    writeFileSync(outside, "must survive");
+
+    // Asserted on BOTH paths. With mustExist the name must be rejected as an
+    // invalid name, not merely as "no such secret" — otherwise the containment
+    // guard would be unreachable whenever the registry lookup happens to miss.
+    for (const bad of ["../bystander-file", "../../etc/passwd", "/etc/passwd", "a/b", "."]) {
+      expect(() => removeSecret(bad, { mustExist: true })).toThrow(/invalid secret name|escapes/);
+      expect(() => removeSecret(bad)).toThrow(/invalid secret name|escapes/);
+    }
+    expect(existsSync(outside)).toBe(true);
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("refuses to delete through a symlink and leaves the target intact", () => {
+    addSecret(META, SYNTHETIC);
+    const outside = join(tmp, "outside-target");
+    writeFileSync(outside, "must survive");
+
+    // Plant a symlink where a secret's value file would live.
+    const planted = "planted-link";
+    symlinkSync(outside, join(valuesDir(), planted));
+
+    expect(() => removeSecret(planted)).toThrow(/symlink/);
+    expect(existsSync(outside)).toBe(true);
+    expect(readFileSync(outside, "utf8")).toBe("must survive");
+  });
+
+  it("never returns or prints the deleted value", () => {
+    addSecret(META, SYNTHETIC);
+    const meta = removeSecret(META.name, { mustExist: true });
+    expect(JSON.stringify(meta)).not.toContain(SYNTHETIC);
+  });
+});
+
+// --- replace on a disabled secret: intentional, not accidental ---------------
+describe("replace while disabled", () => {
+  it("rotates the value, keeps the secret disabled, and keeps consumption refused", () => {
+    addSecret(META, SYNTHETIC);
+    disableSecret(META.name);
+
+    const entry = replaceSecret(META.name, SYNTHETIC_2);
+
+    // The value really did rotate...
+    expect(entry.status).toBe("disabled");
+    expect(readRegistry()[0].status).toBe("disabled");
+    // ...but nothing may consume it while it is disabled. There is deliberately
+    // no `enable` verb in this slice, so this is a one-way door until one exists.
+    expect(() => readSecretValue(META.name)).toThrow(/not active/);
+  });
+});
+
+// --- CLI: the delete verb exists and is wired to the same primitive ----------
+describe("secretsctl delete", () => {
+  const CLI = join(dirname(fileURLToPath(import.meta.url)), "secretsctl.mjs");
+
+  function cli(args) {
+    return spawnSync(process.execPath, [CLI, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, SECRET_STORE_ROOT: tmp },
+    });
+  }
+
+  it("deletes a named secret and reports metadata only", () => {
+    addSecret(META, SYNTHETIC);
+    const r = cli(["delete", "--name", META.name]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`deleted: ${META.name}`);
+    expect(r.stdout + r.stderr).not.toContain(SYNTHETIC);
+    expect(readRegistry()).toHaveLength(0);
+    expect(readdirSync(valuesDir())).toHaveLength(0);
+  });
+
+  it("fails on an unknown secret without touching the store", () => {
+    addSecret(META, SYNTHETIC);
+    const r = cli(["delete", "--name", "no-such-name"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/no such secret/);
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("rejects unknown flags and bulk-ish input", () => {
+    expect(cli(["delete", "--all"]).status).toBe(1);
+    expect(cli(["delete", META.name]).status).toBe(1); // positional not accepted
+    expect(cli(["delete"]).status).toBe(1); // --name required
+  });
+});

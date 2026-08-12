@@ -19,6 +19,7 @@
 //   secretsctl add --name <n> --type <t> --purpose <p> --consumer <c> [--expiry YYYY-MM-DD]
 //   secretsctl replace --name <n>
 //   secretsctl disable --name <n>
+//   secretsctl delete --name <n>
 //   secretsctl list
 //   secretsctl audit
 
@@ -31,6 +32,7 @@ import {
   disableSecret,
   initStore,
   listSecrets,
+  removeSecret,
   replaceSecret,
   storeRoot,
   SECRET_TYPES,
@@ -44,6 +46,7 @@ const COMMAND_FLAGS = {
   add: ["name", "type", "purpose", "consumer", "expiry"],
   replace: ["name"],
   disable: ["name"],
+  delete: ["name"],
   list: [],
   audit: [],
 };
@@ -171,6 +174,16 @@ const COMMANDS = {
     console.log(
       `disabled: ${entry.name} — metadata only. This does NOT revoke the credential ` +
       `at the provider; do that manually.`,
+    );
+  },
+
+  // Removal is permanent and there is no undelete: the value file is unlinked
+  // and the registry entry dropped. `disable` remains the reversible option.
+  delete(args) {
+    const entry = removeSecret(requireFlag(args, "name"), { mustExist: true });
+    console.log(
+      `deleted: ${entry.name} — value file and registry entry removed. This does NOT ` +
+      `revoke the credential at the provider; do that manually.`,
     );
   },
 

@@ -32,6 +32,7 @@ import {
   disableSecret,
   isValidSecretName,
   metadataList,
+  removeSecret,
   replaceSecret,
 } from "./secretstore.mjs";
 
@@ -243,6 +244,23 @@ export function createHandler({
         throw new HttpError(/no such secret/.test(e.message) ? 404 : 400, safeStoreMessage(e));
       }
       return { status: 200, body: { secret: projectMetadata(entry) } };
+    }
+
+    // One named secret, removed whole. Deliberately NOT a bulk, wildcard,
+    // by-path or by-filter delete: the name is the only selector, it is
+    // validated by requireName, and the store resolves it to a path itself.
+    if (req.method === "DELETE" && oneMatch) {
+      assertCsrfSafe(req, { allowedOrigins });
+      const name = requireName(decodeURIComponent(oneMatch[1]));
+      let entry;
+      try {
+        entry = removeSecret(name, { mustExist: true });
+      } catch (e) {
+        throw new HttpError(/no such secret/.test(e.message) ? 404 : 400, safeStoreMessage(e));
+      }
+      // Metadata of what was removed, through the same nine-field allowlist.
+      // The value is gone and was never in this process's memory.
+      return { status: 200, body: { deleted: projectMetadata(entry) } };
     }
 
     throw new HttpError(404, "not found");

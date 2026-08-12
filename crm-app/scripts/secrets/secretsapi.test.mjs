@@ -404,3 +404,111 @@ describe("structural guarantees", () => {
     expect(src).not.toMatch(/^\s*publish\(/m);
   });
 });
+
+// --- DELETE: the canonical removal endpoint ---------------------------------
+//
+// Same authorisation as create/replace/disable. One named secret only: there is
+// no bulk, wildcard, by-path or by-filter form, and none may be added.
+describe("DELETE /api/secrets/:name", () => {
+  async function seed(name = "synthetic-token") {
+    const r = await call("/api/secrets", { method: "POST", body: { ...CREATE_BODY, name } });
+    expect(r.status).toBe(201);
+  }
+
+  it("deletes an active secret and returns allowlisted metadata only", async () => {
+    await seed();
+    const res = await call("/api/secrets/synthetic-token", { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    expect(JSON.stringify(json)).not.toContain(SYNTHETIC);
+    expect(Object.keys(json.deleted).sort()).toEqual(
+      ["consumer", "created", "expiry", "name", "owner", "purpose", "status", "type", "updated"],
+    );
+    expect(json.deleted).not.toHaveProperty("path");
+
+    // Gone from both sides of the store.
+    expect(readRegistry()).toHaveLength(0);
+    expect(readdirSync(valuesDir())).toHaveLength(0);
+
+    const listed = await (await call("/api/secrets")).json();
+    expect(listed.secrets).toHaveLength(0);
+  });
+
+  it("deletes a disabled secret", async () => {
+    await seed();
+    expect((await call("/api/secrets/synthetic-token/disable", { method: "POST", body: {} })).status).toBe(200);
+    expect((await call("/api/secrets/synthetic-token", { method: "DELETE" })).status).toBe(200);
+    expect(readRegistry()).toHaveLength(0);
+  });
+
+  it("404s on an unknown secret without changing the store", async () => {
+    await seed();
+    const res = await call("/api/secrets/no-such-secret", { method: "DELETE" });
+    expect(res.status).toBe(404);
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("refuses a non-owner with 403 and leaves the secret intact", async () => {
+    await seed();
+    const res = await call("/api/secrets/synthetic-token", { method: "DELETE", token: "other-token" });
+    expect(res.status).toBe(403);
+    expect(readRegistry()).toHaveLength(1);
+    expect(readSecretValue("synthetic-token")).toBe(SYNTHETIC);
+  });
+
+  it("refuses an invalid/expired session with 401 and leaves the secret intact", async () => {
+    await seed();
+    for (const token of ["expired-token", null]) {
+      const res = await call("/api/secrets/synthetic-token", { method: "DELETE", token });
+      expect(res.status).toBe(401);
+    }
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("fails closed with 503 when the identity provider is unreachable", async () => {
+    await seed();
+    const offline = createHandler({
+      directusUrl: "https://directus.example.test",
+      ownerEmails: [OWNER],
+      allowedOrigins: [ORIGIN],
+      fetchImpl: async () => { throw new Error("network down"); },
+    });
+    const srv = createServer((req, res) => { offline(req, res).catch(() => { res.writeHead(500); res.end("{}"); }); });
+    await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+    try {
+      const res = await fetch(`http://127.0.0.1:${srv.address().port}/api/secrets/synthetic-token`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer owner-token", Origin: ORIGIN, "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(503);
+    } finally {
+      await new Promise((r) => srv.close(r));
+    }
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("refuses a cross-origin delete", async () => {
+    await seed();
+    const res = await call("/api/secrets/synthetic-token", { method: "DELETE", origin: EVIL_ORIGIN });
+    expect(res.status).toBe(403);
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("cannot be used as a generic filesystem removal", async () => {
+    await seed();
+    for (const bad of ["..%2F..%2Fetc%2Fpasswd", "%2Fetc%2Fpasswd", "..", "%2E%2E"]) {
+      const res = await call(`/api/secrets/${bad}`, { method: "DELETE" });
+      expect([400, 404]).toContain(res.status);
+    }
+    expect(readRegistry()).toHaveLength(1);
+  });
+
+  it("offers no bulk or wildcard delete", async () => {
+    await seed();
+    // The collection route has no DELETE handler at all.
+    expect((await call("/api/secrets", { method: "DELETE" })).status).toBe(404);
+    expect((await call("/api/secrets/", { method: "DELETE" })).status).toBe(404);
+    expect(readRegistry()).toHaveLength(1);
+  });
+});
