@@ -198,6 +198,7 @@ export function assertSafeTargetFile(path) {
 export const __faultHooks = {
   beforeRegistryWrite: null,
   afterValuePromoted: null,
+  afterRegistryWrite: null,
 };
 
 function fault(name) {
@@ -613,12 +614,63 @@ export function restoreRegistryBytesPublic(preimage) {
   return withStoreLock(() => restoreRegistryBytes(preimage));
 }
 
-export function removeSecret(name) {
+// The single deletion mechanism. It backs both the operator rollback above
+// (`mustExist: false` — tolerate a half-created secret) and the canonical
+// owner-facing `delete` verb in the CLI and API (`mustExist: true` — fail
+// truthfully on an unknown name). There is deliberately no second code path:
+// a delete that only the API knew how to roll back would be untested from the
+// CLI, and vice versa.
+export function removeSecret(name, { mustExist = false } = {}) {
   return withStoreLock(() => {
+    // Containment first, existence second: a malicious name must be rejected as
+    // an invalid name whether or not it happens to be absent from the registry,
+    // so the guard never depends on `mustExist` to be reached.
     const p = valuePathFor(name);
     assertNoSymlinkEscape(name);
-    if (existsSync(p)) rmSync(p);
-    writeRegistry(readRegistry().filter((s) => s.name !== name));
+
+    const registry = readRegistry();
+    const entry = registry.find((s) => s.name === name);
+    if (!entry && mustExist) throw new Error(`no such secret: ${name}`);
+
+    const registryPreimage = readRegistryBytes();
+
+    // Copy the value aside before unlinking it, so a failed registry write can
+    // restore it byte for byte. The value is moved with rename/copy and is
+    // never read into this process's memory.
+    //
+    // The value is removed BEFORE the registry, mirroring addSecret's ordering
+    // rule: if the pair ever splits, prefer orphan metadata — which a repeat
+    // `delete` cleans up — over an orphan value file, which is unreachable by
+    // name yet still holds secret material on disk.
+    let valuePreimage = null;
+    if (existsSync(p)) {
+      assertSafeTargetFile(p);
+      valuePreimage = tempPathIn(valuesDir());
+      copyFileSync(p, valuePreimage);
+      chmodSync(valuePreimage, FILE_MODE);
+      rmSync(p);
+    }
+
+    const undo = (e) => {
+      if (valuePreimage) promoteStaged(valuePreimage, p);
+      restoreRegistryBytes(registryPreimage);
+      throw e;
+    };
+
+    try {
+      fault("beforeRegistryWrite");
+      writeRegistry(registry.filter((s) => s.name !== name));
+    } catch (e) {
+      undo(e);
+    }
+    try {
+      fault("afterRegistryWrite");
+    } catch (e) {
+      undo(e);
+    }
+
+    if (valuePreimage) discardStaged(valuePreimage);
+    return entry ? toMetadata(entry) : null;
   });
 }
 
