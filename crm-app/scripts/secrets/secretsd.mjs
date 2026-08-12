@@ -17,6 +17,7 @@
 import { createServer } from "node:http";
 
 import { createHandler } from "./secretsapi.mjs";
+import { assertKeyUsable, keyFilePath } from "./secretcrypto.mjs";
 import { initStore, storeRoot } from "./secretstore.mjs";
 
 const port = Number(process.env.SECRETS_API_PORT || 8091);
@@ -44,6 +45,19 @@ const directusUrl = (
 if (ownerEmails.length === 0) {
   console.error("error: SECRETS_OWNER_EMAILS is required and must list at least one owner address");
   process.exit(2);
+}
+
+// Startup failure posture: prove the key works BEFORE accepting a single
+// request. A service that starts without a usable key would answer /ops
+// normally and fail only when the owner tries to use a secret — the worst
+// moment to discover it. A missing or unreadable key is a hard start failure,
+// not a degraded mode, and the message never quotes the key file's contents.
+try {
+  assertKeyUsable();
+} catch (e) {
+  console.error(`error: secret encryption key is unusable — refusing to start (${e.message})`);
+  console.error(`hint: SECRET_KEY_FILE=${keyFilePath() || "(unset)"}`);
+  process.exit(3);
 }
 
 initStore();

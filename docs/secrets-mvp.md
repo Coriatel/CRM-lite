@@ -347,3 +347,114 @@ absent now, but whether it was copied before its removal is unknown.
 - The store offers no rotation, no provider revocation and no audit log of reads.
 - `secretsd` has no rate limiting; it is loopback-only and single-owner, so the
   exposure is a local denial of service at worst.
+
+---
+
+## Hardening (encryption, identity, broker, audit, backup)
+
+### Service identity and runtime path
+
+The service runs as a dedicated system user `crmsecrets`, from the stable path
+`/opt/crm-secrets/current` (a symlink to a timestamped release), with the store
+at `/var/lib/crm-secrets` and the key at `/etc/crm-secrets/secretsd.key`.
+
+This is the control that keeps values away from **unprivileged** processes:
+`devuserp`, `devuser`, `elron` and any Claude or Codex process running as them
+are a different UID than `crmsecrets`, and the store is 0700 with a 0400 key. No
+API call is involved — the filesystem refuses them.
+
+**It does not stop an account with sudo.** On this host `devuserp` — the account
+agent sessions run as — currently holds `NOPASSWD: ALL`, and passwordless root
+reads a 0700 store and a 0400 key directly. So the honest statement is: UID
+ownership and file modes are the boundary against unprivileged code, and sudo
+policy is the boundary against an agent session. Hard isolation from Claude and
+Codex requires a separate owner-authorised sudo/access-policy change. That change
+is out of scope here and this PR deliberately does not weaken or modify live sudo
+policy. Treat the store as reachable by anything that can become root until that
+gate is closed.
+
+Unit: `ops/secrets/secretsd.service`. Installer: `ops/secrets/install-secretsd.sh`.
+`MemoryDenyWriteExecute` is deliberately absent — it is incompatible with V8's
+JIT and crashes node with `status=5/TRAP`.
+
+### Encryption at rest
+
+Values are AES-256-GCM envelopes (`v1.<iv>.<ct>.<tag>`). The secret's **name is
+the AAD**, so a value file moved or renamed under another name fails to decrypt
+instead of silently returning the wrong secret.
+
+What this protects: copies that leave the host — backups, snapshots, a stolen
+disk. What it does not protect: a process already running as `crmsecrets`, which
+can read the key. That is the dedicated user's job, not the cipher's.
+
+Plaintext value files are **refused**, not accepted for compatibility: silently
+reading plaintext would let anyone who can write the values directory downgrade
+every secret to cleartext.
+
+**Startup posture:** a missing, malformed, or group/world-readable key makes
+`secretsd` exit 3 before it accepts a request. `RestartPreventExitStatus=2 3`
+stops it restart-looping on a broken key.
+
+### Key custody and recovery — read this once
+
+The server key is automatic (a 0400 file the unit reads at start), so restarts
+need no human. The owner additionally holds a **recovery artifact**: that same
+key wrapped under an owner passphrase with scrypt, in the same envelope format —
+one mechanism, not a parallel recovery system.
+
+**Recovery requires an owner-held artifact.** Without both the artifact and its
+passphrase, backups are permanently unreadable. There is no escrow. This
+codebase will not generate one for you; `secretsctl export-recovery` is an
+explicit owner action.
+
+### Separate test and production stores
+
+`assertStoreSeparation()` refuses to resolve the production root under a test
+runner (`VITEST`, `NODE_ENV=test`, or `SECRET_STORE_ENV=test`). A test that
+forgets to set `SECRET_STORE_ROOT` fails loudly instead of mutating the owner's
+real secrets.
+
+### Capability broker — what an AI caller may do
+
+| | |
+|---|---|
+| May | invoke a **named capability** the owner granted: `probe`, `sign-challenge` |
+| May not | name a secret directly, enumerate secrets, or retrieve any value |
+
+Capabilities live in `capabilities.json` (0600, owner-written). A caller names an
+id; the broker resolves it. Unknown and ungranted ids give the **same** error, so
+the list cannot be enumerated by probing. `sign-challenge` returns
+HMAC-SHA256(secret, caller challenge) — proof of possession, one-way, over
+caller-chosen input. There is deliberately no `peek`, `prefix`, `length`, or
+`fingerprint` verb.
+
+Routes: `GET /api/secrets/capabilities`, `POST /api/secrets/capabilities/<id>/invoke`.
+Both sit behind the same owner authentication as everything else.
+
+### Audit trail
+
+`audit.log` (JSONL, 0600): `ts, actor, operation, secret, outcome, reason`. The
+secret is the **symbolic name only** — never a value, never a truncation, never a
+hash, because a hash of a low-entropy secret is a secret. Newlines are stripped
+(no log-injection forgery) and unknown operations collapse to `unknown`. Writes
+are best-effort: an audit failure never turns a committed mutation into a
+reported failure.
+
+### Backup and restore
+
+`secretsctl backup` emits registry + **stored envelopes**. No value is decrypted
+to produce a backup. `restore` refuses anything that is not an envelope, so a
+tampered bundle cannot inject plaintext. Rehearse into a scratch
+`SECRET_STORE_ROOT` — covered by an automated test, and by `OWNER-RUNBOOK.md`.
+
+### CLI additions
+
+```
+secretsctl keygen --out <path>                       once, ever
+secretsctl export-recovery --out <path>              owner passphrase, off-box
+secretsctl import-recovery --from <p> --out <p>      rebuild after host loss
+secretsctl backup --out <path>
+secretsctl restore --from <path>
+secretsctl capabilities
+secretsctl trail [--limit N]
+```

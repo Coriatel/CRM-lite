@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { generateKeyHex } from "./secretcrypto.mjs";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,10 +51,14 @@ let tmp;
 let server;
 let base;
 let directusCalls;
+let keyFile;
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "secretsapi-test-"));
   process.env.SECRET_STORE_ROOT = tmp;
+  keyFile = join(tmp, "test.key");
+  writeFileSync(keyFile, generateKeyHex() + "\n", { mode: 0o400 });
+  process.env.SECRET_KEY_FILE = keyFile;
   directusCalls = [];
   const handler = createHandler({
     directusUrl: "https://directus.example.test",
@@ -74,6 +79,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await new Promise((resolve) => server.close(resolve));
   delete process.env.SECRET_STORE_ROOT;
+  delete process.env.SECRET_KEY_FILE;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -510,5 +516,47 @@ describe("DELETE /api/secrets/:name", () => {
     expect((await call("/api/secrets", { method: "DELETE" })).status).toBe(404);
     expect((await call("/api/secrets/", { method: "DELETE" })).status).toBe(404);
     expect(readRegistry()).toHaveLength(1);
+  });
+});
+
+describe("capability broker over the API", () => {
+  function grant(caps) {
+    writeFileSync(join(tmp, "capabilities.json"), JSON.stringify({ capabilities: caps }), { mode: 0o600 });
+  }
+
+  it("requires the same owner authentication as every other route", async () => {
+    grant([{ id: "p", secret: "s", operation: "probe" }]);
+    expect((await call("/api/secrets/capabilities", { token: null })).status).toBe(401);
+    expect((await call("/api/secrets/capabilities", { token: "expired-token" })).status).toBe(401);
+    expect((await call("/api/secrets/capabilities", { token: "other-token" })).status).toBe(403);
+    expect(
+      (await call("/api/secrets/capabilities/p/invoke", { method: "POST", token: "other-token", body: {} })).status,
+    ).toBe(403);
+  });
+
+  it("never returns a value through invoke", async () => {
+    const secret = "api-broker-secret-value-DO-NOT-LEAK";
+    const created = await call("/api/secrets", {
+      method: "POST",
+      body: { name: "brokered", type: "other", purpose: "p", consumer: "c", value: secret },
+    });
+    expect(created.status).toBe(201);
+    grant([{ id: "sign", secret: "brokered", operation: "sign-challenge" }]);
+    const res = await call("/api/secrets/capabilities/sign/invoke", {
+      method: "POST",
+      body: { challenge: "hello" },
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(JSON.stringify(json)).not.toContain(secret);
+    expect(json.result.mac).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("404s an unknown capability without naming any secret", async () => {
+    grant([]);
+    const res = await call("/api/secrets/capabilities/nope/invoke", { method: "POST", body: {} });
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe("unknown capability");
   });
 });

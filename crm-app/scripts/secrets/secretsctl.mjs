@@ -22,9 +22,23 @@
 //   secretsctl delete --name <n>
 //   secretsctl list
 //   secretsctl audit
+//   secretsctl keygen --out <path>          generate the encryption key (once)
+//   secretsctl export-recovery --out <path>  wrap the server key under a passphrase
+//   secretsctl import-recovery --from <p> --out <p>   rebuild the key file from it
+//   secretsctl backup --out <path>          encrypted bundle (ciphertext only)
+//   secretsctl restore --from <path>        restore into SECRET_STORE_ROOT
+//   secretsctl capabilities                 list broker capabilities the owner granted
+//   secretsctl trail [--limit N]            recent audit records
 
 import { createInterface } from "node:readline";
 import { userInfo } from "node:os";
+import { existsSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+
+import { audit } from "./secretaudit.mjs";
+import { auditPath } from "./secretaudit.mjs";
+import { generateKeyHex, wrapKeyForRecovery, unwrapRecoveryKey } from "./secretcrypto.mjs";
+import { listCapabilities } from "./secretbroker.mjs";
+import { createBackup, readBackup, restoreBackup, writeBackup } from "./secretsbackup.mjs";
 
 import {
   addSecret,
@@ -49,6 +63,13 @@ const COMMAND_FLAGS = {
   delete: ["name"],
   list: [],
   audit: [],
+  keygen: ["out"],
+  "export-recovery": ["out"],
+  "import-recovery": ["from", "out"],
+  backup: ["out"],
+  restore: ["from"],
+  capabilities: [],
+  trail: ["limit"],
 };
 
 export function parseArgs(argv, allowedFlags) {
@@ -158,19 +179,22 @@ const COMMANDS = {
     }
     const value = await readSecretFromTty(`Value for "${meta.name}" (not echoed): `);
     const entry = addSecret(meta, value);
+    audit({ actor: currentOwner(), operation: "add", secret: entry.name, outcome: "success" });
     // Metadata only. The value is never printed back, here or anywhere.
-    console.log(`saved: ${entry.name} (0600), status=${entry.status}`);
+    console.log(`saved: ${entry.name} (0600, encrypted), status=${entry.status}`);
   },
 
   async replace(args) {
     const name = requireFlag(args, "name");
     const value = await readSecretFromTty(`New value for "${name}" (not echoed): `);
     const entry = replaceSecret(name, value);
+    audit({ actor: currentOwner(), operation: "replace", secret: entry.name, outcome: "success" });
     console.log(`replaced: ${entry.name} (metadata unchanged, created=${entry.created})`);
   },
 
   disable(args) {
     const entry = disableSecret(requireFlag(args, "name"));
+    audit({ actor: currentOwner(), operation: "disable", secret: entry.name, outcome: "success" });
     console.log(
       `disabled: ${entry.name} — metadata only. This does NOT revoke the credential ` +
       `at the provider; do that manually.`,
@@ -181,6 +205,7 @@ const COMMANDS = {
   // and the registry entry dropped. `disable` remains the reversible option.
   delete(args) {
     const entry = removeSecret(requireFlag(args, "name"), { mustExist: true });
+    audit({ actor: currentOwner(), operation: "delete", secret: entry.name, outcome: "success" });
     console.log(
       `deleted: ${entry.name} — value file and registry entry removed. This does NOT ` +
       `revoke the credential at the provider; do that manually.`,
@@ -189,6 +214,87 @@ const COMMANDS = {
 
   list() {
     printTable(listSecrets());
+  },
+
+  keygen(args) {
+    const out = requireFlag(args, "out");
+    // Never overwrite: silently replacing a key makes every existing value and
+    // every existing backup permanently unreadable.
+    if (existsSync(out)) throw new Error("refusing to overwrite an existing key file");
+    writeFileSync(out, generateKeyHex() + "\n", { mode: 0o400 });
+    chmodSync(out, 0o400);
+    console.log(
+      `key written: ${out} (0400). Back this up OFF this host NOW — without it, ` +
+      `every stored value and every backup is unrecoverable. The key itself is not printed.`,
+    );
+  },
+
+  // The owner's off-box safety net: the SAME server key, wrapped under a
+  // passphrase typed at the prompt. Reuses the canonical envelope — there is no
+  // second recovery system to keep in sync.
+  async "export-recovery"(args) {
+    const out = requireFlag(args, "out");
+    if (existsSync(out)) throw new Error("refusing to overwrite an existing recovery artifact");
+    const keyHex = readFileSync(process.env.SECRET_KEY_FILE || "", "utf8").trim();
+    const pass = await readSecretFromTty("Recovery passphrase (min 12 chars, not echoed): ");
+    const again = await readSecretFromTty("Repeat it: ");
+    if (pass !== again) throw new Error("passphrases did not match");
+    writeFileSync(out, wrapKeyForRecovery(keyHex, pass) + "\n", { mode: 0o400 });
+    chmodSync(out, 0o400);
+    console.log(
+      `recovery artifact written: ${out} (0400). Store it OFF this host. It is useless ` +
+      `without the passphrase, and the passphrase is not stored anywhere.`,
+    );
+  },
+
+  async "import-recovery"(args) {
+    const from = requireFlag(args, "from");
+    const out = requireFlag(args, "out");
+    if (existsSync(out)) throw new Error("refusing to overwrite an existing key file");
+    const pass = await readSecretFromTty("Recovery passphrase (not echoed): ");
+    const keyHex = unwrapRecoveryKey(readFileSync(from, "utf8").trim(), pass);
+    writeFileSync(out, keyHex + "\n", { mode: 0o400 });
+    chmodSync(out, 0o400);
+    console.log(`key restored to ${out} (0400). The key itself was not printed.`);
+  },
+
+  backup(args) {
+    const out = requireFlag(args, "out");
+    const bundle = createBackup({ actor: currentOwner() });
+    const res = writeBackup(out, bundle);
+    console.log(
+      `backup written: ${res.path} (0${res.mode}) — ${Object.keys(bundle.values).length} entries, ` +
+      `ciphertext only. Restoring it REQUIRES the key file.`,
+    );
+  },
+
+  restore(args) {
+    const from = requireFlag(args, "from");
+    const bundle = readBackup(from);
+    const res = restoreBackup(bundle, { actor: currentOwner() });
+    console.log(`restored ${res.restored} entries into ${storeRoot()}: ${res.names.join(", ")}`);
+  },
+
+  capabilities() {
+    const caps = listCapabilities();
+    if (caps.length === 0) {
+      console.log("no broker capabilities granted.");
+      return;
+    }
+    for (const c of caps) console.log(`${c.id}\t${c.operation}\t${c.description ?? ""}`);
+  },
+
+  trail(args) {
+    const limit = Number(args.limit ?? 20);
+    if (!existsSync(auditPath())) {
+      console.log("no audit records yet.");
+      return;
+    }
+    const lines = readFileSync(auditPath(), "utf8").trim().split("\n").filter(Boolean);
+    for (const line of lines.slice(-limit)) {
+      const r = JSON.parse(line);
+      console.log(`${r.ts}\t${r.actor}\t${r.operation}\t${r.secret ?? "-"}\t${r.outcome}${r.reason ? "\t" + r.reason : ""}`);
+    }
   },
 
   audit() {
