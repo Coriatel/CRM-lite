@@ -1,9 +1,10 @@
-import { DIRECTUS_URL, DIRECTUS_STATIC_TOKEN, AUTH_MODE } from "../config";
+import { DIRECTUS_URL, AUTH_MODE } from "../config";
 
 const API_BASE = DIRECTUS_URL;
 
-// Dynamic auth token — set by AuthContext after OAuth login
-let authToken = DIRECTUS_STATIC_TOKEN;
+// Auth token — empty until AuthContext sets the per-user OAuth token at login.
+// It is never seeded from build-time config; see config.ts AUTH_MODE.
+let authToken = "";
 
 export function setAuthToken(token: string) {
   authToken = token;

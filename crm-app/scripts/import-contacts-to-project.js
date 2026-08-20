@@ -7,7 +7,11 @@
  */
 
 const DIRECTUS_URL = 'https://crm.merkazneshama.co.il';
-const TOKEN = 'hycrm-admin-api-token-2026';
+const TOKEN = process.env.DIRECTUS_TOKEN || '';
+if (!TOKEN) {
+  console.error('DIRECTUS_TOKEN is not set. Export it for this run only; never commit it.');
+  process.exit(2);
+}
 const PROJECT_ID = 'cad4af6a-18bb-4bb2-bd3c-61a5ef0c9573';
 const BATCH_SIZE = 100;
 
