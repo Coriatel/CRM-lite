@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel)"
+SCANNER="$ROOT/scripts/scan_added_secrets.py"
+
+if [ ! -f "$SCANNER" ]; then
+  echo "[secret-hygiene] BLOCKED: scanner missing at $SCANNER" >&2
+  exit 2
+fi
+
+python3 "$SCANNER" --staged
+
+UPSTREAM_DIR="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+UPSTREAM="${UPSTREAM_DIR:+$UPSTREAM_DIR/pre-commit}"
+if [ -n "$UPSTREAM" ] && [ "$UPSTREAM" != "$ROOT/.githooks/pre-commit" ] && [ -x "$UPSTREAM" ]; then
+  exec "$UPSTREAM" "$@"
+fi

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel)"
+UPSTREAM_DIR="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+UPSTREAM="${UPSTREAM_DIR:+$UPSTREAM_DIR/prepare-commit-msg}"
+
+if [ -n "$UPSTREAM" ] && [ "$UPSTREAM" != "$ROOT/.githooks/prepare-commit-msg" ] && [ -x "$UPSTREAM" ]; then
+  exec "$UPSTREAM" "$@"
+fi
