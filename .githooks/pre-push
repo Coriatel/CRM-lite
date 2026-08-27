@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel)"
+SCANNER="$ROOT/scripts/scan_added_secrets.py"
+ZERO="0000000000000000000000000000000000000000"
+INPUT="$(mktemp)"
+trap 'rm -f "$INPUT"' EXIT
+cat >"$INPUT"
+
+if [ ! -f "$SCANNER" ]; then
+  echo "[secret-hygiene] BLOCKED: scanner missing at $SCANNER" >&2
+  exit 2
+fi
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ -z "${local_sha:-}" ] && continue
+  [ "$local_sha" = "$ZERO" ] && continue
+
+  if [ "$remote_sha" = "$ZERO" ]; then
+    if ! base="$(git merge-base "$local_sha" refs/remotes/origin/main 2>/dev/null)"; then
+      echo "[secret-hygiene] BLOCKED: cannot derive base for new remote ref" >&2
+      exit 2
+    fi
+  else
+    base="$remote_sha"
+  fi
+  python3 "$SCANNER" --commits "$base..$local_sha"
+done <"$INPUT"
+
+UPSTREAM_DIR="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+UPSTREAM="${UPSTREAM_DIR:+$UPSTREAM_DIR/pre-push}"
+if [ -n "$UPSTREAM" ] && [ "$UPSTREAM" != "$ROOT/.githooks/pre-push" ] && [ -x "$UPSTREAM" ]; then
+  exec "$UPSTREAM" "$@" <"$INPUT"
+fi
