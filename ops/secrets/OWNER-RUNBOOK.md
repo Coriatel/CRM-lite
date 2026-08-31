@@ -147,3 +147,60 @@ on this.
 Encryption at rest protects copies that leave the host: backups, snapshots, a
 stolen disk. It does **not** protect against something already running as
 `crmsecrets` — that is what the dedicated user and the file modes are for.
+
+## Delivering a secret to a file consumer (secrets-materialize)
+
+Some consumers can only read an env file — they cannot call the API. Example: the
+Hebrew STT benchmark reads `DEEPGRAM_API_KEY` from its process environment.
+
+You still enter the secret **once**, in the Secrets UI. You never paste it into a
+shell, and it is never stored in Git.
+
+    sudo /usr/local/sbin/secrets-materialize deepgram-stt-bench
+
+That writes `/etc/ai-secrets/deepgram.env` as `root:aisecrets 0640`, atomically
+(fresh inode renamed over the target, so a failed run leaves the previous valid file
+untouched). Re-run it after any rotation.
+
+The consumer then does:
+
+    set -a; . /etc/ai-secrets/deepgram.env; set +a
+
+### What it deliberately cannot do
+
+- It takes a **deployment id**, never a secret name and never a destination path.
+- Destinations are restricted to `/etc/ai-secrets/` direct children.
+- There is no `get-secret`, `reveal`, `peek`, or `decrypt-to-stdout` verb — same rule
+  as `secretbroker.mjs`. Output is a status line; the value never reaches stdout,
+  stderr, argv, or the audit log.
+- Symlinked, hardlinked, and non-regular targets are refused.
+
+### Adding a consumer
+
+Edit `/var/lib/crm-secrets/deploy-targets.json` (root:root 0600) and add one entry —
+see `deploy-targets.example.json`. `secret` is the Registry entry name; `env_var` is
+what the consumer reads; they may differ. No code change is needed.
+
+**Never put a secret value in that file.** It holds names and destinations only.
+
+### Who can read a materialized secret
+
+Anyone in the target's group. `/etc/ai-secrets/deepgram.env` is `root:aisecrets 0640`,
+so every member of `aisecrets` can read it. That is weaker than the encrypted registry
+and is a deliberate owner decision for trusted operator accounts. Check membership with
+`getent group aisecrets` before adding a target.
+
+### Tests
+
+    ops/secrets/test-secrets-materialize.sh <tempdir>
+
+Uses a temp store, a temp key and a dummy value — never the live registry. Requires
+root (it chowns a throwaway target under `/etc/ai-secrets/` and removes it).
+
+### Rollback
+
+    rm /usr/local/sbin/secrets-materialize
+    rm /var/lib/crm-secrets/deploy-targets.json
+    rm /etc/ai-secrets/<materialized file>
+
+The Registry is untouched by this tool — it only ever reads.
