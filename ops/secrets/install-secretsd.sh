@@ -89,5 +89,27 @@ ss -ltn | grep -q '127.0.0.1:8091' || { echo "not listening on loopback"; exit 6
 CODE="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8091/api/secrets || true)"
 [ "${CODE}" = "401" ] || { echo "expected 401 unauthenticated, got ${CODE}"; exit 7; }
 
+echo "== 8. materializer =="
+# secrets-materialize deploys a REGISTERED secret to a FIXED allowlisted file so a
+# consumer that can only read an env file (not the API) can use it. It never accepts
+# a secret name or a destination path from the caller — only a deployment id that the
+# owner declared in the allowlist. It reads secret material; it never emits it.
+install -o root -g root -m 0700 \
+  "${SOURCE_TREE}/ops/secrets/secrets-materialize" /usr/local/sbin/secrets-materialize
+
+# Seed the allowlist ONLY if absent — never clobber the owner's live deployments.
+# This file holds names and destinations. It must never contain a secret value.
+if [ ! -e "${STATE_DIR}/deploy-targets.json" ]; then
+  install -o root -g root -m 0600 \
+    "${SOURCE_TREE}/ops/secrets/deploy-targets.example.json" \
+    "${STATE_DIR}/deploy-targets.json"
+  echo "seeded ${STATE_DIR}/deploy-targets.json from example — review it before use"
+else
+  echo "${STATE_DIR}/deploy-targets.json already present — left untouched"
+fi
+[ "$(stat -c '%U:%G %a' "${STATE_DIR}/deploy-targets.json")" = "root:root 600" ] \
+  || { echo "allowlist must be root:root 0600" >&2; exit 8; }
+
 echo "OK — secretsd active as ${SERVICE_USER}, loopback only, unauthenticated 401."
+echo "materializer installed: /usr/local/sbin/secrets-materialize"
 echo "previous release (rollback target): $(ls -1dt "${RELEASE_DIR}"/*/ | sed -n 2p || echo none)"
