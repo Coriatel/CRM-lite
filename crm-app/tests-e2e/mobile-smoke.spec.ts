@@ -29,10 +29,30 @@ test.describe('mobile-smoke', () => {
 
   test('landed view renders without error sentinel', async ({ page }) => {
     await page.goto('/');
+    // The Google button is no longer unconditional: it renders only when the
+    // Directus instance actually reports a provider, and this one reports
+    // none. Anchoring the smoke on it asserted a control the product is
+    // deliberately allowed not to have — it passed for weeks only because
+    // production was serving a stale bundle, and failed the moment the
+    // container was recreated onto the current one.
+    //
+    // What must be true instead: an unauthenticated visitor gets a usable way
+    // in. The email form is that way, and it is present regardless of SSO.
+    const emailSignIn = page.getByPlaceholder('אימייל');
     const oauthBtn = page.getByRole('button', { name: /Google/i });
     const landedHeader = page.getByText(/משפחה מאנ|חיפוש לפי שם או טלפון/);
-    await expect(oauthBtn.or(landedHeader).first()).toBeVisible({ timeout: 10_000 });
+    await expect(emailSignIn.or(oauthBtn).or(landedHeader).first()).toBeVisible({ timeout: 10_000 });
     await assertNoErrorSentinel(page);
+  });
+
+  test('the login screen always offers a way in and a way back', async ({ page }) => {
+    // The failure this guards: shipping a login screen with no working path.
+    // Whatever the SSO state, an unauthenticated visitor must be able to sign
+    // in with an address and to recover a forgotten password.
+    await page.goto('/');
+    await expect(page.getByPlaceholder('אימייל').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByPlaceholder('סיסמה').first()).toBeVisible();
+    await expect(page.getByText('שכחת סיסמה?').first()).toBeVisible();
   });
 
   test('/today returns 200 without error sentinel (auth-gated)', async ({ page }) => {
