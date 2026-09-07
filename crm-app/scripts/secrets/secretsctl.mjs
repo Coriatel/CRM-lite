@@ -76,6 +76,14 @@ const COMMAND_FLAGS = {
   "deploy-rollback": ["target"],
 };
 
+// Flags that are a question, not a value. `--dry-run` must mean "do not write",
+// and must never be silently downgraded to a real run because the parser wanted
+// an argument after it. A simulate switch that performs the real action is worse
+// than having no simulate switch at all.
+export const PRODUCTION_STORE_ROOT = "/var/lib/crm-secrets";
+
+export const BOOLEAN_FLAGS = Object.freeze(new Set(["dry-run"]));
+
 export function parseArgs(argv, allowedFlags) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
@@ -90,6 +98,16 @@ export function parseArgs(argv, allowedFlags) {
     }
     if (Object.prototype.hasOwnProperty.call(out, key)) {
       throw new Error(`repeated flag --${key}`);
+    }
+    if (BOOLEAN_FLAGS.has(key)) {
+      // Accept the bare switch. Reject an argument outright rather than guess
+      // what `--dry-run false` was supposed to mean.
+      const following = argv[i + 1];
+      if (following !== undefined && !following.startsWith("--")) {
+        throw new Error(`flag --${key} takes no value`);
+      }
+      out[key] = true;
+      continue;
     }
     const next = argv[i + 1];
     if (next === undefined || next.startsWith("--")) {
@@ -161,6 +179,17 @@ function currentOwner() {
   } catch {
     return "unknown";
   }
+}
+
+function assertDeploymentStore() {
+  if (process.env.SECRET_STORE_ROOT) return;
+  // Only complain when a production store demonstrably exists elsewhere; a
+  // developer with no such directory keeps the ~/.secrets default.
+  if (!existsSync(PRODUCTION_STORE_ROOT)) return;
+  throw new Error(
+    `refusing to use ${storeRoot()} for a deployment command while ${PRODUCTION_STORE_ROOT} exists — `
+    + `set SECRET_STORE_ROOT explicitly (production: SECRET_STORE_ROOT=${PRODUCTION_STORE_ROOT})`,
+  );
 }
 
 const COMMANDS = {
@@ -303,12 +332,22 @@ const COMMANDS = {
 
   // --- deployment -----------------------------------------------------------
   //
+  // Deployment commands act on a PRODUCTION store. storeRoot() falls back to
+  // ~/.secrets, which for root is /root/.secrets — an empty directory that is
+  // not the production store. Reading it silently produced "no deploy targets
+  // declared" while /var/lib/crm-secrets held two, which reads as "nothing to
+  // do" when the truth is "you are looking in the wrong place". Refuse instead.
+
+  //
   // Materialises a stored value into the one env file and the one variable its
   // declared target names. Prints the target id and a version digest; never the
   // value, and never anything derived from it.
   deploy(args) {
+    assertDeploymentStore();
     const id = requireFlag(args, "target");
-    const res = applyTarget(id, { actor: currentOwner(), dryRun: args["dry-run"] === true });
+    const dryRun = args["dry-run"] === true;
+    const res = applyTarget(id, { actor: currentOwner(), dryRun });
+    if (dryRun) console.log("DRY RUN — nothing was written");
     console.log(`${res.outcome}: ${res.id} -> ${res.path} (secret=${res.secret}, version=${res.versionId})`);
     if (res.outcome === "applied") {
       console.log(`rollback point: ${res.backup}`);
@@ -317,6 +356,7 @@ const COMMANDS = {
   },
 
   "deploy-status"() {
+    assertDeploymentStore();
     const targets = readTargets();
     if (targets.length === 0) {
       console.log("no deploy targets declared");
@@ -334,6 +374,7 @@ const COMMANDS = {
   },
 
   "deploy-rollback"(args) {
+    assertDeploymentStore();
     const res = rollbackTarget(requireFlag(args, "target"), { actor: currentOwner() });
     console.log(`${res.outcome}: ${res.path} restored from ${res.from}`);
   },
