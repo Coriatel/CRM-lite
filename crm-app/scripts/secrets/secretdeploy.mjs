@@ -409,6 +409,16 @@ export function rollbackTarget(id, { root = storeRoot(), destinations = DESTINAT
 
   const { uid, gid } = resolveOwner(target, identityFiles);
   writePrivateAtomic(target.path, readFileSync(record.backup, "utf8"), { modeBits: target.modeBits, uid, gid });
+
+  // Record the reversal. Without this the state file keeps reporting
+  // "applied version=X" after the value has been rolled back out of the
+  // destination, so `deploy-status` asserts that production holds something it
+  // demonstrably does not. A deployment record that survives its own undo is
+  // worse than no record: it is a confident wrong answer.
+  const all = readState({ root });
+  all[id] = { ...record, rolledBackAt: new Date().toISOString(), rolledBackFrom: record.versionId };
+  writeState(all, { root });
+
   audit({ actor, operation: "deploy", secret: target.secret, outcome: "success", reason: `${id} rolled back to ${basename(record.backup)}` });
   return { id, outcome: "rolled-back", path: target.path, from: record.backup };
 }

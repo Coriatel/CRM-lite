@@ -368,7 +368,11 @@ const COMMANDS = {
       console.log(
         `${t.id}: ${t.secret} -> ${t.path}:${t.envVar} ` +
         `[${t.owner}:${t.group} ${t.mode}] ` +
-        (s ? `applied ${s.appliedAt} version=${s.versionId}` : "never applied"),
+        (!s
+          ? "never applied"
+          : s.rolledBackAt
+            ? `ROLLED BACK ${s.rolledBackAt} (was version=${s.rolledBackFrom ?? s.versionId})`
+            : `applied ${s.appliedAt} version=${s.versionId}`),
       );
     }
   },
