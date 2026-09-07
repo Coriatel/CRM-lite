@@ -34,6 +34,7 @@ import { createInterface } from "node:readline";
 import { userInfo } from "node:os";
 import { existsSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 
+import { applyTarget, readState, readTargets, rollbackTarget } from "./secretdeploy.mjs";
 import { audit } from "./secretaudit.mjs";
 import { auditPath } from "./secretaudit.mjs";
 import { generateKeyHex, wrapKeyForRecovery, unwrapRecoveryKey } from "./secretcrypto.mjs";
@@ -70,6 +71,9 @@ const COMMAND_FLAGS = {
   restore: ["from"],
   capabilities: [],
   trail: ["limit"],
+  deploy: ["target", "dry-run"],
+  "deploy-status": [],
+  "deploy-rollback": ["target"],
 };
 
 export function parseArgs(argv, allowedFlags) {
@@ -295,6 +299,43 @@ const COMMANDS = {
       const r = JSON.parse(line);
       console.log(`${r.ts}\t${r.actor}\t${r.operation}\t${r.secret ?? "-"}\t${r.outcome}${r.reason ? "\t" + r.reason : ""}`);
     }
+  },
+
+  // --- deployment -----------------------------------------------------------
+  //
+  // Materialises a stored value into the one env file and the one variable its
+  // declared target names. Prints the target id and a version digest; never the
+  // value, and never anything derived from it.
+  deploy(args) {
+    const id = requireFlag(args, "target");
+    const res = applyTarget(id, { actor: currentOwner(), dryRun: args["dry-run"] === true });
+    console.log(`${res.outcome}: ${res.id} -> ${res.path} (secret=${res.secret}, version=${res.versionId})`);
+    if (res.outcome === "applied") {
+      console.log(`rollback point: ${res.backup}`);
+      console.log(`the consuming service still holds the OLD value until it is restarted`);
+    }
+  },
+
+  "deploy-status"() {
+    const targets = readTargets();
+    if (targets.length === 0) {
+      console.log("no deploy targets declared");
+      return;
+    }
+    const state = readState();
+    for (const t of targets) {
+      const s = state[t.id];
+      console.log(
+        `${t.id}: ${t.secret} -> ${t.path}:${t.envVar} ` +
+        `[${t.owner}:${t.group} ${t.mode}] ` +
+        (s ? `applied ${s.appliedAt} version=${s.versionId}` : "never applied"),
+      );
+    }
+  },
+
+  "deploy-rollback"(args) {
+    const res = rollbackTarget(requireFlag(args, "target"), { actor: currentOwner() });
+    console.log(`${res.outcome}: ${res.path} restored from ${res.from}`);
   },
 
   audit() {

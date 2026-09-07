@@ -29,6 +29,9 @@ export const AUDIT_OPERATIONS = [
   "delete",
   "list",
   "broker.invoke",
+  // Materialising a stored value into a service's env file. The reason field
+  // carries "<target-id>@<version-digest>", never the value.
+  "deploy",
   "backup",
   "restore",
   "unknown",
