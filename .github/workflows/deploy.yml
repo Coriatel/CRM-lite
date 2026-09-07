@@ -25,6 +25,15 @@ jobs:
         run: npm run build
         working-directory: crm-app
 
+      # Stamp the build with the commit it came from. Without this the deploy has
+      # no way to ask production what it is actually serving, and every check
+      # below would only prove that *something* is being served.
+      - name: Stamp build with commit SHA
+        run: |
+          printf '{"sha":"%s","built_at":"%s"}\n' \
+            '${{ github.sha }}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > crm-app/dist/build-info.json
+
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -36,24 +45,33 @@ jobs:
             crm-app/dist/ \
             deploy@${{ secrets.DEPLOY_HOST }}:/home/elron/services/crm-lite/crm-app/dist-prod-staging/
 
-      - name: Atomic swap + container refresh + local readiness + prune
-        # A container refresh is required: Caddy's bind-mount holds the original
-        # inode of dist-prod, so `mv dist-prod ...` leaves the container serving
-        # the stale tree until the mount re-resolves.
+      - name: Publish in place + refresh + prove what is live + prune
+        # Why this is an in-place rsync and no longer a directory swap:
         #
-        # The refresh goes through /usr/local/sbin/crmlite-web-refresh (root
-        # owned, argument-less, runs `docker compose up -d --no-build --pull
-        # never crmlite-web`). Unlike the previous `docker restart`, this
-        # RECREATES the container if it is missing — the 2026-08-01 failure mode,
-        # where the container was lost and every deploy still reported success.
-        # Sudoers drop-in /etc/sudoers.d/deploy-crmlite-refresh authorises only
-        # that wrapper, with no arguments (least privilege).
+        # `mv dist-prod dist-prod.bak-...` gives the new build a NEW inode, but
+        # the crmlite-web bind mount was resolved to the OLD inode when the
+        # container started. The container therefore keeps serving the previous
+        # tree, and `docker compose up -d` (what the refresh wrapper runs) will
+        # not fix that: compose sees an already-correct container spec and leaves
+        # it alone. It only recreates a container that is missing or changed.
         #
-        # Statements are newline-separated under `set -e`, NOT an `&&` chain:
-        # the old chain ended in `|| echo`, which swallowed a failed refresh and
-        # let the step exit 0 while production was down. Only the prune is
-        # non-fatal, and its error handling is isolated to its own statement so
-        # it cannot mask an earlier failure.
+        # On 2026-09-07 two consecutive deploys reported success while
+        # production served a build from three days earlier. Neither the local
+        # readiness probe nor the smoke test could catch it: both only asked for
+        # a 200, and the stale tree answered 200 perfectly well.
+        #
+        # Publishing into the existing directory keeps the inode stable, so the
+        # container serves the new files immediately with no recreate at all.
+        # Two passes: additive first, so no moment exists where a new index.html
+        # points at assets that are not there yet; then --delete to retire the
+        # old ones.
+        #
+        # The refresh wrapper still runs, because it remains the recovery path
+        # for a container that has gone missing (the 2026-08-01 failure mode).
+        #
+        # The readiness check now asks production which commit it is serving and
+        # compares it to this one. A deploy that cannot prove that is a failed
+        # deploy.
         run: |
           ssh -o StrictHostKeyChecking=no \
             deploy@${{ secrets.DEPLOY_HOST }} \
@@ -62,20 +80,29 @@ jobs:
              STAMP=\$(date -u +%Y%m%d-%H%M%SZ)
              SHA=\$(echo '${{ github.sha }}' | cut -c1-7)
              test -f dist-prod-staging/index.html || { echo 'staging missing index.html — abort'; exit 1; }
+             test -f dist-prod-staging/build-info.json || { echo 'staging missing build-info.json — abort'; exit 1; }
              ls dist-prod-staging/assets/index-*.js >/dev/null || { echo 'staging missing main bundle — abort'; exit 1; }
-             if [ -d dist-prod ]; then mv dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi
-             mv dist-prod-staging dist-prod
-             echo \"swapped; live SHA=\${SHA}\"
+             if [ -d dist-prod ]; then cp -a dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi
+             rsync -a dist-prod-staging/ dist-prod/
+             rsync -a --delete dist-prod-staging/ dist-prod/
+             rm -rf dist-prod-staging
+             echo \"published in place; SHA=\${SHA}\"
              sudo -n /usr/local/sbin/crmlite-web-refresh
              echo 'container refreshed'
              ok=0
              for i in 1 2 3 4 5 6 7 8 9 10; do
-               code=\$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ || echo 000)
-               if [ \"\$code\" = 200 ]; then echo \"local readiness OK: 127.0.0.1:8090 -> 200\"; ok=1; break; fi
-               echo \"local readiness retry \$i: got \$code\"
+               live=\$(curl -sS http://127.0.0.1:8090/build-info.json 2>/dev/null | tr -d '[:space:]' || echo '')
+               case \"\$live\" in
+                 *'\"sha\":\"${{ github.sha }}\"'*)
+                   echo \"live build confirmed: 127.0.0.1:8090 is serving ${{ github.sha }}\"; ok=1; break ;;
+               esac
+               echo \"readiness retry \$i: live build-info = \${live:-<none>}\"
                sleep 2
              done
-             if [ \"\$ok\" -ne 1 ]; then echo 'local readiness FAILED on 127.0.0.1:8090'; exit 1; fi
+             if [ \"\$ok\" -ne 1 ]; then
+               echo 'FAILED: production is not serving this commit. The tree was published but the running container is still on an older build.'
+               exit 1
+             fi
              if ls -dt dist-prod.bak-* >/dev/null 2>&1; then
                if ls -dt dist-prod.bak-* | tail -n +4 | xargs -r rm -rf 2>/dev/null; then
                  echo 'pruned to last 3 backups'
@@ -90,11 +117,17 @@ jobs:
           SHA_SHORT=$(echo '${{ github.sha }}' | cut -c1-7)
           for i in 1 2 3 4 5; do
             CODE=$(curl -fsS -o /dev/null -w "%{http_code}" https://crmphone.merkazneshama.co.il/ops || echo "000")
-            if [ "$CODE" = "200" ]; then
-              echo "smoke OK: /ops 200 (sha=$SHA_SHORT)"
+            LIVE=$(curl -fsS https://crmphone.merkazneshama.co.il/build-info.json 2>/dev/null | tr -d '[:space:]' || echo "")
+            # A 200 alone proved nothing: a three-day-old tree answers 200 too.
+            case "$LIVE" in
+              *'"sha":"${{ github.sha }}"'*) SERVING=1 ;;
+              *) SERVING=0 ;;
+            esac
+            if [ "$CODE" = "200" ] && [ "$SERVING" = "1" ]; then
+              echo "smoke OK: /ops 200 and the edge is serving $SHA_SHORT"
               exit 0
             fi
-            echo "smoke retry $i: got $CODE"
+            echo "smoke retry $i: code=$CODE live=${LIVE:-<none>}"
             sleep 3
           done
           echo "smoke FAIL after retries"
