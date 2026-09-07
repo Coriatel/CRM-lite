@@ -128,6 +128,21 @@ describe('LoginPage — password reset', () => {
         expect(screen.getByText('שכחת סיסמה?')).toBeTruthy();
     });
 
+    it('the "or" divider appears only when there are two paths to separate', async () => {
+        getEnabledAuthProviders.mockResolvedValueOnce([]);
+        const { unmount } = render(<LoginPage />);
+        await waitFor(() => screen.getByText(/אינה מוגדרת בשרת/));
+        expect(screen.queryByText('או')).toBeNull();
+        unmount();
+
+        getEnabledAuthProviders.mockResolvedValueOnce(['google']);
+        render(<LoginPage />);
+        await waitFor(() => screen.getByText('התחבר עם Google'));
+        expect(screen.getByText('או')).toBeTruthy();
+        openReset();
+        expect(screen.queryByText('או')).toBeNull();
+    });
+
     it('returning from the confirmation clears the typed address', async () => {
         render(<LoginPage />);
         openReset();
