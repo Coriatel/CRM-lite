@@ -64,6 +64,69 @@ export async function loginWithPassword(email: string, password: string): Promis
     }
 }
 
+/**
+ * Ask Directus to email a password-reset link.
+ *
+ * The whole flow lives in Directus and deliberately stays there. Its token is a
+ * JWT signed with the instance SECRET *and bound to the user's current password
+ * hash*, so it is single-use by construction: the moment the password changes the
+ * signature stops validating. Nothing is stored, so there is no plaintext token
+ * to leak, and the TTL is enforced server-side.
+ *
+ * Note what is NOT sent: `reset_url`. Directus only honours a caller-supplied
+ * destination if it appears in PASSWORD_RESET_URL_ALLOW_LIST, which this instance
+ * does not set — so omitting it means the link can only ever point at the
+ * instance's own PUBLIC_URL. An open redirect is not merely unlikely here, it is
+ * unreachable: there is no parameter through which a destination could arrive.
+ *
+ * Always resolves. The caller must show the same message whatever happened —
+ * Directus answers 204 for an address it has never seen, and a UI that
+ * distinguished the cases would undo that at the last step.
+ */
+/**
+ * Which SSO providers this Directus instance actually has.
+ *
+ * The login screen offered a Google button for months while the instance had no
+ * providers configured at all: GET /auth returned `{"data":[]}` and
+ * /auth/login/google answered 404, so the button navigated the owner to a dead
+ * end with no explanation. Asking the server what exists, rather than assuming,
+ * makes the screen tell the truth — and makes it self-correcting: the moment
+ * AUTH_PROVIDERS is configured the button comes back with no redeploy.
+ *
+ * Returns [] on any failure. Showing a button that cannot work is worse than
+ * showing none, so an unreachable server is treated as "no SSO", not "probably
+ * fine".
+ */
+export async function getEnabledAuthProviders(): Promise<string[]> {
+    try {
+        const res = await fetch(`${DIRECTUS_URL}/auth`);
+        if (!res.ok) return [];
+        const json = await res.json();
+        const data = json?.data;
+        if (!Array.isArray(data)) return [];
+        return data
+            .map((p: { name?: unknown }) => (typeof p?.name === 'string' ? p.name : ''))
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+    try {
+        await fetch(`${DIRECTUS_URL}/auth/password/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+        });
+    } catch {
+        // Swallowed on purpose. A network error here is indistinguishable to the
+        // user from a successful request for an unknown address, and it must
+        // stay that way; surfacing it would leak nothing useful and would give
+        // an attacker a timing or error-shape oracle for free.
+    }
+}
+
 export async function refreshAccessToken(): Promise<{ accessToken: string; refreshToken: string; expires: number } | null> {
     const { refreshToken } = getStoredTokens();
     if (!refreshToken) return null;
