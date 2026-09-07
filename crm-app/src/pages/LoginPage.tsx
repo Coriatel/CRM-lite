@@ -130,11 +130,15 @@ export function LoginPage() {
             </button>
             )}
 
+            {/* "or" only separates two things. With no SSO provider, or on the
+                reset screen, there is only one thing. */}
+            {mode === 'signin' && providers?.includes('google') && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 320, margin: 'var(--spacing-lg) 0', color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
                 <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.3)' }} />
                 <span>או</span>
                 <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.3)' }} />
             </div>
+            )}
 
             {mode === 'reset' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 320 }}>
