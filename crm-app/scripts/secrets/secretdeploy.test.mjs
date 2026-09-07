@@ -463,3 +463,47 @@ describe("wiring", () => {
     expect(Object.values(state["directus-smtp"]).join(" ")).not.toContain(VALUE);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CLI safety. These cover two defects found on 2026-09-07 while deploying the
+// Directus SMTP secret for real, both of which are silent-wrong-behaviour bugs
+// rather than crashes — the kind a green suite happily coexists with.
+// ---------------------------------------------------------------------------
+describe("secretsctl flag parsing", () => {
+  it("accepts --dry-run as a bare switch and yields boolean true", async () => {
+    const { parseArgs } = await import("./secretsctl.mjs");
+    // The regression: the parser demanded a value, so `--dry-run true` produced
+    // the STRING "true", while the deploy command tested `=== true`. Asking to
+    // simulate therefore performed a real deployment.
+    expect(parseArgs(["--dry-run"], ["target", "dry-run"])["dry-run"]).toBe(true);
+  });
+
+  it("still parses a value flag alongside a boolean one, in either order", async () => {
+    const { parseArgs } = await import("./secretsctl.mjs");
+    const a = parseArgs(["--target", "directus-smtp", "--dry-run"], ["target", "dry-run"]);
+    expect(a).toEqual({ target: "directus-smtp", "dry-run": true });
+    const b = parseArgs(["--dry-run", "--target", "directus-smtp"], ["target", "dry-run"]);
+    expect(b).toEqual({ target: "directus-smtp", "dry-run": true });
+  });
+
+  it("rejects an argument after a boolean flag instead of guessing", async () => {
+    const { parseArgs } = await import("./secretsctl.mjs");
+    expect(() => parseArgs(["--dry-run", "false"], ["dry-run"])).toThrow(/takes no value/);
+  });
+
+  it("still requires a value for non-boolean flags", async () => {
+    const { parseArgs } = await import("./secretsctl.mjs");
+    expect(() => parseArgs(["--target"], ["target"])).toThrow(/requires a value/);
+  });
+
+  it("never puts a flag's argument in the error text", async () => {
+    const { parseArgs } = await import("./secretsctl.mjs");
+    try {
+      parseArgs(["--nope", "s3cr3t-looking-value"], ["target"]);
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e.message).toContain("--nope");
+      expect(e.message).not.toContain("s3cr3t-looking-value");
+    }
+  });
+});

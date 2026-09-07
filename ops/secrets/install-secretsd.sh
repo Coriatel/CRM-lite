@@ -80,9 +80,24 @@ if [ "${KEY_MODE}" != "400" ] || [ "${KEY_OWNER}" != "${SERVICE_USER}" ]; then
 fi
 
 echo "== 6. start =="
-systemctl enable --now secretsd
+# `enable --now` starts a STOPPED unit and does nothing to a running one, so on
+# every upgrade it left the old process serving while `current` already pointed
+# at the new release — and step 7 below then happily verified the OLD daemon.
+# Restart unconditionally: a release that is installed but not running is not
+# deployed, and a check that passes against the previous build is not a check.
+systemctl enable secretsd
+systemctl restart secretsd
 sleep 2
 systemctl is-active --quiet secretsd || { journalctl -u secretsd -n 20 --no-pager; exit 5; }
+
+# Prove the RUNNING process is executing this release, not merely that some
+# secretsd is alive.
+MAIN_PID="$(systemctl show -p MainPID --value secretsd)"
+RUNNING_RELEASE="$(readlink -f "/proc/${MAIN_PID}/cwd" 2>/dev/null || echo unknown)"
+case "${RUNNING_RELEASE}" in
+  "${DEST}"/*) echo "running from ${DEST}" ;;
+  *) echo "FAIL: current -> ${DEST} but pid ${MAIN_PID} is running from ${RUNNING_RELEASE}" >&2; exit 9 ;;
+esac
 
 echo "== 7. verify =="
 ss -ltn | grep -q '127.0.0.1:8091' || { echo "not listening on loopback"; exit 6; }
