@@ -1,12 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { AUTH_MODE } from '../config';
+import { getEnabledAuthProviders, requestPasswordReset } from '../services/auth';
 
 export function LoginPage() {
     const { signInWithGoogle, signInWithEmail, error } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [mode, setMode] = useState<'signin' | 'reset'>('signin');
+    const [resetEmail, setResetEmail] = useState('');
+    const [resetSent, setResetSent] = useState(false);
+    // null = not asked yet. Rendering neither the button nor the explanation until
+    // the answer arrives avoids flashing a control that is about to disappear.
+    const [providers, setProviders] = useState<string[] | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        getEnabledAuthProviders()
+            // A provider list we could not obtain is not evidence that SSO works.
+            .catch(() => [] as string[])
+            .then((p) => { if (!cancelled) setProviders(p); });
+        return () => { cancelled = true; };
+    }, []);
+
+    // One outcome, always. Directus answers 204 for an address it has never seen
+    // precisely so that this screen cannot become an account-existence oracle, and
+    // branching on the result here would hand that back.
+    const handleResetSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!resetEmail || submitting) return;
+        setSubmitting(true);
+        try {
+            await requestPasswordReset(resetEmail);
+        } catch {
+            // The service is written never to reject, and this screen still does
+            // not rely on that: an unhandled rejection here would be a visible
+            // difference between outcomes, which is the one thing this flow must
+            // not have.
+        } finally {
+            setSubmitting(false);
+            setResetSent(true);
+        }
+    };
 
     const handleEmailSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -64,6 +100,22 @@ export function LoginPage() {
                 </div>
             )}
 
+            {providers !== null && !providers.includes('google') && (
+                <div style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    color: 'white',
+                    padding: '10px 16px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    textAlign: 'center',
+                    maxWidth: 320,
+                    lineHeight: 1.5,
+                }}>
+                    כניסה עם Google אינה מוגדרת בשרת כרגע. השתמשו בכניסה עם אימייל.
+                </div>
+            )}
+
+            {providers?.includes('google') && (
             <button
                 className="google-btn"
                 onClick={signInWithGoogle}
@@ -76,6 +128,7 @@ export function LoginPage() {
                 </svg>
                 <span>התחבר עם Google</span>
             </button>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 320, margin: 'var(--spacing-lg) 0', color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
                 <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.3)' }} />
@@ -83,6 +136,55 @@ export function LoginPage() {
                 <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.3)' }} />
             </div>
 
+            {mode === 'reset' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 320 }}>
+                    {resetSent ? (
+                        <>
+                            <p style={{ color: 'white', fontSize: 14, textAlign: 'center', lineHeight: 1.6, margin: 0 }}>
+                                אם קיים חשבון עבור כתובת זו, נשלח אליה קישור לאיפוס סיסמה.
+                                הקישור תקף לזמן קצר וניתן לשימוש פעם אחת.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => { setMode('signin'); setResetSent(false); setResetEmail(''); }}
+                                style={{ padding: '12px 14px', borderRadius: 8, border: 'none', background: 'white', color: '#1a5f7a', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                            >
+                                חזרה להתחברות
+                            </button>
+                        </>
+                    ) : (
+                        <form onSubmit={handleResetSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <label htmlFor="reset-email" style={{ color: 'white', fontSize: 14, textAlign: 'center' }}>
+                                הזינו את כתובת האימייל של החשבון
+                            </label>
+                            <input
+                                id="reset-email"
+                                type="email"
+                                autoComplete="email"
+                                placeholder="אימייל"
+                                value={resetEmail}
+                                onChange={(e) => setResetEmail(e.target.value)}
+                                required
+                                style={{ padding: '12px 14px', borderRadius: 8, border: 'none', fontSize: 14, direction: 'ltr', textAlign: 'left' }}
+                            />
+                            <button
+                                type="submit"
+                                disabled={submitting || !resetEmail}
+                                style={{ padding: '12px 14px', borderRadius: 8, border: 'none', background: 'white', color: '#1a5f7a', fontSize: 14, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                            >
+                                {submitting ? 'שולח...' : 'שלחו לי קישור לאיפוס'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setMode('signin')}
+                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', fontSize: 13, textDecoration: 'underline', cursor: 'pointer' }}
+                            >
+                                ביטול
+                            </button>
+                        </form>
+                    )}
+                </div>
+            ) : (
             <form onSubmit={handleEmailSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 320 }}>
                 <input
                     type="email"
@@ -109,7 +211,15 @@ export function LoginPage() {
                 >
                     {submitting ? 'מתחבר...' : 'התחבר עם אימייל'}
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setMode('reset')}
+                    style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', padding: 4 }}
+                >
+                    שכחת סיסמה?
+                </button>
             </form>
+            )}
         </div>
     );
 }
