@@ -507,3 +507,37 @@ describe("secretsctl flag parsing", () => {
     }
   });
 });
+
+describe("rollback tells the truth about what production holds", () => {
+  it("marks the target rolled back instead of leaving it reported as applied", () => {
+    writeTargets([target()]);
+    applyTarget("directus-smtp", opts({ actor: "test" }));
+    expect(readState({ root })["directus-smtp"].appliedAt).toBeTruthy();
+
+    rollbackTarget("directus-smtp", opts({ actor: "test" }));
+
+    // The regression: rollbackTarget rewrote the destination and wrote an audit
+    // record, but never touched deploy-state.json — so deploy-status kept
+    // asserting that the deployed version was live long after it had been rolled
+    // back out. Observed in production on 2026-09-07.
+    const after = readState({ root })["directus-smtp"];
+    expect(after.rolledBackAt).toBeTruthy();
+    expect(after.rolledBackFrom).toBe(after.versionId);
+  });
+
+  it("a re-apply after a rollback clears the rolled-back marker", () => {
+    writeTargets([target()]);
+    applyTarget("directus-smtp", opts({ actor: "test" }));
+    rollbackTarget("directus-smtp", opts({ actor: "test" }));
+    expect(readState({ root })["directus-smtp"].rolledBackAt).toBeTruthy();
+
+    applyTarget("directus-smtp", opts({ actor: "test", readEnvelope: () => "envelope-bytes-for-v2" }));
+    expect(readState({ root })["directus-smtp"].rolledBackAt).toBeUndefined();
+  });
+
+  it("still records no state at all for a dry run", () => {
+    writeTargets([target()]);
+    applyTarget("directus-smtp", opts({ actor: "test", dryRun: true }));
+    expect(readState({ root })["directus-smtp"]).toBeUndefined();
+  });
+});
