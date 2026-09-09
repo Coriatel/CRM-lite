@@ -145,7 +145,7 @@ describe("target validation — what may be declared at all", () => {
     // Holiday House deploy actually depends on.
     for (const v of ["SMTP_PASS_PUBLIC_SITES", "DIRECTUS_PUBLIC_SITES_TOKEN", "LEAD_EMAIL_TO"]) {
       const t = validateTarget(target({
-        path: "/home/elrondev/.config/chagim-lead.env", env_var: v, mode: "0600",
+        path: "/etc/ai-secrets/chagim-lead.env", env_var: v, mode: "0640",
       }));
       expect(t.envVar).toBe(v);
     }
@@ -153,8 +153,8 @@ describe("target validation — what may be declared at all", () => {
 
   it("refuses LEAD_WA_RECIPIENT at chagim-lead — the canonical path never reads it", () => {
     expect(() => validateTarget(target({
-      path: "/home/elrondev/.config/chagim-lead.env",
-      env_var: "LEAD_WA_RECIPIENT", mode: "0600",
+      path: "/etc/ai-secrets/chagim-lead.env",
+      env_var: "LEAD_WA_RECIPIENT", mode: "0640",
     }))).toThrow(/may not be written to/);
   });
 
