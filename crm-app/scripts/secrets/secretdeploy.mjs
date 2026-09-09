@@ -69,12 +69,14 @@ export const DESTINATIONS = Object.freeze({
   // hardcodes ALLOWED_DIR="/etc/ai-secrets/" and refuses anything else, so a
   // home-directory entry here would be a destination that can never be written.
   // The service reads it as a second EnvironmentFile via group aisecrets.
-  "/etc/ai-secrets/chagim-lead.env": Object.freeze({
-    vars: Object.freeze([
-      "SMTP_PASS_PUBLIC_SITES",
-      "DIRECTUS_PUBLIC_SITES_TOKEN",
-      "LEAD_EMAIL_TO",
-    ]),
+  "/etc/ai-secrets/chagim-lead-smtp.env": Object.freeze({
+    vars: Object.freeze(["SMTP_PASS_PUBLIC_SITES"]),
+  }),
+  "/etc/ai-secrets/chagim-lead-directus.env": Object.freeze({
+    vars: Object.freeze(["DIRECTUS_PUBLIC_SITES_TOKEN"]),
+  }),
+  "/etc/ai-secrets/chagim-lead-email-to.env": Object.freeze({
+    vars: Object.freeze(["LEAD_EMAIL_TO"]),
   }),
 });
 

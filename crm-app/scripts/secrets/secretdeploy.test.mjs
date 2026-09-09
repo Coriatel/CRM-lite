@@ -143,17 +143,20 @@ describe("target validation — what may be declared at all", () => {
   it("allows the three chagim-lead variables at the real DESTINATIONS entry", () => {
     // Against the SHIPPED allowlist, not the test double: this is the entry the
     // Holiday House deploy actually depends on.
-    for (const v of ["SMTP_PASS_PUBLIC_SITES", "DIRECTUS_PUBLIC_SITES_TOKEN", "LEAD_EMAIL_TO"]) {
-      const t = validateTarget(target({
-        path: "/etc/ai-secrets/chagim-lead.env", env_var: v, mode: "0640",
-      }));
+    const pairs = [
+      ["/etc/ai-secrets/chagim-lead-smtp.env", "SMTP_PASS_PUBLIC_SITES"],
+      ["/etc/ai-secrets/chagim-lead-directus.env", "DIRECTUS_PUBLIC_SITES_TOKEN"],
+      ["/etc/ai-secrets/chagim-lead-email-to.env", "LEAD_EMAIL_TO"],
+    ];
+    for (const [path, v] of pairs) {
+      const t = validateTarget(target({ path, env_var: v, mode: "0640" }));
       expect(t.envVar).toBe(v);
     }
   });
 
   it("refuses LEAD_WA_RECIPIENT at chagim-lead — the canonical path never reads it", () => {
     expect(() => validateTarget(target({
-      path: "/etc/ai-secrets/chagim-lead.env",
+      path: "/etc/ai-secrets/chagim-lead-smtp.env",
       env_var: "LEAD_WA_RECIPIENT", mode: "0640",
     }))).toThrow(/may not be written to/);
   });
