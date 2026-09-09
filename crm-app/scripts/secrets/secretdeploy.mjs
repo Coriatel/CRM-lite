@@ -64,7 +64,12 @@ export const DESTINATIONS = Object.freeze({
   // public sites. Three variables and no more: LEAD_WA_RECIPIENT is deliberately
   // absent because the canonical WhatsApp path (Directus flow -> Windmill
   // f/crm/notify_new_lead) hardcodes its own recipient and never reads it.
-  "/home/elrondev/.config/chagim-lead.env": Object.freeze({
+  //
+  // Under /etc/ai-secrets and not the unit's home directory: secrets-materialize
+  // hardcodes ALLOWED_DIR="/etc/ai-secrets/" and refuses anything else, so a
+  // home-directory entry here would be a destination that can never be written.
+  // The service reads it as a second EnvironmentFile via group aisecrets.
+  "/etc/ai-secrets/chagim-lead.env": Object.freeze({
     vars: Object.freeze([
       "SMTP_PASS_PUBLIC_SITES",
       "DIRECTUS_PUBLIC_SITES_TOKEN",
