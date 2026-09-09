@@ -2425,6 +2425,37 @@ const statusColor: Record<string, string> = {
   archived: "#737373",
 };
 
+// A link out, deliberately not an embed. Merkaz Secrets is where the owner types
+// a secret value, and its whole design rests on that value never touching another
+// origin: strict CSP, no shared cookie, its own passkey session. Rendering it in
+// an iframe here would put a page that handles secrets inside the CRM's origin
+// and hand the CRM's XSS surface a way to reach it. So the cockpit points at it
+// and stops there.
+export function ExternalToolsCard() {
+  return (
+    <section aria-label="כלים חיצוניים" style={overviewCard}>
+      <div style={overviewHead}>
+        <span>כלים חיצוניים</span>
+      </div>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+        <li style={{ fontSize: 13, color: "#404040" }}>
+          <a
+            href="https://secrets.merkazneshama.co.il/"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "#1d4ed8", textDecoration: "none", fontWeight: 600 }}
+          >
+            מרכז סודות ↗
+          </a>
+          <div style={{ fontSize: 11, color: "#737373", marginTop: 2 }}>
+            הזנת ערכי סודות. נפתח בכרטיסייה נפרדת ודורש Passkey — הערכים אינם עוברים דרך המערכת הזאת.
+          </div>
+        </li>
+      </ul>
+    </section>
+  );
+}
+
 export function OpsPage() {
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
@@ -2661,6 +2692,7 @@ export function OpsPage() {
       </OpsSection>
 
       <OpsSection title="אוטומציות ותהליכים" defaultOpen>
+        <ExternalToolsCard />
         <CardFreshnessBadge file="workflows.json" freshness={freshness} />
         <WorkflowsCard doc={workflows} />
         <CardFreshnessBadge file="automation_runtime_inventory.json" freshness={freshness} />
