@@ -140,6 +140,24 @@ describe("target validation — what may be declared at all", () => {
     expect(t.modeBits).toBe(0o640);
   });
 
+  it("allows the three chagim-lead variables at the real DESTINATIONS entry", () => {
+    // Against the SHIPPED allowlist, not the test double: this is the entry the
+    // Holiday House deploy actually depends on.
+    for (const v of ["SMTP_PASS_PUBLIC_SITES", "DIRECTUS_PUBLIC_SITES_TOKEN", "LEAD_EMAIL_TO"]) {
+      const t = validateTarget(target({
+        path: "/home/elrondev/.config/chagim-lead.env", env_var: v, mode: "0600",
+      }));
+      expect(t.envVar).toBe(v);
+    }
+  });
+
+  it("refuses LEAD_WA_RECIPIENT at chagim-lead — the canonical path never reads it", () => {
+    expect(() => validateTarget(target({
+      path: "/home/elrondev/.config/chagim-lead.env",
+      env_var: "LEAD_WA_RECIPIENT", mode: "0600",
+    }))).toThrow(/may not be written to/);
+  });
+
   it("rejects an arbitrary destination path", () => {
     expect(() => validateTarget(target({ path: "/etc/shadow" }), { destinations: destinations() }))
       .toThrow(/not allow-listed/);
