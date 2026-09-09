@@ -60,6 +60,17 @@ export const DESTINATIONS = Object.freeze({
   "/opt/hoshen-yehuda/crm-stack/.env": Object.freeze({
     vars: Object.freeze(["DIRECTUS_EMAIL_SMTP_PASSWORD"]),
   }),
+  // chagim-lead — the Holiday House lead form, first of the Merkaz Neshama
+  // public sites. Three variables and no more: LEAD_WA_RECIPIENT is deliberately
+  // absent because the canonical WhatsApp path (Directus flow -> Windmill
+  // f/crm/notify_new_lead) hardcodes its own recipient and never reads it.
+  "/home/elrondev/.config/chagim-lead.env": Object.freeze({
+    vars: Object.freeze([
+      "SMTP_PASS_PUBLIC_SITES",
+      "DIRECTUS_PUBLIC_SITES_TOKEN",
+      "LEAD_EMAIL_TO",
+    ]),
+  }),
 });
 
 export class DeployError extends Error {
