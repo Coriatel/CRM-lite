@@ -162,6 +162,18 @@ describe("target validation — what may be declared at all", () => {
       .toThrow(/may not be written to/);
   });
 
+  it("allows the two targets declared on 2026-09-28, one variable each", () => {
+    const pairs = [
+      ["/etc/ai-secrets/yafutsu-owner-login.env", "YAFUTSU_OWNER_PASSWORD", "0640"],
+      ["/etc/ai-secrets/caddy-drive-webhook.env", "WINDMILL_WEBHOOK_TOKEN", "0600"],
+    ];
+    for (const [path, v, mode] of pairs) {
+      expect(validateTarget(target({ path, env_var: v, mode })).envVar).toBe(v);
+      expect(() => validateTarget(target({ path, env_var: "GEMINI_API_KEY", mode })))
+        .toThrow(/may not be written to/);
+    }
+  });
+
   it("refuses LEAD_WA_RECIPIENT at chagim-lead — the canonical path never reads it", () => {
     expect(() => validateTarget(target({
       path: "/etc/ai-secrets/chagim-lead-smtp.env",
