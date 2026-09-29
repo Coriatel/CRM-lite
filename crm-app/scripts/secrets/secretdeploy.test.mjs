@@ -154,6 +154,14 @@ describe("target validation — what may be declared at all", () => {
     }
   });
 
+  it("allows GEMINI_API_KEY at the mayenotecha entry, and nothing else there", () => {
+    const path = "/etc/ai-secrets/mayenotecha-gemini.env";
+    expect(validateTarget(target({ path, env_var: "GEMINI_API_KEY", mode: "0640" })).envVar)
+      .toBe("GEMINI_API_KEY");
+    expect(() => validateTarget(target({ path, env_var: "POSTGRES_PASSWORD", mode: "0640" })))
+      .toThrow(/may not be written to/);
+  });
+
   it("refuses LEAD_WA_RECIPIENT at chagim-lead — the canonical path never reads it", () => {
     expect(() => validateTarget(target({
       path: "/etc/ai-secrets/chagim-lead-smtp.env",

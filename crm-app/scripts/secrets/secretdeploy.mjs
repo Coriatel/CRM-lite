@@ -78,6 +78,13 @@ export const DESTINATIONS = Object.freeze({
   "/etc/ai-secrets/chagim-lead-email-to.env": Object.freeze({
     vars: Object.freeze(["LEAD_EMAIL_TO"]),
   }),
+  // Mayanotecha (the Torah corpus behind the conversational agent): its query
+  // embeddings key, replacing the one that leaked into the journal in the URL.
+  // mayenotecha-api reads this as a second EnvironmentFile, after its .env,
+  // through group aisecrets.
+  "/etc/ai-secrets/mayenotecha-gemini.env": Object.freeze({
+    vars: Object.freeze(["GEMINI_API_KEY"]),
+  }),
 });
 
 export class DeployError extends Error {
