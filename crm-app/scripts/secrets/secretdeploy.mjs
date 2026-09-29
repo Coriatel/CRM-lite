@@ -85,6 +85,16 @@ export const DESTINATIONS = Object.freeze({
   "/etc/ai-secrets/mayenotecha-gemini.env": Object.freeze({
     vars: Object.freeze(["GEMINI_API_KEY"]),
   }),
+  // Two targets declared in deploy-targets.json on 2026-09-28 without an entry
+  // here. readTargets refuses the WHOLE file when one target is not allowed, so
+  // from then on every `secretsctl deploy` and `deploy-status` failed, for every
+  // secret. Allow-listed exactly as declared, one variable each.
+  "/etc/ai-secrets/yafutsu-owner-login.env": Object.freeze({
+    vars: Object.freeze(["YAFUTSU_OWNER_PASSWORD"]),
+  }),
+  "/etc/ai-secrets/caddy-drive-webhook.env": Object.freeze({
+    vars: Object.freeze(["WINDMILL_WEBHOOK_TOKEN"]),
+  }),
 });
 
 export class DeployError extends Error {
