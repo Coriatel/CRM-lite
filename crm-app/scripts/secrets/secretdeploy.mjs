@@ -85,6 +85,12 @@ export const DESTINATIONS = Object.freeze({
   "/etc/ai-secrets/mayenotecha-gemini.env": Object.freeze({
     vars: Object.freeze(["GEMINI_API_KEY"]),
   }),
+  // The conversational agent's read-aloud: a male Hebrew voice from Google
+  // Cloud Text-to-Speech (owner, 2026-09-30). agent-shim reads it per call
+  // through group aisecrets; the key is restricted to that one API.
+  "/etc/ai-secrets/google-tts.env": Object.freeze({
+    vars: Object.freeze(["GOOGLE_TTS_API_KEY"]),
+  }),
   // Two targets declared in deploy-targets.json on 2026-09-28 without an entry
   // here. readTargets refuses the WHOLE file when one target is not allowed, so
   // from then on every `secretsctl deploy` and `deploy-status` failed, for every
