@@ -44,6 +44,9 @@ const SchedulePage = lazy(() =>
 const OpsPage = lazy(() =>
   import("./pages/OpsPage").then((m) => ({ default: m.OpsPage })),
 );
+const OwnerPage = lazy(() =>
+  import("./pages/owner/OwnerPage").then((m) => ({ default: m.OwnerPage })),
+);
 const ControlPanelPage = lazy(() =>
   import("./pages/control/ControlPanelPage").then((m) => ({
     default: m.ControlPanelPage,
@@ -111,6 +114,7 @@ const OwnerDecisionViewPage = lazy(() =>
 import { AppShell } from "./components/layout/AppShell";
 import { DECISIONS_ENABLED } from "./pages/control/decisionTypes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ScrollToHash } from "./components/ScrollToHash";
 import { SortOption, AdvancedFilters } from "./types";
 
 const LAST_ROUTE_KEY = "crm_last_route";
@@ -122,6 +126,7 @@ const ROUTE_WHITELIST = [
   "/today",
   "/calls-today",
   "/ops",
+  "/owner",
   "/rabbi",
   "/elron",
 ];
@@ -181,6 +186,7 @@ function AppContent() {
   return (
     <>
       <RouteTracker />
+      <ScrollToHash />
       <Routes>
         <Route
           element={
@@ -207,6 +213,7 @@ function AppContent() {
           <Route path="calls-today" element={<CallsTodayPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="ops" element={<OpsPage />} />
+          <Route path="owner" element={<OwnerPage />} />
           <Route path="control" element={<ControlPanelPage />} />
           {DECISIONS_ENABLED && (
             <>
