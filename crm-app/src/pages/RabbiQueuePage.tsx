@@ -13,6 +13,7 @@ import { AttentionBucketOperatorSummary } from "../components/dashboard/Attentio
 import { RabbiDayCard } from "../components/dashboard/RabbiDayCard";
 import { RabbiScheduleManager } from "../components/dashboard/RabbiScheduleManager";
 import { RabbiTasksCard } from "../components/dashboard/RabbiTasksCard";
+import { PeopleWaitingCard } from "../components/dashboard/PeopleWaitingCard";
 
 const DISABLED_HINT = "יופעל אחרי אישור attention_items";
 
@@ -85,6 +86,8 @@ export function RabbiQueuePage() {
       </p>
 
       <RabbiDayCard />
+
+      <PeopleWaitingCard />
 
       <RabbiScheduleManager />
 
