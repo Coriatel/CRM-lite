@@ -1,0 +1,14 @@
+{
+  "name": "crmlite-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internal queue-action endpoint sidecar for crm-lite (MN-OS S3).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test server.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}
