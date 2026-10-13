@@ -1,4 +1,6 @@
 import { Phone, Users, Clock, TrendingUp } from "lucide-react";
+import type React from "react";
+import { useNavigate } from "react-router-dom";
 
 interface StatsGridProps {
   totalCalls: number;
@@ -13,9 +15,28 @@ export function StatsGrid({
   remaining,
   raised,
 }: StatsGridProps) {
+  const navigate = useNavigate();
+  // KPI-as-navigation: today's-call KPIs drill into the calls-today workflow.
+  const go = () => navigate("/calls-today");
+  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      go();
+    }
+  };
+  const portal = (label: string) => ({
+    className: "stat-card",
+    role: "button",
+    tabIndex: 0,
+    style: { cursor: "pointer" },
+    onClick: go,
+    onKeyDown: onKey,
+    "aria-label": `${label} — פתיחת שיחות היום`,
+  });
+
   return (
     <div className="stats" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
-      <div className="stat-card">
+      <div {...portal("שיחות היום")}>
         <Phone
           size={24}
           style={{ color: "var(--color-primary)", marginBottom: "8px" }}
@@ -23,7 +44,7 @@ export function StatsGrid({
         <div className="stat-value">{totalCalls}</div>
         <div className="stat-label">שיחות היום</div>
       </div>
-      <div className="stat-card">
+      <div {...portal("הושלמו")}>
         <Users
           size={24}
           style={{ color: "var(--color-success)", marginBottom: "8px" }}
@@ -31,7 +52,7 @@ export function StatsGrid({
         <div className="stat-value">{completed}</div>
         <div className="stat-label">הושלמו</div>
       </div>
-      <div className="stat-card">
+      <div {...portal("נותרו")}>
         <Clock
           size={24}
           style={{ color: "var(--color-warning)", marginBottom: "8px" }}
@@ -39,7 +60,7 @@ export function StatsGrid({
         <div className="stat-value">{remaining}</div>
         <div className="stat-label">נותרו</div>
       </div>
-      <div className="stat-card">
+      <div {...portal("גויס")}>
         <TrendingUp
           size={24}
           style={{ color: "var(--color-accent)", marginBottom: "8px" }}
