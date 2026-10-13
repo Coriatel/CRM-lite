@@ -10,6 +10,11 @@ vi.mock("../../services/directus", () => ({
 vi.mock("../care/CareReportForm", () => ({
   CareReportForm: () => null,
 }));
+// CareQuickLog is a sibling capture (its own test); stub it so its type chips
+// don't collide with the timeline's own type labels in text queries.
+vi.mock("../care/CareQuickLog", () => ({
+  CareQuickLog: () => null,
+}));
 
 import { CareTimeline } from "../care/CareTimeline";
 
