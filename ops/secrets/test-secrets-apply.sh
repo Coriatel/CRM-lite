@@ -82,5 +82,10 @@ o=$(STATUS_DIR="$T/status-link" run); rc=$?
 check "a status dir swapped for a symlink is not written through as root" "! sudo -n find '$T/rootonly' -name '*.json*' | grep -q ."
 check "the marker is still removed and the run ends cleanly" "[ $rc -eq 0 ] && [ ! -e '$Q/swap.json' ]"
 
+marker r0.json '{"request_id":"req_rootapp","targets":["demo_secret"]}'
+o=$(APP=root run)
+check "an app account that maps to root is refused (no status, marker left)" "[ -e '$Q/r0.json' ] && ! sudo -n test -e '$S/req_rootapp.json'"
+rm -f "$Q/r0.json"
+
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
