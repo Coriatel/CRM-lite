@@ -113,6 +113,9 @@ export const DESTINATIONS = Object.freeze({
   "/etc/ai-secrets/caddy-drive-webhook.env": Object.freeze({
     vars: Object.freeze(["WINDMILL_WEBHOOK_TOKEN"]),
   }),
+  // Declared in deploy-targets.json on 2026-10-24 (hc CLI dead-man setup)
+  // without an entry here, which made readTargets refuse the whole file again.
+  "/etc/ai-secrets/healthchecks-api.env": Object.freeze({ vars: Object.freeze(["HC_API_KEY"]) }),
 });
 
 export class DeployError extends Error {

@@ -182,6 +182,15 @@ describe("target validation — what may be declared at all", () => {
     }
   });
 
+  it("allows HC_API_KEY at the healthchecks entry declared on 2026-10-24, and nothing else there", () => {
+    // deploy-targets.json has carried this target since 10-24; without the
+    // entry readTargets refused the whole file again (same class as 09-28).
+    const path = "/etc/ai-secrets/healthchecks-api.env";
+    expect(validateTarget(target({ path, env_var: "HC_API_KEY", mode: "0640" })).envVar).toBe("HC_API_KEY");
+    expect(() => validateTarget(target({ path, env_var: "GEMINI_API_KEY", mode: "0640" })))
+      .toThrow(/may not be written to/);
+  });
+
   it("refuses LEAD_WA_RECIPIENT at chagim-lead — the canonical path never reads it", () => {
     expect(() => validateTarget(target({
       path: "/etc/ai-secrets/chagim-lead-smtp.env",

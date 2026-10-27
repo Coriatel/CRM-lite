@@ -23,11 +23,17 @@
 //     it makes the change, and rotate() rolls back completed steps in reverse
 //     on any failure.
 //
-// What this file deliberately does NOT do: restart a container. docker compose
-// recreate is an owner action on this host (the harness denies it to agents),
-// so a restart-compose step returns the exact command for the owner and
-// changes nothing. A pm2 restart under the same account IS performed, because
-// the agent may.
+// What this file deliberately does NOT do: restart a container or a systemd
+// unit. Both are owner actions on these hosts (the harness denies them to
+// agents), so restart-compose and restart-systemd steps return the exact
+// command for the owner and change nothing. A pm2 restart under the same
+// account IS performed, because the agent may.
+//
+// Every secret names the ONE host it rotates on (`host`). rotate() refuses on
+// any other host before it reads the vault or touches anything: the same map
+// is deployed to srv and to mn-home, and a step aimed at a consumer that lives
+// elsewhere must fail loudly, not write a stale file or a live service across
+// a bridge.
 
 import {
   chmodSync,
@@ -47,6 +53,7 @@ import {
 import { createHash, pbkdf2Sync, createHmac, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { hostname as osHostname } from "node:os";
 
 import { addSecret, listSecrets, readSecretValue, replaceSecret, storeRoot } from "./secretstore.mjs";
 import { substituteAssignment } from "./secretdeploy.mjs";
@@ -141,6 +148,12 @@ const ENV_VAR_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const MODE_RE = /^0[0-7]{3}$/;
 const ROLE_RE = /^[a-z_][a-z0-9_]{0,62}$/;
 const CONTAINER_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+// Owner commands are pasted into a shell, so every word in them is a plain
+// token: no spaces, quotes, `$`, `;` or a leading dash.
+const PLAIN_PATH_RE = /^\/[A-Za-z0-9._/-]+$/;
+const PROJECT_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+const UNIT_RE = /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$/;
+const HOST_RE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
 
 // Replace only the password component of a DSN, URL-encoding the new value so a
 // password with '/', '@', ':' or '#' survives the round trip. `user` pins which
@@ -157,6 +170,29 @@ export function substituteDsnPassword(contents, user, newValue) {
   if (seen === 0) throw new RotateError(`no DSN for user "${user}" found to rewrite`, "dsn_not_found");
   if (seen > 1) throw new RotateError(`DSN for user "${user}" appears ${seen} times; refusing to guess`, "dsn_ambiguous");
   return out;
+}
+
+// The password inside the one DSN for `user`, decoded. Throws like
+// substituteDsnPassword when the DSN is absent or appears more than once.
+export function dsnPassword(contents, user) {
+  const m = [...String(contents).matchAll(new RegExp(`://${user}:([^@\\s"']*)@`, "g"))];
+  if (m.length === 0) throw new RotateError(`no DSN for user "${user}" found`, "dsn_not_found");
+  if (m.length > 1) throw new RotateError(`DSN for user "${user}" appears ${m.length} times; refusing to guess`, "dsn_ambiguous");
+  try {
+    return decodeURIComponent(m[0][1]);
+  } catch {
+    return m[0][1];
+  }
+}
+
+// The value of the ONE `VAR=` line, unquoted; null when it is absent or
+// assigned more than once (compose takes the last, a reader the first).
+function readAssignment(contents, envVar) {
+  const lines = contents.split("\n").filter((l) => l.startsWith(`${envVar}=`));
+  if (lines.length !== 1) return null;
+  let v = lines[0].slice(envVar.length + 1).replace(/\r$/, "");
+  if (v.length > 1 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1);
+  return v;
 }
 
 // SCRAM-SHA-256 verifier, computed in Node so the plaintext never reaches psql
@@ -189,21 +225,34 @@ export function scramMatches(storedVerifier, candidate) {
 
 export const execHooks = {
   run(file, args, { input } = {}) {
-    return execFileSync(file, args, { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return execFileSync(file, args, { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 120_000 });
   },
 };
 
 function psql(container, superuser, sql, { db = "postgres" } = {}) {
   // SQL on stdin, never argv. ON_ERROR_STOP so a failed ALTER is a non-zero
-  // exit, not a silent success.
-  return execHooks.run("docker", ["exec", "-i", container, "psql", "-U", superuser, "-d", db, "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"], { input: sql });
+  // exit, not a silent success. Statement logging is off for this session so
+  // a failed ALTER never writes a SCRAM verifier to the server log, and a
+  // failure is reported by exit status only: psql echoes the failing
+  // statement on stderr, and error text travels to the journal and the app.
+  const quiet = "SET log_min_error_statement = panic;\nSET log_statement = 'none';\n";
+  try {
+    return execHooks.run("docker", ["exec", "-i", container, "psql", "-U", superuser, "-d", db, "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"], { input: quiet + sql });
+  } catch (e) {
+    throw new RotateError(`psql failed in container ${container} (exit ${e.status ?? "?"})`, "psql_failed");
+  }
+}
+
+function roleHolds(p, value) {
+  const stored = psql(p.container, p.superuser, `select rolpassword from pg_authid where rolname='${p.role}';\n`).trim();
+  return scramMatches(stored, value);
 }
 
 async function httpJson(url, { method = "GET", token = null, body = null } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== null) headers["Content-Type"] = "application/json";
-  const res = await fetch(url, { method, headers, body: body === null ? undefined : JSON.stringify(body) });
+  const res = await fetch(url, { method, headers, body: body === null ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
   let json = null;
   try {
     json = await res.json();
@@ -211,6 +260,49 @@ async function httpJson(url, { method = "GET", token = null, body = null } = {})
     /* empty or non-json body */
   }
   return { status: res.status, ok: res.ok, json };
+}
+
+// Windmill variable holding a DSN: read the live value, splice only the
+// password in, write it back. Values stay in this process.
+async function windmillGet(p, token) {
+  const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/get_value/${p.path}`, { token });
+  if (!r.ok) throw new RotateError(`windmill read failed (${r.status})`, "windmill_failed");
+  return typeof r.json === "string" ? r.json : String(r.json?.value ?? "");
+}
+
+async function windmillSplice(p, password) {
+  const token = readFileSync(p.auth_file, "utf8").trim();
+  const current = await windmillGet(p, token);
+  const value = substituteDsnPassword(current, p.user, password);
+  if (value === current) return "unchanged";
+  const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
+  if (!r.ok) throw new RotateError(`windmill update failed (${r.status})`, "windmill_failed");
+  return "applied";
+}
+
+async function windmillHolds(p, value) {
+  return dsnPassword(await windmillGet(p, readFileSync(p.auth_file, "utf8").trim()), p.user) === value;
+}
+
+// Directus steps whose password PATCH got no answer (timeout or network
+// error): Directus may still commit it after any check we make now.
+const directusUnanswered = new WeakSet();
+
+// Log in and straight out again; true when the password works.
+async function directusCanLogin(p, password) {
+  const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password } });
+  const token = login.json?.data?.access_token;
+  if (token) await httpJson(`${p.base_url}/auth/logout`, { method: "POST", body: { refresh_token: login.json?.data?.refresh_token } });
+  return Boolean(token);
+}
+
+function composeCommand(p) {
+  if (!p.project) return `cd ${p.dir} && docker compose up -d --no-build`;
+  // mn-home layout: the project name is not the directory name, and the
+  // compose and env files are root-only, so everything is named and run as root.
+  const words = ["sudo docker compose -p", p.project, "-f", p.file, "--project-directory", p.dir];
+  if (p.env_file) words.push("--env-file", p.env_file);
+  return [...words, "up -d --no-build"].join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -237,9 +329,12 @@ export const ADAPTERS = Object.freeze({
       psql(p.container, p.superuser, `ALTER ROLE ${p.role} PASSWORD '${scramVerifier(ctx.oldValue)}';\n`);
       return { outcome: "rolled-back" };
     },
+    // ALTER back to the old value is harmless when the forward ALTER did not
+    // land, so a step that failed mid-way is rolled back too (it may have).
+    rollbackIfFailed: true,
+    holds: async (p, ctx, value) => roleHolds(p, value),
     async verify(p, ctx) {
-      const stored = psql(p.container, p.superuser, `select rolpassword from pg_authid where rolname='${p.role}';\n`).trim();
-      return { ok: scramMatches(stored, ctx.newValue), detail: "role verifier recomputed from salt" };
+      return { ok: roleHolds(p, ctx.newValue), detail: "role verifier recomputed from salt" };
     },
   },
 
@@ -271,6 +366,7 @@ export const ADAPTERS = Object.freeze({
       writePrivateAtomic(p.path, substituteAssignment(before, p.var, ctx.oldValue), { modeBits, uid, gid });
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => readAssignment(readFileSync(p.path, "utf8"), p.var) === value,
     async verify(p, ctx) {
       const want = substituteAssignment(readFileSync(p.path, "utf8"), p.var, ctx.newValue);
       return { ok: want === readFileSync(p.path, "utf8"), detail: `${p.var} holds the new value` };
@@ -325,6 +421,7 @@ export const ADAPTERS = Object.freeze({
       writePrivateAtomic(p.path, next.join("\n"), { modeBits, uid, gid });
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => dsnPassword(readAssignment(readFileSync(p.path, "utf8"), p.var) ?? "", p.user) === value,
     async verify(p, ctx) {
       const line = readFileSync(p.path, "utf8").split("\n").find((l) => l.startsWith(`${p.var}=`)) || "";
       return { ok: line.includes(encodeURIComponent(ctx.newValue)), detail: `${p.var} DSN carries the new password` };
@@ -359,45 +456,44 @@ export const ADAPTERS = Object.freeze({
       writePrivateAtomic(p.path, substituteDsnPassword(before, p.user, ctx.oldValue), { modeBits, uid, gid });
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => dsnPassword(readFileSync(p.path, "utf8"), p.user) === value,
     async verify(p, ctx) {
       return { ok: readFileSync(p.path, "utf8").includes(encodeURIComponent(ctx.newValue)), detail: "DSN file carries the new password" };
     },
   },
 
   "windmill-variable": {
-    // The stored value is a DSN. It is assembled at runtime from `prefix`
-    // (everything up to and including "user:") and `suffix` (everything from
-    // "@host" on), with the URL-encoded password spliced between. Kept as two
-    // parts rather than one "user:{pw}@host" template on purpose: a literal
-    // DSN with an inline password on a source line is exactly what the repo's
-    // secret scanner rejects, and a config string should not look like a leak.
+    // The stored value is a DSN. Only its password component is rewritten, in
+    // whatever DSN the variable holds now: host, port and database differ per
+    // host (mn-home's Windmill workers do not share n8n-postgres's network),
+    // and a map entry must not guess them. No DSN literal appears here, so
+    // there is nothing for the repo's secret scanner to object to either.
     validate(p) {
       if (!/^[a-zA-Z0-9_-]+$/.test(p.workspace || "")) throw new RotateError("windmill.workspace malformed", "bad_params");
       if (!/^[a-zA-Z0-9_/.-]+$/.test(p.path || "")) throw new RotateError("windmill.path malformed", "bad_params");
-      if (typeof p.prefix !== "string" || typeof p.suffix !== "string") throw new RotateError("windmill.prefix/suffix required", "bad_params");
-      if (typeof p.base_url !== "string" || typeof p.auth_file !== "string") throw new RotateError("windmill base_url/auth_file required", "bad_params");
+      if (!/^[A-Za-z0-9_]+$/.test(p.user || "")) throw new RotateError("windmill.user malformed", "bad_params");
+      if (typeof p.base_url !== "string" || !/^https?:\/\/[A-Za-z0-9.:-]+$/.test(p.base_url)) throw new RotateError("windmill.base_url malformed", "bad_params");
+      if (typeof p.auth_file !== "string" || !p.auth_file.startsWith("/")) throw new RotateError("windmill.auth_file must be absolute", "bad_params");
     },
-    describe: (p) => `windmill-variable: ${p.workspace}:${p.path}`,
+    describe: (p) => `windmill-variable: ${p.workspace}:${p.path} (password of DSN user ${p.user})`,
     async apply(p, ctx) {
-      if (ctx.dryRun) return { outcome: "would-apply" };
-      const token = readFileSync(p.auth_file, "utf8").trim();
-      const value = p.prefix + encodeURIComponent(ctx.newValue) + p.suffix;
-      const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
-      if (!r.ok) throw new RotateError(`windmill update failed (${r.status})`, "windmill_failed");
-      return { outcome: "applied" };
+      if (ctx.dryRun) {
+        if (!existsSync(p.auth_file)) throw new RotateError(`${p.auth_file}: windmill token file missing`, "missing_auth_file");
+        return { outcome: "would-apply" };
+      }
+      return { outcome: await windmillSplice(p, ctx.newValue) };
     },
     async rollback(p, ctx) {
       if (ctx.oldValue == null) return { outcome: "skipped-no-old" };
-      const token = readFileSync(p.auth_file, "utf8").trim();
-      const value = p.prefix + encodeURIComponent(ctx.oldValue) + p.suffix;
-      await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
+      await windmillSplice(p, ctx.oldValue);
       return { outcome: "rolled-back" };
     },
+    // The update may land although the reply is an error; splicing the old
+    // password back is a no-op when it is still there.
+    rollbackIfFailed: true,
+    holds: async (p, ctx, value) => windmillHolds(p, value),
     async verify(p, ctx) {
-      const token = readFileSync(p.auth_file, "utf8").trim();
-      const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/get_value/${p.path}`, { token });
-      const got = typeof r.json === "string" ? r.json : r.json?.value ?? "";
-      return { ok: String(got).includes(encodeURIComponent(ctx.newValue)), detail: "windmill variable carries the new password" };
+      return { ok: await windmillHolds(p, ctx.newValue), detail: "windmill variable carries the new password" };
     },
   },
 
@@ -409,13 +505,20 @@ export const ADAPTERS = Object.freeze({
     describe: (p) => `directus-user: password of ${p.email} at ${p.base_url}`,
     async apply(p, ctx) {
       if (ctx.dryRun) return { outcome: "would-apply" };
+      directusUnanswered.delete(p);
       // Authenticate as the user with whichever password it currently has, then
       // set the new one on itself. Both passwords travel in the JSON body, never
       // argv. If old == new the login with new still succeeds (idempotent).
       const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.oldValue ?? ctx.newValue } });
       const token = login.json?.data?.access_token;
       if (!token) throw new RotateError(`directus login failed (${login.status})`, "directus_login_failed");
-      const patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.newValue } });
+      let patch;
+      try {
+        patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.newValue } });
+      } catch {
+        directusUnanswered.add(p);
+        throw new RotateError("directus password change got no answer", "directus_patch_unanswered");
+      }
       if (!patch.ok) throw new RotateError(`directus password change failed (${patch.status})`, "directus_patch_failed");
       return { outcome: "applied" };
     },
@@ -423,15 +526,21 @@ export const ADAPTERS = Object.freeze({
       if (ctx.oldValue == null) return { outcome: "skipped-no-old" };
       const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.newValue } });
       const token = login.json?.data?.access_token;
-      if (!token) return { outcome: "rollback-failed-login" };
-      await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.oldValue } });
-      return { outcome: "rolled-back" };
+      // The new password does not work: a step that failed mid-way never
+      // landed. The preflight proved the old one worked; if it still does,
+      // nothing changed. Unless the PATCH got no answer: it may land later.
+      if (!token) {
+        if (!(await directusCanLogin(p, ctx.oldValue))) return { outcome: "rollback-failed-login" };
+        return { outcome: directusUnanswered.has(p) ? "rollback-unconfirmed" : "rolled-back" };
+      }
+      const patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.oldValue } });
+      return { outcome: patch.ok ? "rolled-back" : "rollback-failed-patch" };
     },
+    // The PATCH may land although its reply is an error or times out.
+    rollbackIfFailed: true,
+    holds: async (p, ctx, value) => directusCanLogin(p, value),
     async verify(p, ctx) {
-      const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.newValue } });
-      const token = login.json?.data?.access_token;
-      if (token) await httpJson(`${p.base_url}/auth/logout`, { method: "POST", body: { refresh_token: login.json?.data?.refresh_token } });
-      return { ok: Boolean(token), detail: "logged in with the new password" };
+      return { ok: await directusCanLogin(p, ctx.newValue), detail: "logged in with the new password" };
     },
   },
 
@@ -484,14 +593,40 @@ export const ADAPTERS = Object.freeze({
   // failure, and never blocks the steps the agent CAN complete.
   "restart-compose": {
     validate(p) {
-      if (typeof p.dir !== "string" || !p.dir.startsWith("/")) throw new RotateError("compose.dir must be absolute", "bad_params");
+      if (typeof p.dir !== "string" || !PLAIN_PATH_RE.test(p.dir)) throw new RotateError("compose.dir must be an absolute plain path", "bad_params");
+      if (p.project === undefined) {
+        if (p.file !== undefined || p.env_file !== undefined) throw new RotateError("compose.file/env_file need compose.project", "bad_params");
+        return;
+      }
+      if (typeof p.project !== "string" || !PROJECT_RE.test(p.project)) throw new RotateError("compose.project malformed", "bad_params");
+      if (typeof p.file !== "string" || !PLAIN_PATH_RE.test(p.file)) throw new RotateError("compose.file must be an absolute plain path", "bad_params");
+      if (p.env_file !== undefined && !PLAIN_PATH_RE.test(p.env_file)) throw new RotateError("compose.env_file must be an absolute plain path", "bad_params");
     },
-    describe: (p) => `restart (owner): cd ${p.dir} && docker compose up -d --no-build`,
+    describe: (p) => `restart (owner): ${composeCommand(p)}`,
     async apply(p) {
-      return { outcome: "owner-command", command: `! cd ${p.dir} && docker compose up -d --no-build` };
+      return { outcome: "owner-command", command: `! ${composeCommand(p)}` };
     },
     async rollback(p) {
-      return { outcome: "owner-command", command: `! cd ${p.dir} && docker compose up -d --no-build` };
+      return { outcome: "owner-command", command: `! ${composeCommand(p)}` };
+    },
+    async verify() {
+      return { ok: true, detail: "deferred to owner (not verified here)" };
+    },
+  },
+
+  // Same contract for a systemd service that reads a rotated file at start
+  // (mn-home's Itaruta is a unit, not pm2): the command for the owner, never
+  // a systemctl call from here.
+  "restart-systemd": {
+    validate(p) {
+      if (!UNIT_RE.test(p.unit || "")) throw new RotateError("systemd.unit malformed", "bad_params");
+    },
+    describe: (p) => `restart (owner): sudo systemctl restart ${p.unit}`,
+    async apply(p) {
+      return { outcome: "owner-command", command: `! sudo systemctl restart ${p.unit}` };
+    },
+    async rollback(p) {
+      return { outcome: "owner-command", command: `! sudo systemctl restart ${p.unit}` };
     },
     async verify() {
       return { ok: true, detail: "deferred to owner (not verified here)" };
@@ -507,48 +642,68 @@ export const ADAPTERS = Object.freeze({
 // host file that still holds it, never the vault (the vault may already hold
 // the new value when the owner triggered this from the browser).
 
+const MNHOME = "mn-home";
+const SRV = "srv1518109";
+const ITARUTA_ENV = "/data/services/itaruta/credentials/transcriptor-api.env";
+
+// mn-home paths, owners and modes below were checked on mn-home on 2026-10-27
+// (names and metadata only). The n8n role password lives in TWO clusters
+// there: n8n-postgres (n8n, Windmill reporting) and yafutsu-db (Itaruta),
+// which W4 split off with the same role and password.
 export const SECRET_MAP = Object.freeze({
   n8n_db_password: {
     display: "סיסמת מסד הנתונים של n8n",
     vault_type: "password",
-    currentFrom: { kind: "env", path: "/home/elron/services/n8n/.env", var: "POSTGRES_PASSWORD" },
+    host: MNHOME,
+    currentFrom: { kind: "env", path: "/data/services/n8n/.env", var: "POSTGRES_PASSWORD" },
     steps: [
       { adapter: "pg-role", params: { container: "n8n-postgres", role: "n8n", superuser: "n8n" } },
-      { adapter: "env-file", params: { path: "/home/elron/services/n8n/.env", var: "POSTGRES_PASSWORD", owner: "devuser", group: "devuser", mode: "0640" } },
-      { adapter: "dsn-env", params: { path: "/opt/transcriptor-api/.env", var: "DATABASE_URL", user: "n8n", owner: "devuserp", group: "devuserp", mode: "0600" } },
-      { adapter: "dsn-env", params: { path: "/etc/yafutsu/transcriptor-api.env", var: "DATABASE_URL", user: "n8n", owner: "root", group: "devuserp", mode: "0640" } },
-      { adapter: "dsn-file", params: { path: "/home/devuserp/.config/merkaz/library.dsn", user: "n8n", owner: "devuserp", group: "devuserp", mode: "0600" } },
-      { adapter: "windmill-variable", params: { workspace: "admins", path: "f/reporting/n8n_db", prefix: "postgresql://n8n:", suffix: "@n8n-postgres:5432/n8n", base_url: "http://127.0.0.1:8000", auth_file: "/home/devuserp/.config/merkaz/windmill_token" } },
-      { adapter: "restart-pm2", params: { user: "devuserp", name: "transcriptor-api", inject_var: "DATABASE_URL", inject_from: "/opt/transcriptor-api/.env" } },
-      { adapter: "restart-compose", params: { dir: "/home/elron/services/n8n" } },
+      { adapter: "pg-role", params: { container: "yafutsu-db", role: "n8n", superuser: "n8n" } },
+      { adapter: "env-file", params: { path: "/data/services/n8n/.env", var: "POSTGRES_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "env-file", params: { path: "/data/services/itaruta/db/.env", var: "POSTGRES_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "dsn-env", params: { path: ITARUTA_ENV, var: "DATABASE_URL", user: "n8n", owner: "root", group: "root", mode: "0400" } },
+      { adapter: "windmill-variable", params: { workspace: "admins", path: "f/reporting/n8n_db", user: "n8n", base_url: "http://127.0.0.1:8000", auth_file: "/etc/crm-secrets/windmill-rotate.token" } },
+      { adapter: "restart-systemd", params: { unit: "transcriptor-api" } },
+      // n8n reads the password at start. yafutsu-db is NOT recreated: postgres
+      // ignores its init variable once initialised, and the ALTER above already
+      // changed the live role; a recreate would only restart Itaruta's DB.
+      { adapter: "restart-compose", params: { dir: "/data/services/n8n", project: "n8n", file: "/data/services/n8n/docker-compose.yml", env_file: "/data/services/n8n/.env" } },
     ],
   },
   directus_db_password: {
     display: "סיסמת מסד הנתונים של Directus (CRM)",
     vault_type: "password",
-    currentFrom: { kind: "env", path: "/opt/hoshen-yehuda/crm-stack/.env", var: "POSTGRES_PASSWORD" },
+    host: MNHOME,
+    currentFrom: { kind: "env", path: "/data/services/hycrm/.env", var: "POSTGRES_PASSWORD" },
     steps: [
       { adapter: "pg-role", params: { container: "hycrm-directus-db", role: "hycrm", superuser: "hycrm" } },
-      { adapter: "env-file", params: { path: "/opt/hoshen-yehuda/crm-stack/.env", var: "POSTGRES_PASSWORD", owner: "elron", group: "ops-vault", mode: "0640" } },
-      { adapter: "restart-compose", params: { dir: "/opt/hoshen-yehuda/crm-stack" } },
+      { adapter: "env-file", params: { path: "/data/services/hycrm/.env", var: "POSTGRES_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "restart-compose", params: { dir: "/data/services/hycrm", project: "crm-stack", file: "/data/services/hycrm/docker-compose.yml", env_file: "/data/services/hycrm/.env" } },
     ],
   },
+  // Itaruta logs in to the CRM as this same admin (its DIRECTUS_EMAIL is this
+  // account, checked value-blind), so its copy rotates in the same step list.
   directus_admin_password: {
     display: "סיסמת מנהל Directus (CRM)",
     vault_type: "password",
-    currentFrom: { kind: "env", path: "/opt/hoshen-yehuda/crm-stack/.env", var: "DIRECTUS_ADMIN_PASSWORD" },
+    host: MNHOME,
+    currentFrom: { kind: "env", path: "/data/services/hycrm/.env", var: "DIRECTUS_ADMIN_PASSWORD" },
     steps: [
       { adapter: "directus-user", params: { base_url: "http://127.0.0.1:18055", email: "admin@crm.coriathost.cloud" } },
-      { adapter: "env-file", params: { path: "/opt/hoshen-yehuda/crm-stack/.env", var: "DIRECTUS_ADMIN_PASSWORD", owner: "elron", group: "ops-vault", mode: "0640" } },
+      { adapter: "env-file", params: { path: "/data/services/hycrm/.env", var: "DIRECTUS_ADMIN_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "env-file", params: { path: ITARUTA_ENV, var: "DIRECTUS_PASSWORD", owner: "root", group: "root", mode: "0400" } },
+      { adapter: "restart-systemd", params: { unit: "transcriptor-api" } },
     ],
   },
-  // The one consumer is devuserp's Claude sessions: ~/.local/bin/n8n-mcp reads
-  // this file and starts supergateway. Running sessions keep the old process
-  // until they restart; new sessions pick up the new token. The old token is
-  // revoked by the owner in n8n only after this reports applied.
+  // The one consumer is devuserp's Claude sessions on srv: ~/.local/bin/n8n-mcp
+  // reads this file and starts supergateway. Running sessions keep the old
+  // process until they restart; new sessions pick up the new token. The old
+  // token is revoked by the owner in n8n only after this reports applied.
+  // Stays on srv until an n8n-mcp wrapper exists on mn-home.
   n8n_mcp_token: {
     display: "טוקן MCP של n8n",
     vault_type: "token",
+    host: SRV,
     currentFrom: { kind: "env", path: "/home/devuserp/.config/merkaz/n8n-mcp.env", var: "N8N_MCP_TOKEN" },
     steps: [
       { adapter: "env-file", params: { path: "/home/devuserp/.config/merkaz/n8n-mcp.env", var: "N8N_MCP_TOKEN", owner: "devuserp", group: "devuserp", mode: "0600" } },
@@ -557,8 +712,9 @@ export const SECRET_MAP = Object.freeze({
 });
 
 export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
-  const spec = map[secretId];
+  const spec = Object.hasOwn(map, secretId) ? map[secretId] : null;
   if (!spec) throw new RotateError(`no such secret in the rotation map: ${secretId}`, "unknown_secret");
+  if (!HOST_RE.test(spec.host || "")) throw new RotateError(`${secretId}: the map entry names no valid host`, "bad_spec");
   for (const s of spec.steps) {
     const a = ADAPTERS[s.adapter];
     if (!a) throw new RotateError(`unknown adapter: ${s.adapter}`, "unknown_adapter");
@@ -572,14 +728,19 @@ export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
 function readCurrent(currentFrom) {
   if (!currentFrom || !existsSync(currentFrom.path)) return null;
   const contents = readFileSync(currentFrom.path, "utf8");
-  if (currentFrom.kind === "env") {
-    const line = contents.split("\n").find((l) => l.startsWith(`${currentFrom.var}=`));
-    if (!line) return null;
-    let v = line.slice(currentFrom.var.length + 1);
-    if (v.length > 1 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1);
-    return v;
+  const v = currentFrom.kind === "env" ? readAssignment(contents, currentFrom.var) : contents.trim();
+  return v ? v : null;
+}
+
+// Dry-run one step and, where the adapter can tell, check that its target
+// holds the old value now: the only state a rollback can restore exactly.
+async function checkStep(s, ctxBase) {
+  const a = ADAPTERS[s.adapter];
+  const r = await a.apply(s.params, { ...ctxBase, dryRun: true });
+  if (a.holds && ctxBase.oldValue != null && !(await a.holds(s.params, ctxBase, ctxBase.oldValue))) {
+    throw new RotateError(`${a.describe(s.params)}: does not hold the current value`, "old_value_mismatch");
   }
-  return contents.trim();
+  return r;
 }
 
 export function listSecretIds({ map = SECRET_MAP } = {}) {
@@ -611,20 +772,39 @@ export const defaultVault = {
 
 export async function rotate(
   secretId,
-  { newValue = null, fromVault = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault } = {},
+  { newValue = null, fromVault = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault, hostname = osHostname } = {},
 ) {
   const spec = secretSpec(secretId, { map });
+  const here = hostname();
+  if (spec.host !== here) {
+    throw new RotateError(`${secretId} rotates on host "${spec.host}", this is "${here}"; refusing, nothing was read or changed`, "wrong_host");
+  }
 
   if (fromVault && newValue != null) throw new RotateError("give newValue or fromVault, not both", "bad_args");
   if (!fromVault && (typeof newValue !== "string" || newValue.length === 0)) throw new RotateError("newValue is required unless fromVault", "bad_args");
-  if (/[\r\n]/.test(newValue ?? "")) throw new RotateError("value contains a newline", "bad_value");
 
   if (fromVault) {
     if (!vault.has(secretId)) throw new RotateError(`fromVault: no stored value for ${secretId}`, "secret_not_stored");
     newValue = vault.read(secretId);
   }
+  // Checked after the vault read, so a browser-saved value gets the same
+  // checks. An allowlist, not a denylist: compose interpolates `$`, systemd
+  // unescapes backslashes, a quote unbalances an unquoted .env line (compose
+  // then rejects the whole file while verify() still passes), and spaces or
+  // shell metacharacters break or run code in a reader that sources the file.
+  // Covers hex, base64/base64url and JWT values.
+  if (typeof newValue !== "string" || newValue.length === 0) throw new RotateError("empty value", "bad_value");
+  if (!/^[A-Za-z0-9._~+\/=@%:,^!*-]{1,1024}$/.test(newValue)) {
+    throw new RotateError("value has a character outside [A-Za-z0-9._~+/=@%:,^!*-] (or is over 1024 chars); refusing", "bad_value");
+  }
 
   const oldValue = readCurrent(spec.currentFrom);
+  if (oldValue == null) {
+    // Without the old value no step could be rolled back, and a half-applied
+    // role password is an outage. Refuse before step one.
+    const where = spec.currentFrom ? `${spec.currentFrom.var ?? "value"} in ${spec.currentFrom.path}` : "no currentFrom";
+    throw new RotateError(`${secretId}: current value not readable (${where}); refusing, nothing was changed`, "no_current_value");
+  }
   const ctxBase = { oldValue, newValue, now, identityFiles, dryRun };
 
   // Plan is always computed and returned, value-free.
@@ -635,7 +815,7 @@ export async function rotate(
     for (const s of spec.steps) {
       let r;
       try {
-        r = await ADAPTERS[s.adapter].apply(s.params, ctxBase);
+        r = await checkStep(s, ctxBase);
       } catch (e) {
         r = { outcome: "would-fail", reason: e.code || e.message };
       }
@@ -644,11 +824,24 @@ export async function rotate(
     return { secretId, dryRun: true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
   }
 
+  // Preflight: nothing changes unless every step would succeed and every
+  // target that can be checked holds the old value.
+  for (const s of spec.steps) {
+    try {
+      await checkStep(s, ctxBase);
+    } catch (e) {
+      throw new RotateError(`${secretId}: preflight failed at ${ADAPTERS[s.adapter].describe(s.params)} (${e.code || "error"}); nothing was changed`, "preflight_failed");
+    }
+  }
+
   const completed = [];
   const ownerCommands = [];
+  let inFlight = null;
   try {
     for (const s of spec.steps) {
+      inFlight = s;
       const r = await ADAPTERS[s.adapter].apply(s.params, ctxBase);
+      inFlight = null;
       completed.push({ step: s, result: r });
       if (r.command) ownerCommands.push(r.command);
       audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate ${s.adapter} ${r.outcome}` });
@@ -680,7 +873,9 @@ export async function rotate(
     return { secretId, dryRun: false, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
   } catch (err) {
     const rolledBack = [];
-    for (const c of completed.reverse()) {
+    const undo = completed.reverse();
+    if (inFlight && ADAPTERS[inFlight.adapter].rollbackIfFailed) undo.unshift({ step: inFlight });
+    for (const c of undo) {
       try {
         const r = await ADAPTERS[c.step.adapter].rollback(c.step.params, ctxBase);
         rolledBack.push({ adapter: c.step.adapter, outcome: r.outcome });
@@ -688,8 +883,11 @@ export async function rotate(
         rolledBack.push({ adapter: c.step.adapter, outcome: "rollback-threw", reason: e.code || e.message });
       }
     }
-    audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || err.message}); rolled back ${rolledBack.length} step(s)` });
-    const e = new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
+    const incomplete = rolledBack.filter((r) => r.outcome !== "rolled-back" && r.outcome !== "owner-command");
+    audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || "error"}); rolled back ${rolledBack.length - incomplete.length}/${rolledBack.length} step(s)` });
+    const e = incomplete.length
+      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand`, "rollback_incomplete")
+      : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
     e.rolledBack = rolledBack;
     e.ownerCommands = ownerCommands;
     throw e;

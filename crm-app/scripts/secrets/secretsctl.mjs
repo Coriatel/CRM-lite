@@ -395,7 +395,7 @@ const COMMANDS = {
   // --dry-run plans every step and writes nothing.
 
   "rotate-list"() {
-    for (const id of listSecretIds()) console.log(`${id}\t${secretSpec(id).display}  (${secretSpec(id).steps.length} steps)`);
+    for (const id of listSecretIds()) console.log(`${id}\t${secretSpec(id).display}  (${secretSpec(id).steps.length} steps, host ${secretSpec(id).host})`);
   },
 
   async rotate(args) {
@@ -427,7 +427,7 @@ const COMMANDS = {
       for (const v of res.verifications) console.log(`  verify ${v.ok ? "OK" : "FAIL"}: ${v.adapter} — ${v.detail}`);
     }
     if (res.ownerCommands?.length) {
-      console.log("owner must run (container recreate):");
+      console.log("owner must run (restarts):");
       for (const c of res.ownerCommands) console.log(`  ${c}`);
     }
   },
