@@ -688,7 +688,7 @@ export const SECRET_MAP = Object.freeze({
 });
 
 export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
-  const spec = map[secretId];
+  const spec = Object.hasOwn(map, secretId) ? map[secretId] : null;
   if (!spec) throw new RotateError(`no such secret in the rotation map: ${secretId}`, "unknown_secret");
   if (!HOST_RE.test(spec.host || "")) throw new RotateError(`${secretId}: the map entry names no valid host`, "bad_spec");
   for (const s of spec.steps) {

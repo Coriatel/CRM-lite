@@ -76,8 +76,10 @@ describe("the secret map", () => {
   it("validates every declared step", () => {
     for (const id of listSecretIds()) expect(() => secretSpec(id)).not.toThrow();
   });
-  it("rejects an unknown secret", () => {
-    expect(() => secretSpec("no-such-secret")).toThrow(RotateError);
+  it("rejects an unknown secret, including inherited names", () => {
+    for (const id of ["no-such-secret", "__proto__", "constructor", "toString"]) {
+      expect(() => secretSpec(id)).toThrow(expect.objectContaining({ code: "unknown_secret" }));
+    }
   });
   it("maps n8n_mcp_token to one private env-file step, read back from the same file, on srv", () => {
     const spec = secretSpec("n8n_mcp_token");
