@@ -55,7 +55,7 @@ import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { hostname as osHostname } from "node:os";
 
-import { addSecret, listSecrets, readSecretValue, replaceSecret, storeRoot } from "./secretstore.mjs";
+import { addSecret, isValidSecretName, listSecrets, readSecretValue, removeSecret, replaceSecret, storeRoot } from "./secretstore.mjs";
 import { substituteAssignment } from "./secretdeploy.mjs";
 import { audit } from "./secretaudit.mjs";
 
@@ -73,6 +73,18 @@ export const ROTATE_BACKUP_PREFIX = ".bak-secretrotate-";
 // trail gets this, never the value.
 export function fp(value) {
   return createHash("sha256").update(String(value)).digest("hex").slice(0, 8);
+}
+
+// A value created inside this process for a secret WE own (a database role, an
+// admin password), so nobody has to type, paste or see it: it goes from
+// randomBytes to the targets and the vault and nowhere else. base64url is
+// inside the value allowlist below and needs no quoting in a .env or a DSN.
+// A provider-issued key (Takbull, GitHub, Google...) cannot be generated here;
+// only a map entry that declares `generate` accepts it.
+export const GENERATE_MIN_BYTES = 16;
+export const GENERATE_MAX_BYTES = 64;
+export function generateValue(bytes) {
+  return randomBytes(bytes).toString("base64url");
 }
 
 // ---------------------------------------------------------------------------
@@ -652,6 +664,7 @@ const ITARUTA_ENV = "/data/services/itaruta/credentials/transcriptor-api.env";
 // which W4 split off with the same role and password.
 export const SECRET_MAP = Object.freeze({
   n8n_db_password: {
+    generate: { bytes: 32 },
     display: "סיסמת מסד הנתונים של n8n",
     vault_type: "password",
     host: MNHOME,
@@ -671,6 +684,7 @@ export const SECRET_MAP = Object.freeze({
     ],
   },
   directus_db_password: {
+    generate: { bytes: 32 },
     display: "סיסמת מסד הנתונים של Directus (CRM)",
     vault_type: "password",
     host: MNHOME,
@@ -684,6 +698,7 @@ export const SECRET_MAP = Object.freeze({
   // Itaruta logs in to the CRM as this same admin (its DIRECTUS_EMAIL is this
   // account, checked value-blind), so its copy rotates in the same step list.
   directus_admin_password: {
+    generate: { bytes: 32 },
     display: "סיסמת מנהל Directus (CRM)",
     vault_type: "password",
     host: MNHOME,
@@ -711,10 +726,28 @@ export const SECRET_MAP = Object.freeze({
   },
 });
 
+function stagedNameFor(secretId, at, suffix) {
+  const stamp = at.toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z").toLowerCase();
+  return `${secretId}.gen-${stamp}-${suffix}`;
+}
+
 export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
   const spec = Object.hasOwn(map, secretId) ? map[secretId] : null;
   if (!spec) throw new RotateError(`no such secret in the rotation map: ${secretId}`, "unknown_secret");
   if (!HOST_RE.test(spec.host || "")) throw new RotateError(`${secretId}: the map entry names no valid host`, "bad_spec");
+  if (spec.generate !== undefined) {
+    const b = spec.generate?.bytes;
+    if (!Number.isInteger(b) || b < GENERATE_MIN_BYTES || b > GENERATE_MAX_BYTES) {
+      throw new RotateError(`${secretId}: generate.bytes must be an integer ${GENERATE_MIN_BYTES}-${GENERATE_MAX_BYTES}`, "bad_spec");
+    }
+    // Only a password we set ourselves; a provider-issued key is never one.
+    if (spec.vault_type !== "password") throw new RotateError(`${secretId}: generate is allowed only for vault_type "password"`, "bad_spec");
+    // Both names the run writes must be valid vault names, or every run would
+    // fail at staging (before any change) or at recording (after the change).
+    if (!isValidSecretName(secretId) || !isValidSecretName(stagedNameFor(secretId, new Date(0), "000000"))) {
+      throw new RotateError(`${secretId}: id is not a valid vault name, or too long for a staged one`, "bad_spec");
+    }
+  }
   for (const s of spec.steps) {
     const a = ADAPTERS[s.adapter];
     if (!a) throw new RotateError(`unknown adapter: ${s.adapter}`, "unknown_adapter");
@@ -754,9 +787,14 @@ export function listSecretIds({ map = SECRET_MAP } = {}) {
  *   newValue   — supplied directly (the CLI's prompt-twice path)
  *   fromVault  — read the current vault value as the NEW value (the browser
  *                path: the owner already saved it through merkaz-secrets)
+ *   generate   — created here from randomBytes (only for a map entry that
+ *                declares `generate`); never printed, returned or logged.
+ *                Staged in the vault under <id>.gen-<stamp>-<rand> before the
+ *                first change, recorded under <id> last, then the staged copy
+ *                is removed. On any failure the staged copy is kept.
  *
  * On any step failure, completed steps are rolled back in reverse and the error
- * is rethrown. On success, and only when newValue was supplied (not fromVault),
+ * is rethrown. On success, and only when the value did not come from the vault,
  * the new value is written to the vault last, so the vault advances only after
  * the host is consistent. Never returns or logs a value.
  */
@@ -768,11 +806,15 @@ export const defaultVault = {
     if (listSecrets().some((s) => s.name === id)) return replaceSecret(id, value);
     return addSecret({ name: id, type: spec.vault_type, purpose: spec.display, consumer: id, owner: "owner", expiry: null }, value);
   },
+  // A generated value is staged under its own name BEFORE any target changes,
+  // create-only, so it can never be applied without a recoverable copy.
+  stage: (name, value, spec) => addSecret({ name, type: spec.vault_type, purpose: `${spec.display} (generated, staged)`, consumer: name, owner: "owner", expiry: null }, value),
+  discard: (name) => removeSecret(name, { mustExist: true }),
 };
 
 export async function rotate(
   secretId,
-  { newValue = null, fromVault = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault, hostname = osHostname } = {},
+  { newValue = null, fromVault = false, generate = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault, hostname = osHostname } = {},
 ) {
   const spec = secretSpec(secretId, { map });
   const here = hostname();
@@ -780,8 +822,22 @@ export async function rotate(
     throw new RotateError(`${secretId} rotates on host "${spec.host}", this is "${here}"; refusing, nothing was read or changed`, "wrong_host");
   }
 
-  if (fromVault && newValue != null) throw new RotateError("give newValue or fromVault, not both", "bad_args");
-  if (!fromVault && (typeof newValue !== "string" || newValue.length === 0)) throw new RotateError("newValue is required unless fromVault", "bad_args");
+  if (typeof fromVault !== "boolean" || typeof generate !== "boolean") {
+    throw new RotateError("fromVault and generate must be booleans", "bad_args");
+  }
+  if ([newValue != null, fromVault, generate].filter(Boolean).length > 1) {
+    throw new RotateError("give exactly one of newValue, fromVault or generate", "bad_args");
+  }
+  if (!fromVault && !generate && (typeof newValue !== "string" || newValue.length === 0)) {
+    throw new RotateError("newValue is required unless fromVault or generate", "bad_args");
+  }
+
+  if (generate) {
+    if (!spec.generate) {
+      throw new RotateError(`${secretId} is issued by its provider and cannot be generated here; refusing, nothing was read or changed`, "not_generatable");
+    }
+    newValue = generateValue(spec.generate.bytes);
+  }
 
   if (fromVault) {
     if (!vault.has(secretId)) throw new RotateError(`fromVault: no stored value for ${secretId}`, "secret_not_stored");
@@ -821,7 +877,9 @@ export async function rotate(
       }
       results.push({ adapter: s.adapter, describe: ADAPTERS[s.adapter].describe(s.params), ...r });
     }
-    return { secretId, dryRun: true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
+    // A generated value is thrown away after a dry run; its fingerprint would
+    // be mistaken for the version an apply will write.
+    return { secretId, dryRun: true, generated: generate, newFp: generate ? null : fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
   }
 
   // Preflight: nothing changes unless every step would succeed and every
@@ -832,6 +890,20 @@ export async function rotate(
     } catch (e) {
       throw new RotateError(`${secretId}: preflight failed at ${ADAPTERS[s.adapter].describe(s.params)} (${e.code || "error"}); nothing was changed`, "preflight_failed");
     }
+  }
+
+  // A generated value exists nowhere else, so it is staged in the vault before
+  // the first change. If staging fails nothing is changed.
+  let stagedName = null;
+  if (generate) {
+    const name = stagedNameFor(secretId, now(), randomBytes(3).toString("hex"));
+    try {
+      vault.stage(name, newValue, spec);
+    } catch {
+      throw new RotateError(`${secretId}: could not stage the generated value in the vault; refusing, nothing was changed`, "stage_failed");
+    }
+    stagedName = name;
+    audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `generated value staged as ${name} @${fp(newValue)}` });
   }
 
   const completed = [];
@@ -861,16 +933,29 @@ export async function rotate(
     // the value by hand, not rolled back.
     let vaultWarning = null;
     if (!fromVault) {
+      let recorded = false;
       try {
         vault.store(secretId, newValue, spec);
+        recorded = true;
       } catch (e) {
-        vaultWarning = `host rotated and verified, but recording the value in the vault failed: ${e.message}`;
+        // Only the error code: a store error is not trusted to be value-free.
+        const why = typeof e?.code === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.code) ? e.code : "error";
+        vaultWarning = stagedName
+          ? `host rotated and verified, but recording the generated value under ${secretId} failed (${why}); it is kept in the vault as ${stagedName}`
+          : `host rotated and verified, but recording the value in the vault failed (${why})`;
         audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: "vault record failed after successful host rotation" });
+      }
+      if (recorded && stagedName) {
+        try {
+          vault.discard(stagedName);
+        } catch {
+          vaultWarning = `rotation complete; the staged copy ${stagedName} could not be removed from the vault (it holds the current value; delete it with secretsctl delete)`;
+        }
       }
     }
 
-    audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate complete @${fp(newValue)}` });
-    return { secretId, dryRun: false, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
+    audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate complete @${fp(newValue)}${generate ? " (generated)" : ""}` });
+    return { secretId, dryRun: false, generated: generate, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
   } catch (err) {
     const rolledBack = [];
     const undo = completed.reverse();
@@ -885,11 +970,18 @@ export async function rotate(
     }
     const incomplete = rolledBack.filter((r) => r.outcome !== "rolled-back" && r.outcome !== "owner-command");
     audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || "error"}); rolled back ${rolledBack.length - incomplete.length}/${rolledBack.length} step(s)` });
+    // A typed value is still known to the person who typed it; a generated one
+    // only to the staged vault record. It is kept on EVERY failure: some
+    // rollbacks (a timed-out HTTP or psql write) report success without
+    // proof, and a late forward write would leave a target on a value nobody
+    // has. A spare encrypted entry costs one `secretsctl delete`.
+    const kept = stagedName ? ` The generated value is kept in the vault as ${stagedName}; delete it once the targets are confirmed on the old value.` : "";
     const e = incomplete.length
-      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand`, "rollback_incomplete")
-      : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
+      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand.${kept}`, "rollback_incomplete")
+      : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}${kept}`, err.code || "rotate_failed");
     e.rolledBack = rolledBack;
     e.ownerCommands = ownerCommands;
+    e.stagedName = stagedName;
     throw e;
   }
 }

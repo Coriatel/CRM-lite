@@ -75,7 +75,7 @@ const COMMAND_FLAGS = {
   deploy: ["target", "dry-run"],
   "deploy-status": [],
   "deploy-rollback": ["target"],
-  rotate: ["secret", "from-vault", "dry-run"],
+  rotate: ["secret", "from-vault", "generate", "dry-run"],
   "rotate-list": [],
 };
 
@@ -85,7 +85,7 @@ const COMMAND_FLAGS = {
 // than having no simulate switch at all.
 export const PRODUCTION_STORE_ROOT = "/var/lib/crm-secrets";
 
-export const BOOLEAN_FLAGS = Object.freeze(new Set(["dry-run", "from-vault"]));
+export const BOOLEAN_FLAGS = Object.freeze(new Set(["dry-run", "from-vault", "generate"]));
 
 export function parseArgs(argv, allowedFlags) {
   const out = {};
@@ -388,9 +388,12 @@ const COMMANDS = {
 
   // --- rotation -------------------------------------------------------------
   //
-  // Apply ONE secret to every place its map lists it. Two value sources:
+  // Apply ONE secret to every place its map lists it. Three value sources:
   //   --from-vault   the owner already saved the value through the browser;
   //                  read it from the canonical vault and apply it.
+  //   --generate     create a random value in this process (only for a map
+  //                  entry that allows it); nobody types or sees it, and only
+  //                  its fingerprint is printed.
   //   (otherwise)    prompt for the value twice, not echoed, never on argv.
   // --dry-run plans every step and writes nothing.
 
@@ -403,9 +406,13 @@ const COMMANDS = {
     const secret = requireFlag(args, "secret");
     const dryRun = args["dry-run"] === true;
     const fromVault = args["from-vault"] === true;
+    const generate = args.generate === true;
+    if (fromVault && generate) throw new Error("give --from-vault or --generate, not both");
 
     let newValue = null;
-    if (!fromVault && !dryRun) {
+    if (generate) {
+      // rotate() creates the value; nothing is read from the terminal.
+    } else if (!fromVault && !dryRun) {
       const a = await readSecretFromTty(`New value for "${secret}" (not echoed): `);
       const b = await readSecretFromTty(`Repeat it: `);
       if (a !== b) throw new Error("values did not match");
@@ -417,12 +424,13 @@ const COMMANDS = {
       newValue = "dry-run-placeholder-not-a-secret";
     }
 
-    const res = await rotate(secret, { newValue, fromVault, dryRun, actor: currentOwner() });
+    const res = await rotate(secret, { newValue, fromVault, generate, dryRun, actor: currentOwner() });
     if (dryRun) {
-      console.log(`DRY RUN — nothing written. secret=${res.secretId} new=${res.newFp} old=${res.oldFp ?? "none"}`);
+      console.log(`DRY RUN — nothing written. secret=${res.secretId} new=${res.newFp ?? "(generated at apply)"} old=${res.oldFp ?? "none"}`);
       for (const p of res.plan) console.log(`  [${p.outcome}] ${p.describe}${p.reason ? ` (${p.reason})` : ""}`);
     } else {
-      console.log(`rotated ${res.secretId} to version ${res.newFp}`);
+      console.log(`rotated ${res.secretId} to version ${res.newFp}${res.generated ? " (generated here; the value is not shown anywhere)" : ""}`);
+      if (res.vaultWarning) console.log(`WARNING: ${res.vaultWarning}`);
       for (const a of res.applied) console.log(`  ${a.outcome}: ${a.adapter}`);
       for (const v of res.verifications) console.log(`  verify ${v.ok ? "OK" : "FAIL"}: ${v.adapter} — ${v.detail}`);
     }
