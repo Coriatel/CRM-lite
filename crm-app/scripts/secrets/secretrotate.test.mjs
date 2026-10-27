@@ -347,18 +347,47 @@ describe("windmill-variable rewrites only the password inside the live DSN", () 
     expect(wm.auth.length).toBe(0);
   });
 
-  it("puts the old password back when the update lands but the reply is an error", async () => {
+  // Through rotate(): the step that failed is rolled back too, and a restore
+  // that itself fails is reported, never swallowed.
+  const wmap = () => ({
+    w: {
+      display: "w",
+      vault_type: "password",
+      host: "test-host",
+      currentFrom: { kind: "env", path: join(root, "cur.env"), var: PWVAR },
+      steps: [{ adapter: "windmill-variable", params: params() }],
+    },
+  });
+  const wopts = () => ({ newValue: NEWV, map: wmap(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: { has: () => false, read: () => "", store: () => {} } });
+  const landsThenErrors = ({ restoreFails }) => {
     const fetchOk = globalThis.fetch;
     globalThis.fetch = async (url, init = {}) => {
-      if (init.method === "POST" && JSON.parse(init.body).value.includes(encodeURIComponent(NEWV))) {
+      if (init.method === "POST") {
+        const toNew = JSON.parse(init.body).value.includes(encodeURIComponent(NEWV));
+        if (!toNew && restoreFails) return reply(503, null);
         await fetchOk(url, init); // the write lands ...
-        return reply(502, null); // ... and the reply says it did not
+        if (toNew) return reply(502, null); // ... and the reply says it did not
+        return reply(200, "ok");
       }
       return fetchOk(url, init);
     };
-    await expect(ADAPTERS["windmill-variable"].apply(params(), { oldValue: OLDV, newValue: NEWV, dryRun: false }))
-      .rejects.toMatchObject({ code: "windmill_failed" });
+  };
+
+  it("puts the old password back when the update lands but the reply is an error", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    landsThenErrors({ restoreFails: false });
+    const err = await rotate("w", wopts()).catch((e) => e);
+    expect(err.code).toBe("windmill_failed");
+    expect(err.rolledBack).toEqual([{ adapter: "windmill-variable", outcome: "rolled-back" }]);
     expect(wm.value).toBe(WDSN(OLDV));
+  });
+
+  it("reports INCOMPLETE when that restore fails too", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    landsThenErrors({ restoreFails: true });
+    const err = await rotate("w", wopts()).catch((e) => e);
+    expect(err.code).toBe("rollback_incomplete");
+    expect(err.message).toMatch(/INCOMPLETE: windmill-variable:rollback-threw/);
   });
 
   it("verifies the password of that user exactly, not a substring anywhere", async () => {
@@ -557,15 +586,17 @@ describe("rollback after a mid-rotation failure (pg-role steps, mocked psql)", (
   const opts = () => ({ newValue: NEWV, map: map(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: { has: () => false, read: () => "", store: () => {} } });
   const mock = ({ failRollbackOnA }) => {
     let altersOnA = 0;
+    let altersOnB = 0;
     execHooks.run = (file, args, { input } = {}) => {
       const container = args[2];
       calls.push({ container, input });
       if (input.includes("select rolpassword")) return scramVerifier(OLDV);
-      if (container === "pg-b") {
+      if (container === "pg-b" && ++altersOnB === 1) {
         const e = new Error(["psql", "LINE 1: ALTER ROLE r PASSWORD", "'SCRAM-SHA-256$4096:leak'"].join(" "));
         e.status = 3;
         throw e;
       }
+      if (container === "pg-b") return ""; // the in-flight step's own rollback
       altersOnA += 1;
       if (failRollbackOnA && altersOnA === 2) throw Object.assign(new Error("boom"), { status: 1 });
       return "";
@@ -581,13 +612,17 @@ describe("rollback after a mid-rotation failure (pg-role steps, mocked psql)", (
     execHooks.run = orig;
   });
 
-  it("rolls the first role back and reports a sanitised error", async () => {
+  it("rolls back the first role and the failed one, and reports a sanitised error", async () => {
     mock({ failRollbackOnA: false });
     const err = await rotate("two", opts()).catch((e) => e);
     expect(err.code).toBe("psql_failed");
     expect(err.message).toMatch(/was rolled back/);
     expect(err.message).not.toMatch(/SCRAM|PASSWORD|LINE 1/);
-    expect(err.rolledBack).toEqual([{ adapter: "pg-role", outcome: "rolled-back" }]);
+    // The failed step is rolled back too (its ALTER may have landed), then the first.
+    expect(err.rolledBack).toEqual([
+      { adapter: "pg-role", outcome: "rolled-back" },
+      { adapter: "pg-role", outcome: "rolled-back" },
+    ]);
     const altersA = calls.filter((c) => c.container === "pg-a" && c.input.includes("ALTER ROLE"));
     expect(altersA.length).toBe(2);
     expect(scramMatches(/PASSWORD '([^']+)'/.exec(altersA[1].input)[1], OLDV)).toBe(true);

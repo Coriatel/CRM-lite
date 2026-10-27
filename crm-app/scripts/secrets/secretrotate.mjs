@@ -317,6 +317,9 @@ export const ADAPTERS = Object.freeze({
       psql(p.container, p.superuser, `ALTER ROLE ${p.role} PASSWORD '${scramVerifier(ctx.oldValue)}';\n`);
       return { outcome: "rolled-back" };
     },
+    // ALTER back to the old value is harmless when the forward ALTER did not
+    // land, so a step that failed mid-way is rolled back too (it may have).
+    rollbackIfFailed: true,
     holds: async (p, ctx, value) => roleHolds(p, value),
     async verify(p, ctx) {
       return { ok: roleHolds(p, ctx.newValue), detail: "role verifier recomputed from salt" };
@@ -466,20 +469,16 @@ export const ADAPTERS = Object.freeze({
         if (!existsSync(p.auth_file)) throw new RotateError(`${p.auth_file}: windmill token file missing`, "missing_auth_file");
         return { outcome: "would-apply" };
       }
-      try {
-        return { outcome: await windmillSplice(p, ctx.newValue) };
-      } catch (e) {
-        // The update may have landed although the response says otherwise.
-        // Put the old password back; a no-op when it is still there.
-        if (ctx.oldValue != null) await windmillSplice(p, ctx.oldValue).catch(() => {});
-        throw e;
-      }
+      return { outcome: await windmillSplice(p, ctx.newValue) };
     },
     async rollback(p, ctx) {
       if (ctx.oldValue == null) return { outcome: "skipped-no-old" };
       await windmillSplice(p, ctx.oldValue);
       return { outcome: "rolled-back" };
     },
+    // The update may land although the reply is an error; splicing the old
+    // password back is a no-op when it is still there.
+    rollbackIfFailed: true,
     holds: async (p, ctx, value) => windmillHolds(p, value),
     async verify(p, ctx) {
       return { ok: await windmillHolds(p, ctx.newValue), detail: "windmill variable carries the new password" };
@@ -808,9 +807,12 @@ export async function rotate(
 
   const completed = [];
   const ownerCommands = [];
+  let inFlight = null;
   try {
     for (const s of spec.steps) {
+      inFlight = s;
       const r = await ADAPTERS[s.adapter].apply(s.params, ctxBase);
+      inFlight = null;
       completed.push({ step: s, result: r });
       if (r.command) ownerCommands.push(r.command);
       audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate ${s.adapter} ${r.outcome}` });
@@ -842,7 +844,9 @@ export async function rotate(
     return { secretId, dryRun: false, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
   } catch (err) {
     const rolledBack = [];
-    for (const c of completed.reverse()) {
+    const undo = completed.reverse();
+    if (inFlight && ADAPTERS[inFlight.adapter].rollbackIfFailed) undo.unshift({ step: inFlight });
+    for (const c of undo) {
       try {
         const r = await ADAPTERS[c.step.adapter].rollback(c.step.params, ctxBase);
         rolledBack.push({ adapter: c.step.adapter, outcome: r.outcome });
