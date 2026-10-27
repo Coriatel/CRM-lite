@@ -742,10 +742,10 @@ export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
     }
     // Only a password we set ourselves; a provider-issued key is never one.
     if (spec.vault_type !== "password") throw new RotateError(`${secretId}: generate is allowed only for vault_type "password"`, "bad_spec");
-    // The staged copy's name must be a valid vault name, or every run would
-    // fail at staging.
-    if (!isValidSecretName(stagedNameFor(secretId, new Date(0), "000000"))) {
-      throw new RotateError(`${secretId}: id too long for a staged vault name`, "bad_spec");
+    // Both names the run writes must be valid vault names, or every run would
+    // fail at staging (before any change) or at recording (after the change).
+    if (!isValidSecretName(secretId) || !isValidSecretName(stagedNameFor(secretId, new Date(0), "000000"))) {
+      throw new RotateError(`${secretId}: id is not a valid vault name, or too long for a staged one`, "bad_spec");
     }
   }
   for (const s of spec.steps) {
@@ -791,7 +791,7 @@ export function listSecretIds({ map = SECRET_MAP } = {}) {
  *                declares `generate`); never printed, returned or logged.
  *                Staged in the vault under <id>.gen-<stamp>-<rand> before the
  *                first change, recorded under <id> last, then the staged copy
- *                is removed; kept if any target may still hold the value.
+ *                is removed. On any failure the staged copy is kept.
  *
  * On any step failure, completed steps are rolled back in reverse and the error
  * is rethrown. On success, and only when the value did not come from the vault,

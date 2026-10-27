@@ -832,6 +832,14 @@ describe("generate: a value created here that nobody types or sees", () => {
     expect(res.vaultWarning).not.toContain(valueIn("a.env"));
   });
 
+  it("after a recorded rotation, a stage that cannot be dropped is named in the warning, never the value", async () => {
+    const { calls, vault } = spyVault({ discard: true });
+    const res = await rotate("demo", opts(vault));
+    expect(calls.map((c) => c.op)).toEqual(["stage", "store", "discard"]);
+    expect(res.vaultWarning).toContain(calls[0].name);
+    expect(res.vaultWarning).not.toContain(valueIn("a.env"));
+  });
+
   it("never copies a store error's text into the warning, even one that echoes the value", async () => {
     const { calls, vault } = spyVault();
     vault.store = (name, value) => {
@@ -891,7 +899,8 @@ describe("generate: a value created here that nobody types or sees", () => {
     const m = twoStep();
     expect(() => secretSpec("demo", { map: { demo: { ...m.demo, vault_type: "api_key" } } })).toThrow(/vault_type "password"/);
     const long = "x".repeat(37);
-    expect(() => secretSpec(long, { map: { [long]: m.demo } })).toThrow(/too long/);
+    expect(() => secretSpec(long, { map: { [long]: m.demo } })).toThrow(/too long for a staged one/);
+    expect(() => secretSpec("x", { map: { x: m.demo } })).toThrow(/not a valid vault name/);
     const fits = "x".repeat(36);
     expect(() => secretSpec(fits, { map: { [fits]: m.demo } })).not.toThrow();
   });
