@@ -15,6 +15,7 @@ import { Contact, LifecycleStage, Note, ProjectContact } from "../types";
 import { StatusBadge } from "./StatusBadge";
 import { StagePicker } from "./StagePicker";
 import { CareTimeline } from "./care/CareTimeline";
+import { ScheduleFollowUp } from "./people/ScheduleFollowUp";
 import {
   getInteractions,
   updateContact as patchContact,
@@ -423,6 +424,12 @@ export function ContactDetailModal({
               </div>
             ))}
           </div>
+
+          <ScheduleFollowUp
+            contactId={contact.id}
+            currentDate={contact.followUpDate}
+            currentNote={contact.followUpNote}
+          />
 
           <CareTimeline contactId={contact.id} contactName={contact.fullName} />
         </div>
