@@ -91,6 +91,18 @@ export const DESTINATIONS = Object.freeze({
   "/etc/ai-secrets/google-tts.env": Object.freeze({
     vars: Object.freeze(["GOOGLE_TTS_API_KEY"]),
   }),
+  // GitHub tokens rotated 2026-10-08 after "Codex vps" was abused for 80 spam
+  // repos. github-pat.env replaces a world-readable github.env; gh-cli.env is
+  // read by root to re-login gh (stdin) for root/devuserp/elron.
+  "/etc/ai-secrets/github-pat.env": Object.freeze({ vars: Object.freeze(["GITHUB_PAT"]) }),
+  "/etc/ai-secrets/gh-cli.env": Object.freeze({ vars: Object.freeze(["GH_CLI_TOKEN"]) }),
+  // Anthropic key rotated 2026-10-08: the old one sat, live, in AI session transcripts.
+  "/etc/yafutsu/transcriptor-api.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY"]) }),
+  "/home/elron/services/n8n/.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]) }),
+  "/opt/hoshen-yehuda/heshbonot/.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY"]) }),
+  "/opt/mayenotecha/.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY"]) }),
+  "/opt/openspace-eval-skills/.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]) }),
+  "/opt/transcriptor-api/.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY"]) }),
   // Two targets declared in deploy-targets.json on 2026-09-28 without an entry
   // here. readTargets refuses the WHOLE file when one target is not allowed, so
   // from then on every `secretsctl deploy` and `deploy-status` failed, for every

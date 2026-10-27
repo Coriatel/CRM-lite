@@ -35,6 +35,7 @@ import { userInfo } from "node:os";
 import { existsSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 
 import { applyTarget, readState, readTargets, rollbackTarget } from "./secretdeploy.mjs";
+import { listSecretIds, rotate, secretSpec } from "./secretrotate.mjs";
 import { audit } from "./secretaudit.mjs";
 import { auditPath } from "./secretaudit.mjs";
 import { generateKeyHex, wrapKeyForRecovery, unwrapRecoveryKey } from "./secretcrypto.mjs";
@@ -74,6 +75,8 @@ const COMMAND_FLAGS = {
   deploy: ["target", "dry-run"],
   "deploy-status": [],
   "deploy-rollback": ["target"],
+  rotate: ["secret", "from-vault", "dry-run"],
+  "rotate-list": [],
 };
 
 // Flags that are a question, not a value. `--dry-run` must mean "do not write",
@@ -82,7 +85,7 @@ const COMMAND_FLAGS = {
 // than having no simulate switch at all.
 export const PRODUCTION_STORE_ROOT = "/var/lib/crm-secrets";
 
-export const BOOLEAN_FLAGS = Object.freeze(new Set(["dry-run"]));
+export const BOOLEAN_FLAGS = Object.freeze(new Set(["dry-run", "from-vault"]));
 
 export function parseArgs(argv, allowedFlags) {
   const out = {};
@@ -381,6 +384,52 @@ const COMMANDS = {
     assertDeploymentStore();
     const res = rollbackTarget(requireFlag(args, "target"), { actor: currentOwner() });
     console.log(`${res.outcome}: ${res.path} restored from ${res.from}`);
+  },
+
+  // --- rotation -------------------------------------------------------------
+  //
+  // Apply ONE secret to every place its map lists it. Two value sources:
+  //   --from-vault   the owner already saved the value through the browser;
+  //                  read it from the canonical vault and apply it.
+  //   (otherwise)    prompt for the value twice, not echoed, never on argv.
+  // --dry-run plans every step and writes nothing.
+
+  "rotate-list"() {
+    for (const id of listSecretIds()) console.log(`${id}\t${secretSpec(id).display}  (${secretSpec(id).steps.length} steps)`);
+  },
+
+  async rotate(args) {
+    assertDeploymentStore();
+    const secret = requireFlag(args, "secret");
+    const dryRun = args["dry-run"] === true;
+    const fromVault = args["from-vault"] === true;
+
+    let newValue = null;
+    if (!fromVault && !dryRun) {
+      const a = await readSecretFromTty(`New value for "${secret}" (not echoed): `);
+      const b = await readSecretFromTty(`Repeat it: `);
+      if (a !== b) throw new Error("values did not match");
+      if (!a) throw new Error("empty value");
+      newValue = a;
+    } else if (!fromVault && dryRun) {
+      // A dry run needs no value for file/role planning; use a fixed non-secret
+      // placeholder so the plan computes without a prompt.
+      newValue = "dry-run-placeholder-not-a-secret";
+    }
+
+    const res = await rotate(secret, { newValue, fromVault, dryRun, actor: currentOwner() });
+    if (dryRun) {
+      console.log(`DRY RUN — nothing written. secret=${res.secretId} new=${res.newFp} old=${res.oldFp ?? "none"}`);
+      for (const p of res.plan) console.log(`  [${p.outcome}] ${p.describe}${p.reason ? ` (${p.reason})` : ""}`);
+    } else {
+      console.log(`rotated ${res.secretId} to version ${res.newFp}`);
+      for (const a of res.applied) console.log(`  ${a.outcome}: ${a.adapter}`);
+      for (const v of res.verifications) console.log(`  verify ${v.ok ? "OK" : "FAIL"}: ${v.adapter} — ${v.detail}`);
+    }
+    if (res.ownerCommands?.length) {
+      console.log("owner must run (container recreate):");
+      for (const c of res.ownerCommands) console.log(`  ${c}`);
+    }
   },
 
   audit() {
