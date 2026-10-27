@@ -138,10 +138,11 @@ jobs:
       # Idempotent: if the web root already holds exactly this build, nothing is
       # written. Otherwise the current tree is copied to $BAK (last 3 kept) and three
       # rsync passes run (--checksum: a same-size file within the same mtime second is
-      # still replaced): assets/ first, so no moment exists where a new index.html
-      # points at bundles that are not there yet (try_files would answer them with
-      # index.html); then the rest; then --delete to retire old files. Any failure
-      # before the byte-level proof restores the previous tree.
+      # still replaced): everything except the entry points first, so no moment exists
+      # where a new index.html or sw.js points at bundles that are not there yet
+      # (try_files would answer them with index.html); then the entry points; then
+      # --delete to retire old files. Any failure before the byte-level proof restores
+      # the previous tree.
       - name: Publish to the web root (idempotent) and prove it on disk
         if: steps.tip.outputs.current == 'true'
         run: |
@@ -160,7 +161,7 @@ jobs:
             cp -a "$WEB" "$keep"
             trap 'echo "publish failed: restoring the previous tree from $keep"; rsync -rt --checksum --delete "$keep/" "$WEB/"' ERR
             R=(rsync -rt --checksum --chmod=D755,F644)
-            "${R[@]}" "$SRC/assets/" "$WEB/assets/"
+            "${R[@]}" --exclude=/index.html --exclude=/sw.js --exclude=/registerSW.js --exclude=/build-info.json "$SRC/" "$WEB/"
             "${R[@]}" "$SRC/" "$WEB/"
             "${R[@]}" --delete "$SRC/" "$WEB/"
             echo "published ${GITHUB_SHA:0:7}; previous tree (${prev:-unknown}) kept at $keep"
