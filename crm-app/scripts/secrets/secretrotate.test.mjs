@@ -832,6 +832,17 @@ describe("generate: a value created here that nobody types or sees", () => {
     expect(res.vaultWarning).not.toContain(valueIn("a.env"));
   });
 
+  it("never copies a store error's text into the warning, even one that echoes the value", async () => {
+    const { calls, vault } = spyVault();
+    vault.store = (name, value) => {
+      calls.push({ op: "store", name, value });
+      throw Object.assign(new Error(`bad input ${value}`), { code: "store_refused" });
+    };
+    const res = await rotate("demo", opts(vault));
+    expect(res.vaultWarning).toContain("store_refused");
+    expect(res.vaultWarning).not.toContain(valueIn("a.env"));
+  });
+
   it("refuses a secret whose map entry does not allow generation (a provider-issued key), touching nothing", async () => {
     const { calls, vault } = spyVault();
     await expect(rotate("demo", opts(vault, { map: twoStep({}) }))).rejects.toMatchObject({ code: "not_generatable" });
@@ -843,6 +854,9 @@ describe("generate: a value created here that nobody types or sees", () => {
     const { calls, vault } = spyVault();
     await expect(rotate("demo", opts(vault, { newValue: NEWV }))).rejects.toMatchObject({ code: "bad_args" });
     await expect(rotate("demo", opts(vault, { fromVault: true }))).rejects.toMatchObject({ code: "bad_args" });
+    // A truthy non-boolean must not slip past the one-source check.
+    await expect(rotate("demo", opts(vault, { generate: "yes", newValue: NEWV }))).rejects.toMatchObject({ code: "bad_args" });
+    await expect(rotate("demo", opts(vault, { generate: 1, fromVault: true }))).rejects.toMatchObject({ code: "bad_args" });
     expect(valueIn("a.env")).toBe(OLDV);
     expect(calls).toEqual([]);
   });
@@ -853,6 +867,7 @@ describe("generate: a value created here that nobody types or sees", () => {
     expect(res.dryRun).toBe(true);
     expect(res.generated).toBe(true);
     expect(res.plan.map((p) => p.outcome)).toEqual(["would-apply", "would-apply"]);
+    expect(res.newFp).toBeNull(); // the dry-run value is thrown away; its fingerprint would mislead
     expect(valueIn("a.env")).toBe(OLDV);
     expect(valueIn("b.env")).toBe(OLDV);
     expect(calls).toEqual([]);
@@ -870,6 +885,15 @@ describe("generate: a value created here that nobody types or sees", () => {
       expect(() => secretSpec("demo", { map: twoStep({ generate: { bytes } }) })).toThrow(RotateError);
     }
     expect(() => secretSpec("demo", { map: twoStep({ generate: { bytes: GENERATE_MIN_BYTES } }) })).not.toThrow();
+  });
+
+  it("allows generate only on a password, and only for an id whose staged name is a valid vault name", () => {
+    const m = twoStep();
+    expect(() => secretSpec("demo", { map: { demo: { ...m.demo, vault_type: "api_key" } } })).toThrow(/vault_type "password"/);
+    const long = "x".repeat(37);
+    expect(() => secretSpec(long, { map: { [long]: m.demo } })).toThrow(/too long/);
+    const fits = "x".repeat(36);
+    expect(() => secretSpec(fits, { map: { [fits]: m.demo } })).not.toThrow();
   });
 
   describe("with pg-role steps (mocked psql)", () => {
@@ -920,21 +944,15 @@ describe("generate: a value created here that nobody types or sees", () => {
       expect(readFileSync(join(root, "audit.log"), "utf8")).not.toContain(calls[0].value);
     });
 
-    it("a complete rollback discards the staged value and never records it", async () => {
+    it("a complete rollback still keeps the staged value (a rollback may report success without proof), names it, never records it", async () => {
       mock({ failRollbackOnA: false });
       const { calls, vault } = spyVault();
       const err = await rotate("two", opts(vault, { map: pgMap() })).catch((e) => e);
       expect(err.message).toMatch(/was rolled back/);
-      expect(err.stagedName).toBeNull();
-      expect(calls.map((c) => c.op)).toEqual(["stage", "discard"]);
-      expect(calls[1].name).toBe(calls[0].name);
-    });
-
-    it("keeps the staged value when it cannot be discarded after a complete rollback", async () => {
-      mock({ failRollbackOnA: false });
-      const { calls, vault } = spyVault({ discard: true });
-      const err = await rotate("two", opts(vault, { map: pgMap() })).catch((e) => e);
+      expect(calls.map((c) => c.op)).toEqual(["stage"]);
       expect(err.stagedName).toBe(calls[0].name);
+      expect(err.message).toContain(calls[0].name);
+      expect(err.message).not.toContain(calls[0].value);
     });
   });
 });

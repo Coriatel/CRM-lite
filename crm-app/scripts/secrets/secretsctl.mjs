@@ -426,7 +426,7 @@ const COMMANDS = {
 
     const res = await rotate(secret, { newValue, fromVault, generate, dryRun, actor: currentOwner() });
     if (dryRun) {
-      console.log(`DRY RUN — nothing written. secret=${res.secretId}${generate ? " (generated)" : ""} new=${res.newFp} old=${res.oldFp ?? "none"}`);
+      console.log(`DRY RUN — nothing written. secret=${res.secretId} new=${res.newFp ?? "(generated at apply)"} old=${res.oldFp ?? "none"}`);
       for (const p of res.plan) console.log(`  [${p.outcome}] ${p.describe}${p.reason ? ` (${p.reason})` : ""}`);
     } else {
       console.log(`rotated ${res.secretId} to version ${res.newFp}${res.generated ? " (generated here; the value is not shown anywhere)" : ""}`);

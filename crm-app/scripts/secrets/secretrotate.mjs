@@ -55,7 +55,7 @@ import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { hostname as osHostname } from "node:os";
 
-import { addSecret, listSecrets, readSecretValue, removeSecret, replaceSecret, storeRoot } from "./secretstore.mjs";
+import { addSecret, isValidSecretName, listSecrets, readSecretValue, removeSecret, replaceSecret, storeRoot } from "./secretstore.mjs";
 import { substituteAssignment } from "./secretdeploy.mjs";
 import { audit } from "./secretaudit.mjs";
 
@@ -726,6 +726,11 @@ export const SECRET_MAP = Object.freeze({
   },
 });
 
+function stagedNameFor(secretId, at, suffix) {
+  const stamp = at.toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z").toLowerCase();
+  return `${secretId}.gen-${stamp}-${suffix}`;
+}
+
 export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
   const spec = Object.hasOwn(map, secretId) ? map[secretId] : null;
   if (!spec) throw new RotateError(`no such secret in the rotation map: ${secretId}`, "unknown_secret");
@@ -734,6 +739,13 @@ export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
     const b = spec.generate?.bytes;
     if (!Number.isInteger(b) || b < GENERATE_MIN_BYTES || b > GENERATE_MAX_BYTES) {
       throw new RotateError(`${secretId}: generate.bytes must be an integer ${GENERATE_MIN_BYTES}-${GENERATE_MAX_BYTES}`, "bad_spec");
+    }
+    // Only a password we set ourselves; a provider-issued key is never one.
+    if (spec.vault_type !== "password") throw new RotateError(`${secretId}: generate is allowed only for vault_type "password"`, "bad_spec");
+    // The staged copy's name must be a valid vault name, or every run would
+    // fail at staging.
+    if (!isValidSecretName(stagedNameFor(secretId, new Date(0), "000000"))) {
+      throw new RotateError(`${secretId}: id too long for a staged vault name`, "bad_spec");
     }
   }
   for (const s of spec.steps) {
@@ -810,7 +822,10 @@ export async function rotate(
     throw new RotateError(`${secretId} rotates on host "${spec.host}", this is "${here}"; refusing, nothing was read or changed`, "wrong_host");
   }
 
-  if ([newValue != null, fromVault === true, generate === true].filter(Boolean).length > 1) {
+  if (typeof fromVault !== "boolean" || typeof generate !== "boolean") {
+    throw new RotateError("fromVault and generate must be booleans", "bad_args");
+  }
+  if ([newValue != null, fromVault, generate].filter(Boolean).length > 1) {
     throw new RotateError("give exactly one of newValue, fromVault or generate", "bad_args");
   }
   if (!fromVault && !generate && (typeof newValue !== "string" || newValue.length === 0)) {
@@ -862,7 +877,9 @@ export async function rotate(
       }
       results.push({ adapter: s.adapter, describe: ADAPTERS[s.adapter].describe(s.params), ...r });
     }
-    return { secretId, dryRun: true, generated: generate === true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
+    // A generated value is thrown away after a dry run; its fingerprint would
+    // be mistaken for the version an apply will write.
+    return { secretId, dryRun: true, generated: generate, newFp: generate ? null : fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
   }
 
   // Preflight: nothing changes unless every step would succeed and every
@@ -879,8 +896,7 @@ export async function rotate(
   // the first change. If staging fails nothing is changed.
   let stagedName = null;
   if (generate) {
-    const stamp = now().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z").toLowerCase();
-    const name = `${secretId}.gen-${stamp}-${randomBytes(3).toString("hex")}`;
+    const name = stagedNameFor(secretId, now(), randomBytes(3).toString("hex"));
     try {
       vault.stage(name, newValue, spec);
     } catch {
@@ -922,9 +938,11 @@ export async function rotate(
         vault.store(secretId, newValue, spec);
         recorded = true;
       } catch (e) {
+        // Only the error code: a store error is not trusted to be value-free.
+        const why = typeof e?.code === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.code) ? e.code : "error";
         vaultWarning = stagedName
-          ? `host rotated and verified, but recording the generated value under ${secretId} failed (${e.message}); it is kept in the vault as ${stagedName}`
-          : `host rotated and verified, but recording the value in the vault failed: ${e.message}`;
+          ? `host rotated and verified, but recording the generated value under ${secretId} failed (${why}); it is kept in the vault as ${stagedName}`
+          : `host rotated and verified, but recording the value in the vault failed (${why})`;
         audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: "vault record failed after successful host rotation" });
       }
       if (recorded && stagedName) {
@@ -937,7 +955,7 @@ export async function rotate(
     }
 
     audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate complete @${fp(newValue)}${generate ? " (generated)" : ""}` });
-    return { secretId, dryRun: false, generated: generate === true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
+    return { secretId, dryRun: false, generated: generate, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
   } catch (err) {
     const rolledBack = [];
     const undo = completed.reverse();
@@ -953,26 +971,17 @@ export async function rotate(
     const incomplete = rolledBack.filter((r) => r.outcome !== "rolled-back" && r.outcome !== "owner-command");
     audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || "error"}); rolled back ${rolledBack.length - incomplete.length}/${rolledBack.length} step(s)` });
     // A typed value is still known to the person who typed it; a generated one
-    // only to the staged vault record. Keep that record when any target may
-    // still hold the value; drop it when every target is back on the old one.
-    let keptStaged = null;
-    if (stagedName) {
-      if (incomplete.length) {
-        keptStaged = stagedName;
-      } else {
-        try {
-          vault.discard(stagedName);
-        } catch {
-          keptStaged = stagedName;
-        }
-      }
-    }
+    // only to the staged vault record. It is kept on EVERY failure: some
+    // rollbacks (a timed-out HTTP or psql write) report success without
+    // proof, and a late forward write would leave a target on a value nobody
+    // has. A spare encrypted entry costs one `secretsctl delete`.
+    const kept = stagedName ? ` The generated value is kept in the vault as ${stagedName}; delete it once the targets are confirmed on the old value.` : "";
     const e = incomplete.length
-      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand${keptStaged ? ` (the generated value is in the vault as ${keptStaged})` : ""}`, "rollback_incomplete")
-      : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
+      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand.${kept}`, "rollback_incomplete")
+      : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}${kept}`, err.code || "rotate_failed");
     e.rolledBack = rolledBack;
     e.ownerCommands = ownerCommands;
-    e.stagedName = keptStaged;
+    e.stagedName = stagedName;
     throw e;
   }
 }
