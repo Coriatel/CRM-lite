@@ -112,7 +112,6 @@ describe("the secret map", () => {
       { adapter: "windmill-variable", params: { workspace: "admins", path: "f/reporting/n8n_db", user: "n8n", base_url: "http://127.0.0.1:8000", auth_file: "/etc/crm-secrets/windmill-rotate.token" } },
       { adapter: "restart-systemd", params: { unit: "transcriptor-api" } },
       { adapter: "restart-compose", params: { dir: "/data/services/n8n", project: "n8n", file: "/data/services/n8n/docker-compose.yml", env_file: "/data/services/n8n/.env" } },
-      { adapter: "restart-compose", params: { dir: "/data/services/itaruta/db", project: "itaruta-db", file: "/data/services/itaruta/db/docker-compose.yml", env_file: "/data/services/itaruta/db/.env" } },
     ]);
   });
 
@@ -276,6 +275,9 @@ describe("owner-command steps never execute anything", () => {
       { dir: "/a", project: "p" },
       { dir: "/a", project: "p", file: "/a/$(x).yml" },
       { dir: "/a", project: "p", file: "/a/c.yml", env_file: "rel/.env" },
+      { dir: "/a", project: null, file: "/a/c.yml" },
+      { dir: "/a", file: "/a/c.yml" },
+      { dir: "/a", env_file: "/a/.env" },
     ];
     for (const p of bad) expect(() => ADAPTERS["restart-compose"].validate(p)).toThrow(RotateError);
   });
@@ -341,6 +343,25 @@ describe("windmill-variable rewrites only the password inside the live DSN", () 
       .rejects.toMatchObject({ code: "missing_auth_file" });
     expect((await ADAPTERS["windmill-variable"].apply(params(), { newValue: NEWV, dryRun: true })).outcome).toBe("would-apply");
     expect(wm.auth.length).toBe(0);
+  });
+
+  it("puts the old password back when the update lands but the reply is an error", async () => {
+    const fetchOk = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      if (init.method === "POST" && JSON.parse(init.body).value.includes(encodeURIComponent(NEWV))) {
+        await fetchOk(url, init); // the write lands ...
+        return reply(502, null); // ... and the reply says it did not
+      }
+      return fetchOk(url, init);
+    };
+    await expect(ADAPTERS["windmill-variable"].apply(params(), { oldValue: OLDV, newValue: NEWV, dryRun: false }))
+      .rejects.toMatchObject({ code: "windmill_failed" });
+    expect(wm.value).toBe(WDSN(OLDV));
+  });
+
+  it("verifies the password of that user exactly, not a substring anywhere", async () => {
+    wm.value = "postgresql" + "://" + "n8n" + ":" + OLDV + "@" + "h:1/" + encodeURIComponent(NEWV);
+    expect((await ADAPTERS["windmill-variable"].verify(params(), { newValue: NEWV })).ok).toBe(false);
   });
 
   it("validates user, base_url and auth_file", () => {
@@ -448,16 +469,42 @@ describe("rotate orchestrator (mocked steps)", () => {
     expect(readFileSync(join(root, "b.env"), "utf8")).toContain(NEWV);
   });
 
-  it("rolls back the first step when the second fails", async () => {
-    // Make the second file's real mode disagree with its declared mode, so the
-    // second step's safety check throws mid-rotation — no adapter mutation.
+  it("refuses before step one when a later step would fail its safety check", async () => {
+    // The second file's real mode disagrees with its declared mode. The
+    // preflight sees it, so the first file is never written.
     chmodSync(join(root, "b.env"), 0o600);
     await expect(
       rotate("demo", { newValue: NEWV, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: noVault }),
-    ).rejects.toThrow(/rolled back/);
-    // a.env must be back to the old value after the reverse rollback.
-    expect(readFileSync(join(root, "a.env"), "utf8")).toContain(OLDV);
-    expect(readFileSync(join(root, "a.env"), "utf8")).not.toContain(NEWV);
+    ).rejects.toMatchObject({ code: "preflight_failed" });
+    expect(readFileSync(join(root, "a.env"), "utf8")).toBe(`${PWVAR}=${OLDV}\n`);
+  });
+
+  it("refuses before step one when a target does not hold the current value (rollback would not be exact)", async () => {
+    writeFileSync(join(root, "b.env"), `${PWVAR}=${["drifted", "val"].join("-")}\n`);
+    chmodSync(join(root, "b.env"), 0o640);
+    const opts = { newValue: NEWV, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: noVault };
+    await expect(rotate("demo", opts)).rejects.toMatchObject({ code: "preflight_failed" });
+    await expect(rotate("demo", opts)).rejects.toThrow(/old_value_mismatch/);
+    expect(readFileSync(join(root, "a.env"), "utf8")).toBe(`${PWVAR}=${OLDV}\n`);
+    const dry = await rotate("demo", { ...opts, dryRun: true });
+    expect(dry.plan.map((x) => x.reason ?? x.outcome)).toEqual(["would-apply", "old_value_mismatch"]);
+  });
+
+  it("refuses when the current value is assigned twice or empty", async () => {
+    const opts = { newValue: NEWV, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: noVault };
+    writeFileSync(join(root, "a.env"), `${PWVAR}=${OLDV}\n${PWVAR}=${NEWV}\n`);
+    await expect(rotate("demo", opts)).rejects.toMatchObject({ code: "no_current_value" });
+    writeFileSync(join(root, "a.env"), `${PWVAR}=\n`);
+    await expect(rotate("demo", opts)).rejects.toMatchObject({ code: "no_current_value" });
+  });
+
+  it("checks a value from the vault like a typed one: no newline, $, backslash or backtick", async () => {
+    for (const bad of [`a$b`, "a\\b", "a`b", "a\nb"]) {
+      const vault = { has: () => true, read: () => bad, store: () => {} };
+      await expect(rotate("demo", { fromVault: true, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), vault }))
+        .rejects.toMatchObject({ code: "bad_value" });
+    }
+    expect(readFileSync(join(root, "a.env"), "utf8")).toBe(`${PWVAR}=${OLDV}\n`);
   });
 
   it("n8n_mcp_token from the vault (the browser path): rewrites only the token line, never writes the vault", async () => {
@@ -488,6 +535,73 @@ describe("rotate orchestrator (mocked steps)", () => {
   });
 });
 
+describe("rollback after a mid-rotation failure (pg-role steps, mocked psql)", () => {
+  // Two roles that both hold the old value (so the preflight passes); the
+  // second ALTER fails at run time, after the first one has landed.
+  let orig;
+  let calls;
+  const map = () => ({
+    two: {
+      display: "two",
+      vault_type: "password",
+      host: "test-host",
+      currentFrom: { kind: "env", path: join(root, "cur.env"), var: PWVAR },
+      steps: [
+        { adapter: "pg-role", params: { container: "pg-a", role: "r", superuser: "r" } },
+        { adapter: "pg-role", params: { container: "pg-b", role: "r", superuser: "r" } },
+      ],
+    },
+  });
+  const opts = () => ({ newValue: NEWV, map: map(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: { has: () => false, read: () => "", store: () => {} } });
+  const mock = ({ failRollbackOnA }) => {
+    let altersOnA = 0;
+    execHooks.run = (file, args, { input } = {}) => {
+      const container = args[2];
+      calls.push({ container, input });
+      if (input.includes("select rolpassword")) return scramVerifier(OLDV);
+      if (container === "pg-b") {
+        const e = new Error(["psql", "LINE 1: ALTER ROLE r PASSWORD", "'SCRAM-SHA-256$4096:leak'"].join(" "));
+        e.status = 3;
+        throw e;
+      }
+      altersOnA += 1;
+      if (failRollbackOnA && altersOnA === 2) throw Object.assign(new Error("boom"), { status: 1 });
+      return "";
+    };
+  };
+
+  beforeEach(() => {
+    orig = execHooks.run;
+    calls = [];
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+  });
+  afterEach(() => {
+    execHooks.run = orig;
+  });
+
+  it("rolls the first role back and reports a sanitised error", async () => {
+    mock({ failRollbackOnA: false });
+    const err = await rotate("two", opts()).catch((e) => e);
+    expect(err.code).toBe("psql_failed");
+    expect(err.message).toMatch(/was rolled back/);
+    expect(err.message).not.toMatch(/SCRAM|PASSWORD|LINE 1/);
+    expect(err.rolledBack).toEqual([{ adapter: "pg-role", outcome: "rolled-back" }]);
+    const altersA = calls.filter((c) => c.container === "pg-a" && c.input.includes("ALTER ROLE"));
+    expect(altersA.length).toBe(2);
+    expect(scramMatches(/PASSWORD '([^']+)'/.exec(altersA[1].input)[1], OLDV)).toBe(true);
+    // Every statement runs with statement logging off.
+    expect(calls.every((c) => c.input.startsWith("SET log_min_error_statement = panic;"))).toBe(true);
+  });
+
+  it("says INCOMPLETE, naming the step, when a rollback itself fails", async () => {
+    mock({ failRollbackOnA: true });
+    const err = await rotate("two", opts()).catch((e) => e);
+    expect(err.code).toBe("rollback_incomplete");
+    expect(err.message).toMatch(/INCOMPLETE: pg-role:rollback-threw/);
+    expect(err.message).not.toMatch(/was rolled back/);
+  });
+});
+
 // --- Integration: a throwaway Postgres container ---------------------------
 // Started and removed by the test. Skipped cleanly when docker is unavailable.
 
@@ -504,8 +618,18 @@ describe("pg-role adapter against a throwaway container", () => {
       docker(["version"]);
       const initPw = ["init", "pg", Math.random().toString(36).slice(2)].join("-");
       docker(["run", "-d", "--name", CN, "-e", `POSTGRES_PASSWORD=${initPw}`, "postgres:15"]);
-      for (let i = 0; i < 40; i++) {
+      // pg_isready also answers during initdb's temporary server, which then
+      // stops; wait for the init to finish first, then for readiness.
+      for (let i = 0; i < 80; i++) {
+        const all = (() => {
+          try {
+            return execFileSync("sh", ["-c", `docker logs ${CN} 2>&1`], { encoding: "utf8" });
+          } catch {
+            return "";
+          }
+        })();
         try {
+          if (!all.includes("init process complete")) throw new Error("initialising");
           docker(["exec", CN, "pg_isready", "-U", "postgres"]);
           dockerOk = true;
           break;

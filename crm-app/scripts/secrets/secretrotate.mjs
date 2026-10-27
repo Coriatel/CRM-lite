@@ -172,6 +172,29 @@ export function substituteDsnPassword(contents, user, newValue) {
   return out;
 }
 
+// The password inside the one DSN for `user`, decoded. Throws like
+// substituteDsnPassword when the DSN is absent or appears more than once.
+export function dsnPassword(contents, user) {
+  const m = [...String(contents).matchAll(new RegExp(`://${user}:([^@\\s"']*)@`, "g"))];
+  if (m.length === 0) throw new RotateError(`no DSN for user "${user}" found`, "dsn_not_found");
+  if (m.length > 1) throw new RotateError(`DSN for user "${user}" appears ${m.length} times; refusing to guess`, "dsn_ambiguous");
+  try {
+    return decodeURIComponent(m[0][1]);
+  } catch {
+    return m[0][1];
+  }
+}
+
+// The value of the ONE `VAR=` line, unquoted; null when it is absent or
+// assigned more than once (compose takes the last, a reader the first).
+function readAssignment(contents, envVar) {
+  const lines = contents.split("\n").filter((l) => l.startsWith(`${envVar}=`));
+  if (lines.length !== 1) return null;
+  let v = lines[0].slice(envVar.length + 1).replace(/\r$/, "");
+  if (v.length > 1 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1);
+  return v;
+}
+
 // SCRAM-SHA-256 verifier, computed in Node so the plaintext never reaches psql
 // argv or the server's statement log. Matches RFC 5802 / PostgreSQL's format.
 export function scramVerifier(password, { iterations = 4096, salt = randomBytes(16) } = {}) {
@@ -202,21 +225,34 @@ export function scramMatches(storedVerifier, candidate) {
 
 export const execHooks = {
   run(file, args, { input } = {}) {
-    return execFileSync(file, args, { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return execFileSync(file, args, { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 120_000 });
   },
 };
 
 function psql(container, superuser, sql, { db = "postgres" } = {}) {
   // SQL on stdin, never argv. ON_ERROR_STOP so a failed ALTER is a non-zero
-  // exit, not a silent success.
-  return execHooks.run("docker", ["exec", "-i", container, "psql", "-U", superuser, "-d", db, "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"], { input: sql });
+  // exit, not a silent success. Statement logging is off for this session so
+  // a failed ALTER never writes a SCRAM verifier to the server log, and a
+  // failure is reported by exit status only: psql echoes the failing
+  // statement on stderr, and error text travels to the journal and the app.
+  const quiet = "SET log_min_error_statement = panic;\nSET log_statement = 'none';\n";
+  try {
+    return execHooks.run("docker", ["exec", "-i", container, "psql", "-U", superuser, "-d", db, "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"], { input: quiet + sql });
+  } catch (e) {
+    throw new RotateError(`psql failed in container ${container} (exit ${e.status ?? "?"})`, "psql_failed");
+  }
+}
+
+function roleHolds(p, value) {
+  const stored = psql(p.container, p.superuser, `select rolpassword from pg_authid where rolname='${p.role}';\n`).trim();
+  return scramMatches(stored, value);
 }
 
 async function httpJson(url, { method = "GET", token = null, body = null } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== null) headers["Content-Type"] = "application/json";
-  const res = await fetch(url, { method, headers, body: body === null ? undefined : JSON.stringify(body) });
+  const res = await fetch(url, { method, headers, body: body === null ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
   let json = null;
   try {
     json = await res.json();
@@ -242,6 +278,10 @@ async function windmillSplice(p, password) {
   const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
   if (!r.ok) throw new RotateError(`windmill update failed (${r.status})`, "windmill_failed");
   return "applied";
+}
+
+async function windmillHolds(p, value) {
+  return dsnPassword(await windmillGet(p, readFileSync(p.auth_file, "utf8").trim()), p.user) === value;
 }
 
 function composeCommand(p) {
@@ -277,9 +317,9 @@ export const ADAPTERS = Object.freeze({
       psql(p.container, p.superuser, `ALTER ROLE ${p.role} PASSWORD '${scramVerifier(ctx.oldValue)}';\n`);
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => roleHolds(p, value),
     async verify(p, ctx) {
-      const stored = psql(p.container, p.superuser, `select rolpassword from pg_authid where rolname='${p.role}';\n`).trim();
-      return { ok: scramMatches(stored, ctx.newValue), detail: "role verifier recomputed from salt" };
+      return { ok: roleHolds(p, ctx.newValue), detail: "role verifier recomputed from salt" };
     },
   },
 
@@ -311,6 +351,7 @@ export const ADAPTERS = Object.freeze({
       writePrivateAtomic(p.path, substituteAssignment(before, p.var, ctx.oldValue), { modeBits, uid, gid });
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => readAssignment(readFileSync(p.path, "utf8"), p.var) === value,
     async verify(p, ctx) {
       const want = substituteAssignment(readFileSync(p.path, "utf8"), p.var, ctx.newValue);
       return { ok: want === readFileSync(p.path, "utf8"), detail: `${p.var} holds the new value` };
@@ -365,6 +406,7 @@ export const ADAPTERS = Object.freeze({
       writePrivateAtomic(p.path, next.join("\n"), { modeBits, uid, gid });
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => dsnPassword(readAssignment(readFileSync(p.path, "utf8"), p.var) ?? "", p.user) === value,
     async verify(p, ctx) {
       const line = readFileSync(p.path, "utf8").split("\n").find((l) => l.startsWith(`${p.var}=`)) || "";
       return { ok: line.includes(encodeURIComponent(ctx.newValue)), detail: `${p.var} DSN carries the new password` };
@@ -399,6 +441,7 @@ export const ADAPTERS = Object.freeze({
       writePrivateAtomic(p.path, substituteDsnPassword(before, p.user, ctx.oldValue), { modeBits, uid, gid });
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => dsnPassword(readFileSync(p.path, "utf8"), p.user) === value,
     async verify(p, ctx) {
       return { ok: readFileSync(p.path, "utf8").includes(encodeURIComponent(ctx.newValue)), detail: "DSN file carries the new password" };
     },
@@ -423,16 +466,23 @@ export const ADAPTERS = Object.freeze({
         if (!existsSync(p.auth_file)) throw new RotateError(`${p.auth_file}: windmill token file missing`, "missing_auth_file");
         return { outcome: "would-apply" };
       }
-      return { outcome: await windmillSplice(p, ctx.newValue) };
+      try {
+        return { outcome: await windmillSplice(p, ctx.newValue) };
+      } catch (e) {
+        // The update may have landed although the response says otherwise.
+        // Put the old password back; a no-op when it is still there.
+        if (ctx.oldValue != null) await windmillSplice(p, ctx.oldValue).catch(() => {});
+        throw e;
+      }
     },
     async rollback(p, ctx) {
       if (ctx.oldValue == null) return { outcome: "skipped-no-old" };
       await windmillSplice(p, ctx.oldValue);
       return { outcome: "rolled-back" };
     },
+    holds: async (p, ctx, value) => windmillHolds(p, value),
     async verify(p, ctx) {
-      const got = await windmillGet(p, readFileSync(p.auth_file, "utf8").trim());
-      return { ok: got.includes(encodeURIComponent(ctx.newValue)), detail: "windmill variable carries the new password" };
+      return { ok: await windmillHolds(p, ctx.newValue), detail: "windmill variable carries the new password" };
     },
   },
 
@@ -459,8 +509,8 @@ export const ADAPTERS = Object.freeze({
       const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.newValue } });
       const token = login.json?.data?.access_token;
       if (!token) return { outcome: "rollback-failed-login" };
-      await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.oldValue } });
-      return { outcome: "rolled-back" };
+      const patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.oldValue } });
+      return { outcome: patch.ok ? "rolled-back" : "rollback-failed-patch" };
     },
     async verify(p, ctx) {
       const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.newValue } });
@@ -520,8 +570,11 @@ export const ADAPTERS = Object.freeze({
   "restart-compose": {
     validate(p) {
       if (typeof p.dir !== "string" || !PLAIN_PATH_RE.test(p.dir)) throw new RotateError("compose.dir must be an absolute plain path", "bad_params");
-      if (p.project === undefined) return;
-      if (!PROJECT_RE.test(p.project)) throw new RotateError("compose.project malformed", "bad_params");
+      if (p.project === undefined) {
+        if (p.file !== undefined || p.env_file !== undefined) throw new RotateError("compose.file/env_file need compose.project", "bad_params");
+        return;
+      }
+      if (typeof p.project !== "string" || !PROJECT_RE.test(p.project)) throw new RotateError("compose.project malformed", "bad_params");
       if (typeof p.file !== "string" || !PLAIN_PATH_RE.test(p.file)) throw new RotateError("compose.file must be an absolute plain path", "bad_params");
       if (p.env_file !== undefined && !PLAIN_PATH_RE.test(p.env_file)) throw new RotateError("compose.env_file must be an absolute plain path", "bad_params");
     },
@@ -587,8 +640,10 @@ export const SECRET_MAP = Object.freeze({
       { adapter: "dsn-env", params: { path: ITARUTA_ENV, var: "DATABASE_URL", user: "n8n", owner: "root", group: "root", mode: "0400" } },
       { adapter: "windmill-variable", params: { workspace: "admins", path: "f/reporting/n8n_db", user: "n8n", base_url: "http://127.0.0.1:8000", auth_file: "/etc/crm-secrets/windmill-rotate.token" } },
       { adapter: "restart-systemd", params: { unit: "transcriptor-api" } },
+      // n8n reads the password at start. yafutsu-db is NOT recreated: postgres
+      // ignores its init variable once initialised, and the ALTER above already
+      // changed the live role; a recreate would only restart Itaruta's DB.
       { adapter: "restart-compose", params: { dir: "/data/services/n8n", project: "n8n", file: "/data/services/n8n/docker-compose.yml", env_file: "/data/services/n8n/.env" } },
-      { adapter: "restart-compose", params: { dir: "/data/services/itaruta/db", project: "itaruta-db", file: "/data/services/itaruta/db/docker-compose.yml", env_file: "/data/services/itaruta/db/.env" } },
     ],
   },
   directus_db_password: {
@@ -649,14 +704,19 @@ export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
 function readCurrent(currentFrom) {
   if (!currentFrom || !existsSync(currentFrom.path)) return null;
   const contents = readFileSync(currentFrom.path, "utf8");
-  if (currentFrom.kind === "env") {
-    const line = contents.split("\n").find((l) => l.startsWith(`${currentFrom.var}=`));
-    if (!line) return null;
-    let v = line.slice(currentFrom.var.length + 1);
-    if (v.length > 1 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1);
-    return v;
+  const v = currentFrom.kind === "env" ? readAssignment(contents, currentFrom.var) : contents.trim();
+  return v ? v : null;
+}
+
+// Dry-run one step and, where the adapter can tell, check that its target
+// holds the old value now: the only state a rollback can restore exactly.
+async function checkStep(s, ctxBase) {
+  const a = ADAPTERS[s.adapter];
+  const r = await a.apply(s.params, { ...ctxBase, dryRun: true });
+  if (a.holds && ctxBase.oldValue != null && !(await a.holds(s.params, ctxBase, ctxBase.oldValue))) {
+    throw new RotateError(`${a.describe(s.params)}: does not hold the current value`, "old_value_mismatch");
   }
-  return contents.trim();
+  return r;
 }
 
 export function listSecretIds({ map = SECRET_MAP } = {}) {
@@ -698,12 +758,17 @@ export async function rotate(
 
   if (fromVault && newValue != null) throw new RotateError("give newValue or fromVault, not both", "bad_args");
   if (!fromVault && (typeof newValue !== "string" || newValue.length === 0)) throw new RotateError("newValue is required unless fromVault", "bad_args");
-  if (/[\r\n]/.test(newValue ?? "")) throw new RotateError("value contains a newline", "bad_value");
 
   if (fromVault) {
     if (!vault.has(secretId)) throw new RotateError(`fromVault: no stored value for ${secretId}`, "secret_not_stored");
     newValue = vault.read(secretId);
   }
+  // Checked after the vault read, so a browser-saved value gets the same
+  // checks. `$`, backslash and backtick are refused because compose
+  // interpolates env files and systemd unescapes EnvironmentFile values: the
+  // file would hold one password and the service read another.
+  if (typeof newValue !== "string" || newValue.length === 0) throw new RotateError("empty value", "bad_value");
+  if (/[\r\n$\\`]/.test(newValue)) throw new RotateError("value contains a newline, $, backslash or backtick; refusing", "bad_value");
 
   const oldValue = readCurrent(spec.currentFrom);
   if (oldValue == null) {
@@ -722,13 +787,23 @@ export async function rotate(
     for (const s of spec.steps) {
       let r;
       try {
-        r = await ADAPTERS[s.adapter].apply(s.params, ctxBase);
+        r = await checkStep(s, ctxBase);
       } catch (e) {
         r = { outcome: "would-fail", reason: e.code || e.message };
       }
       results.push({ adapter: s.adapter, describe: ADAPTERS[s.adapter].describe(s.params), ...r });
     }
     return { secretId, dryRun: true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
+  }
+
+  // Preflight: nothing changes unless every step would succeed and every
+  // target that can be checked holds the old value.
+  for (const s of spec.steps) {
+    try {
+      await checkStep(s, ctxBase);
+    } catch (e) {
+      throw new RotateError(`${secretId}: preflight failed at ${ADAPTERS[s.adapter].describe(s.params)} (${e.code || "error"}); nothing was changed`, "preflight_failed");
+    }
   }
 
   const completed = [];
@@ -775,8 +850,11 @@ export async function rotate(
         rolledBack.push({ adapter: c.step.adapter, outcome: "rollback-threw", reason: e.code || e.message });
       }
     }
-    audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || err.message}); rolled back ${rolledBack.length} step(s)` });
-    const e = new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
+    const incomplete = rolledBack.filter((r) => r.outcome !== "rolled-back" && r.outcome !== "owner-command");
+    audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || "error"}); rolled back ${rolledBack.length - incomplete.length}/${rolledBack.length} step(s)` });
+    const e = incomplete.length
+      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand`, "rollback_incomplete")
+      : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
     e.rolledBack = rolledBack;
     e.ownerCommands = ownerCommands;
     throw e;
