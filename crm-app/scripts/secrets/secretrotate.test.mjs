@@ -14,6 +14,9 @@ import {
   substituteDsnPassword,
   listSecretIds,
   execHooks,
+  fp,
+  GENERATE_MIN_BYTES,
+  GENERATE_MAX_BYTES,
 } from "./secretrotate.mjs";
 
 // No real credential appears in this file. Where a value or a DSN is needed it
@@ -741,6 +744,175 @@ describe("rollback after a mid-rotation failure (pg-role steps, mocked psql)", (
     expect(err.code).toBe("rollback_incomplete");
     expect(err.message).toMatch(/INCOMPLETE: pg-role:rollback-threw/);
     expect(err.message).not.toMatch(/was rolled back/);
+  });
+});
+
+describe("generate: a value created here that nobody types or sees", () => {
+  const twoStep = (extra = { generate: { bytes: 32 } }) => ({
+    demo: {
+      display: "demo",
+      vault_type: "password",
+      host: "test-host",
+      ...extra,
+      currentFrom: { kind: "env", path: join(root, "a.env"), var: PWVAR },
+      steps: [
+        { adapter: "env-file", params: { path: join(root, "a.env"), var: PWVAR, owner: "owner", group: "owner", mode: "0640" } },
+        { adapter: "env-file", params: { path: join(root, "b.env"), var: PWVAR, owner: "owner", group: "owner", mode: "0640" } },
+      ],
+    },
+  });
+  const spyVault = () => {
+    const stored = [];
+    return { stored, vault: { has: () => false, read: () => { throw new Error("generate must not read the vault"); }, store: (id, value) => stored.push({ id, value }) } };
+  };
+  const valueIn = (f) => readFileSync(join(root, f), "utf8").split("\n").find((l) => l.startsWith(`${PWVAR}=`)).slice(PWVAR.length + 1);
+  let savedRoot;
+
+  beforeEach(() => {
+    for (const n of ["a.env", "b.env"]) {
+      writeFileSync(join(root, n), `${PWVAR}=${OLDV}\n`);
+      chmodSync(join(root, n), 0o640);
+    }
+    savedRoot = process.env.SECRET_STORE_ROOT;
+    process.env.SECRET_STORE_ROOT = root; // the audit trail lands here, where the test can read it
+  });
+  afterEach(() => {
+    if (savedRoot === undefined) delete process.env.SECRET_STORE_ROOT;
+    else process.env.SECRET_STORE_ROOT = savedRoot;
+  });
+
+  it("applies one random base64url value everywhere, records it in the vault last, and returns only its fingerprint", async () => {
+    const { stored, vault } = spyVault();
+    const res = await rotate("demo", { generate: true, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault });
+    const v = valueIn("a.env");
+    expect(v).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(v).not.toBe(OLDV);
+    expect(valueIn("b.env")).toBe(v);
+    expect(stored).toEqual([{ id: "demo", value: v }]);
+    expect(res.generated).toBe(true);
+    expect(res.newFp).toBe(fp(v));
+    expect(JSON.stringify(res)).not.toContain(v);
+    const trail = readFileSync(join(root, "audit.log"), "utf8");
+    expect(trail).toContain("(generated)");
+    expect(trail).not.toContain(v);
+  });
+
+  it("creates a different value each time", async () => {
+    const opts = () => ({ generate: true, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: spyVault().vault });
+    await rotate("demo", opts());
+    const first = valueIn("a.env");
+    await rotate("demo", opts());
+    expect(valueIn("a.env")).not.toBe(first);
+  });
+
+  it("refuses a secret whose map entry does not allow generation (a provider-issued key), touching nothing", async () => {
+    const { stored, vault } = spyVault();
+    await expect(rotate("demo", { generate: true, map: twoStep({}), hostname: () => "test-host", identityFiles: identityFiles(), vault }))
+      .rejects.toMatchObject({ code: "not_generatable" });
+    expect(valueIn("a.env")).toBe(OLDV);
+    expect(stored).toEqual([]);
+  });
+
+  it("refuses generate combined with a typed value or the vault", async () => {
+    const base = { map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), vault: spyVault().vault };
+    await expect(rotate("demo", { ...base, generate: true, newValue: NEWV })).rejects.toMatchObject({ code: "bad_args" });
+    await expect(rotate("demo", { ...base, generate: true, fromVault: true })).rejects.toMatchObject({ code: "bad_args" });
+    expect(valueIn("a.env")).toBe(OLDV);
+  });
+
+  it("a dry run plans with a generated value, writes nothing, and returns no value", async () => {
+    const { stored, vault } = spyVault();
+    const res = await rotate("demo", { generate: true, dryRun: true, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), vault });
+    expect(res.dryRun).toBe(true);
+    expect(res.generated).toBe(true);
+    expect(res.plan.map((p) => p.outcome)).toEqual(["would-apply", "would-apply"]);
+    expect(valueIn("a.env")).toBe(OLDV);
+    expect(valueIn("b.env")).toBe(OLDV);
+    expect(stored).toEqual([]);
+  });
+
+  it("the shipped map: only the internal passwords may be generated, 32 bytes each", () => {
+    for (const id of ["n8n_db_password", "directus_db_password", "directus_admin_password"]) {
+      expect(secretSpec(id).generate).toEqual({ bytes: 32 });
+    }
+    expect(secretSpec("n8n_mcp_token").generate).toBeUndefined();
+  });
+
+  it("validates generate.bytes", () => {
+    for (const bytes of [GENERATE_MIN_BYTES - 1, GENERATE_MAX_BYTES + 1, "32", 32.5, null]) {
+      expect(() => secretSpec("demo", { map: twoStep({ generate: { bytes } }) })).toThrow(RotateError);
+    }
+    expect(() => secretSpec("demo", { map: twoStep({ generate: { bytes: GENERATE_MIN_BYTES } }) })).not.toThrow();
+  });
+
+  it("an incomplete rollback keeps the generated value in the vault under a separate dated name, never in the error", async () => {
+    const orig = execHooks.run;
+    let altersA = 0;
+    execHooks.run = (file, args, { input } = {}) => {
+      if (input.includes("select rolpassword")) return scramVerifier(OLDV);
+      if (args[2] === "pg-b") throw Object.assign(new Error("ALTER ROLE r PASSWORD 'x'"), { status: 3 });
+      altersA += 1;
+      if (altersA === 2) throw Object.assign(new Error("boom"), { status: 1 }); // pg-a's rollback fails
+      return "";
+    };
+    const map = {
+      two: {
+        display: "two",
+        vault_type: "password",
+        host: "test-host",
+        generate: { bytes: 32 },
+        currentFrom: { kind: "env", path: join(root, "a.env"), var: PWVAR },
+        steps: [
+          { adapter: "pg-role", params: { container: "pg-a", role: "r", superuser: "r" } },
+          { adapter: "pg-role", params: { container: "pg-b", role: "r", superuser: "r" } },
+        ],
+      },
+    };
+    const { stored, vault } = spyVault();
+    try {
+      const err = await rotate("two", { generate: true, map, hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault, now: () => new Date("2026-10-27T12:00:00Z") }).catch((e) => e);
+      expect(err.code).toBe("rollback_incomplete");
+      expect(stored.length).toBe(1);
+      expect(stored[0].id).toBe("two.unapplied-20261027t120000z");
+      expect(stored[0].id).toMatch(/^[a-z0-9][a-z0-9._-]{1,63}$/);
+      expect(stored[0].value).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(err.unappliedName).toBe(stored[0].id);
+      expect(err.message).toContain(stored[0].id);
+      expect(err.message).not.toContain(stored[0].value);
+      expect(readFileSync(join(root, "audit.log"), "utf8")).not.toContain(stored[0].value);
+    } finally {
+      execHooks.run = orig;
+    }
+  });
+
+  it("a complete rollback discards the generated value: the vault is not written", async () => {
+    const orig = execHooks.run;
+    let altersB = 0;
+    execHooks.run = (file, args, { input } = {}) => {
+      if (input.includes("select rolpassword")) return scramVerifier(OLDV);
+      // pg-b's forward ALTER fails once; every rollback ALTER succeeds.
+      if (args[2] === "pg-b" && input.includes("ALTER ROLE") && ++altersB === 1) throw Object.assign(new Error("fail"), { status: 3 });
+      return "";
+    };
+    const map = {
+      two: {
+        display: "two", vault_type: "password", host: "test-host", generate: { bytes: 32 },
+        currentFrom: { kind: "env", path: join(root, "a.env"), var: PWVAR },
+        steps: [
+          { adapter: "pg-role", params: { container: "pg-a", role: "r", superuser: "r" } },
+          { adapter: "pg-role", params: { container: "pg-b", role: "r", superuser: "r" } },
+        ],
+      },
+    };
+    const { stored, vault } = spyVault();
+    try {
+      const err = await rotate("two", { generate: true, map, hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault }).catch((e) => e);
+      expect(err.message).toMatch(/was rolled back/);
+      expect(err.unappliedName).toBeNull();
+      expect(stored).toEqual([]);
+    } finally {
+      execHooks.run = orig;
+    }
   });
 });
 

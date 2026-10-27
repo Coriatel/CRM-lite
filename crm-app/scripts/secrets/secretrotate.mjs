@@ -75,6 +75,18 @@ export function fp(value) {
   return createHash("sha256").update(String(value)).digest("hex").slice(0, 8);
 }
 
+// A value created inside this process for a secret WE own (a database role, an
+// admin password), so nobody has to type, paste or see it: it goes from
+// randomBytes to the targets and the vault and nowhere else. base64url is
+// inside the value allowlist below and needs no quoting in a .env or a DSN.
+// A provider-issued key (Takbull, GitHub, Google...) cannot be generated here;
+// only a map entry that declares `generate` accepts it.
+export const GENERATE_MIN_BYTES = 16;
+export const GENERATE_MAX_BYTES = 64;
+export function generateValue(bytes) {
+  return randomBytes(bytes).toString("base64url");
+}
+
 // ---------------------------------------------------------------------------
 // Low-level file write: private, atomic, ownership-restated-while-invisible.
 // A near-copy of secretdeploy's internal writer (not exported there); kept here
@@ -652,6 +664,7 @@ const ITARUTA_ENV = "/data/services/itaruta/credentials/transcriptor-api.env";
 // which W4 split off with the same role and password.
 export const SECRET_MAP = Object.freeze({
   n8n_db_password: {
+    generate: { bytes: 32 },
     display: "סיסמת מסד הנתונים של n8n",
     vault_type: "password",
     host: MNHOME,
@@ -671,6 +684,7 @@ export const SECRET_MAP = Object.freeze({
     ],
   },
   directus_db_password: {
+    generate: { bytes: 32 },
     display: "סיסמת מסד הנתונים של Directus (CRM)",
     vault_type: "password",
     host: MNHOME,
@@ -684,6 +698,7 @@ export const SECRET_MAP = Object.freeze({
   // Itaruta logs in to the CRM as this same admin (its DIRECTUS_EMAIL is this
   // account, checked value-blind), so its copy rotates in the same step list.
   directus_admin_password: {
+    generate: { bytes: 32 },
     display: "סיסמת מנהל Directus (CRM)",
     vault_type: "password",
     host: MNHOME,
@@ -715,6 +730,12 @@ export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
   const spec = Object.hasOwn(map, secretId) ? map[secretId] : null;
   if (!spec) throw new RotateError(`no such secret in the rotation map: ${secretId}`, "unknown_secret");
   if (!HOST_RE.test(spec.host || "")) throw new RotateError(`${secretId}: the map entry names no valid host`, "bad_spec");
+  if (spec.generate !== undefined) {
+    const b = spec.generate?.bytes;
+    if (!Number.isInteger(b) || b < GENERATE_MIN_BYTES || b > GENERATE_MAX_BYTES) {
+      throw new RotateError(`${secretId}: generate.bytes must be an integer ${GENERATE_MIN_BYTES}-${GENERATE_MAX_BYTES}`, "bad_spec");
+    }
+  }
   for (const s of spec.steps) {
     const a = ADAPTERS[s.adapter];
     if (!a) throw new RotateError(`unknown adapter: ${s.adapter}`, "unknown_adapter");
@@ -754,9 +775,12 @@ export function listSecretIds({ map = SECRET_MAP } = {}) {
  *   newValue   — supplied directly (the CLI's prompt-twice path)
  *   fromVault  — read the current vault value as the NEW value (the browser
  *                path: the owner already saved it through merkaz-secrets)
+ *   generate   — created here from randomBytes (only for a map entry that
+ *                declares `generate`); never printed, returned or logged, and
+ *                written to the vault last like a typed value
  *
  * On any step failure, completed steps are rolled back in reverse and the error
- * is rethrown. On success, and only when newValue was supplied (not fromVault),
+ * is rethrown. On success, and only when the value did not come from the vault,
  * the new value is written to the vault last, so the vault advances only after
  * the host is consistent. Never returns or logs a value.
  */
@@ -772,7 +796,7 @@ export const defaultVault = {
 
 export async function rotate(
   secretId,
-  { newValue = null, fromVault = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault, hostname = osHostname } = {},
+  { newValue = null, fromVault = false, generate = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault, hostname = osHostname } = {},
 ) {
   const spec = secretSpec(secretId, { map });
   const here = hostname();
@@ -780,8 +804,19 @@ export async function rotate(
     throw new RotateError(`${secretId} rotates on host "${spec.host}", this is "${here}"; refusing, nothing was read or changed`, "wrong_host");
   }
 
-  if (fromVault && newValue != null) throw new RotateError("give newValue or fromVault, not both", "bad_args");
-  if (!fromVault && (typeof newValue !== "string" || newValue.length === 0)) throw new RotateError("newValue is required unless fromVault", "bad_args");
+  if ([newValue != null, fromVault === true, generate === true].filter(Boolean).length > 1) {
+    throw new RotateError("give exactly one of newValue, fromVault or generate", "bad_args");
+  }
+  if (!fromVault && !generate && (typeof newValue !== "string" || newValue.length === 0)) {
+    throw new RotateError("newValue is required unless fromVault or generate", "bad_args");
+  }
+
+  if (generate) {
+    if (!spec.generate) {
+      throw new RotateError(`${secretId} is issued by its provider and cannot be generated here; refusing, nothing was read or changed`, "not_generatable");
+    }
+    newValue = generateValue(spec.generate.bytes);
+  }
 
   if (fromVault) {
     if (!vault.has(secretId)) throw new RotateError(`fromVault: no stored value for ${secretId}`, "secret_not_stored");
@@ -821,7 +856,7 @@ export async function rotate(
       }
       results.push({ adapter: s.adapter, describe: ADAPTERS[s.adapter].describe(s.params), ...r });
     }
-    return { secretId, dryRun: true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
+    return { secretId, dryRun: true, generated: generate === true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), plan: results, ownerCommands: results.filter((r) => r.command).map((r) => r.command) };
   }
 
   // Preflight: nothing changes unless every step would succeed and every
@@ -864,13 +899,15 @@ export async function rotate(
       try {
         vault.store(secretId, newValue, spec);
       } catch (e) {
-        vaultWarning = `host rotated and verified, but recording the value in the vault failed: ${e.message}`;
+        vaultWarning = generate
+          ? `host rotated and verified, but recording the generated value in the vault failed (${e.message}); it now exists only in the rotated targets`
+          : `host rotated and verified, but recording the value in the vault failed: ${e.message}`;
         audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: "vault record failed after successful host rotation" });
       }
     }
 
-    audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate complete @${fp(newValue)}` });
-    return { secretId, dryRun: false, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
+    audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `rotate complete @${fp(newValue)}${generate ? " (generated)" : ""}` });
+    return { secretId, dryRun: false, generated: generate === true, newFp: fp(newValue), oldFp: oldValue == null ? null : fp(oldValue), applied: completed.map((c) => ({ adapter: c.step.adapter, outcome: c.result.outcome })), verifications, ownerCommands, vaultWarning };
   } catch (err) {
     const rolledBack = [];
     const undo = completed.reverse();
@@ -885,11 +922,28 @@ export async function rotate(
     }
     const incomplete = rolledBack.filter((r) => r.outcome !== "rolled-back" && r.outcome !== "owner-command");
     audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || "error"}); rolled back ${rolledBack.length - incomplete.length}/${rolledBack.length} step(s)` });
+    // A typed value is still known to the person who typed it. A generated one
+    // is known to nobody, so a target the rollback could not restore would hold
+    // a password no one can supply. Keep it in the vault under a separate,
+    // dated name (root-only, never printed) so that target can be finished or
+    // reset; the real entry is not advanced.
+    let unappliedName = null;
+    if (generate && incomplete.length) {
+      const name = `${secretId}.unapplied-${now().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z").toLowerCase()}`;
+      try {
+        vault.store(name, newValue, { ...spec, display: `${spec.display} (generated, not applied)` });
+        unappliedName = name;
+        audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `generated value kept as ${name} @${fp(newValue)}` });
+      } catch {
+        audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: "generated value could not be kept after an incomplete rollback" });
+      }
+    }
     const e = incomplete.length
-      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand`, "rollback_incomplete")
+      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand${unappliedName ? ` (the generated value is in the vault as ${unappliedName})` : ""}`, "rollback_incomplete")
       : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
     e.rolledBack = rolledBack;
     e.ownerCommands = ownerCommands;
+    e.unappliedName = unappliedName;
     throw e;
   }
 }

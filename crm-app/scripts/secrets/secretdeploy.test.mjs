@@ -549,6 +549,13 @@ describe("secretsctl flag parsing", () => {
     expect(() => parseArgs(["--dry-run", "false"], ["dry-run"])).toThrow(/takes no value/);
   });
 
+  it("--generate is a bare switch for rotate: it never takes an argument that could be a value", async () => {
+    const { parseArgs, BOOLEAN_FLAGS } = await import("./secretsctl.mjs");
+    expect(BOOLEAN_FLAGS.has("generate")).toBe(true);
+    expect(parseArgs(["--secret", "n8n_db_password", "--generate"], ["secret", "from-vault", "generate", "dry-run"])).toEqual({ secret: "n8n_db_password", generate: true });
+    expect(() => parseArgs(["--generate", "pasted-value"], ["secret", "generate"])).toThrow(/takes no value/);
+  });
+
   it("still requires a value for non-boolean flags", async () => {
     const { parseArgs } = await import("./secretsctl.mjs");
     expect(() => parseArgs(["--target"], ["target"])).toThrow(/requires a value/);
