@@ -437,6 +437,7 @@ describe("directus-user: a PATCH whose reply is lost is still undone", () => {
         }
         if (du.patchMode === "lands") du.password = NEWV;
         if (du.patchMode === "third") du.password = OTHER;
+        if (du.patchMode === "timeout") throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
         return reply(502, null);
       }
       return reply(404, null);
@@ -480,6 +481,14 @@ describe("directus-user: a PATCH whose reply is lost is still undone", () => {
     const err = await rotate("d", dopts()).catch((e) => e);
     expect(err.code).toBe("rollback_incomplete");
     expect(err.message).toMatch(/INCOMPLETE: directus-user:rollback-failed-login/);
+  });
+
+  it("reports INCOMPLETE, not rolled back, when the PATCH got no answer (it may still land)", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    du.patchMode = "timeout";
+    const err = await rotate("d", dopts()).catch((e) => e);
+    expect(err.code).toBe("rollback_incomplete");
+    expect(err.message).toMatch(/INCOMPLETE: directus-user:rollback-unconfirmed/);
   });
 
   it("refuses before any change when the old password does not log in", async () => {

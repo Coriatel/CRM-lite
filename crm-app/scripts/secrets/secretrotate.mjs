@@ -284,6 +284,10 @@ async function windmillHolds(p, value) {
   return dsnPassword(await windmillGet(p, readFileSync(p.auth_file, "utf8").trim()), p.user) === value;
 }
 
+// Directus steps whose password PATCH got no answer (timeout or network
+// error): Directus may still commit it after any check we make now.
+const directusUnanswered = new WeakSet();
+
 // Log in and straight out again; true when the password works.
 async function directusCanLogin(p, password) {
   const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password } });
@@ -501,13 +505,20 @@ export const ADAPTERS = Object.freeze({
     describe: (p) => `directus-user: password of ${p.email} at ${p.base_url}`,
     async apply(p, ctx) {
       if (ctx.dryRun) return { outcome: "would-apply" };
+      directusUnanswered.delete(p);
       // Authenticate as the user with whichever password it currently has, then
       // set the new one on itself. Both passwords travel in the JSON body, never
       // argv. If old == new the login with new still succeeds (idempotent).
       const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.oldValue ?? ctx.newValue } });
       const token = login.json?.data?.access_token;
       if (!token) throw new RotateError(`directus login failed (${login.status})`, "directus_login_failed");
-      const patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.newValue } });
+      let patch;
+      try {
+        patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.newValue } });
+      } catch {
+        directusUnanswered.add(p);
+        throw new RotateError("directus password change got no answer", "directus_patch_unanswered");
+      }
       if (!patch.ok) throw new RotateError(`directus password change failed (${patch.status})`, "directus_patch_failed");
       return { outcome: "applied" };
     },
@@ -517,8 +528,11 @@ export const ADAPTERS = Object.freeze({
       const token = login.json?.data?.access_token;
       // The new password does not work: a step that failed mid-way never
       // landed. The preflight proved the old one worked; if it still does,
-      // nothing changed.
-      if (!token) return { outcome: (await directusCanLogin(p, ctx.oldValue)) ? "rolled-back" : "rollback-failed-login" };
+      // nothing changed. Unless the PATCH got no answer: it may land later.
+      if (!token) {
+        if (!(await directusCanLogin(p, ctx.oldValue))) return { outcome: "rollback-failed-login" };
+        return { outcome: directusUnanswered.has(p) ? "rollback-unconfirmed" : "rolled-back" };
+      }
       const patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.oldValue } });
       return { outcome: patch.ok ? "rolled-back" : "rollback-failed-patch" };
     },
