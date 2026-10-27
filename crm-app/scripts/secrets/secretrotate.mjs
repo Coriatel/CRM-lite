@@ -23,11 +23,17 @@
 //     it makes the change, and rotate() rolls back completed steps in reverse
 //     on any failure.
 //
-// What this file deliberately does NOT do: restart a container. docker compose
-// recreate is an owner action on this host (the harness denies it to agents),
-// so a restart-compose step returns the exact command for the owner and
-// changes nothing. A pm2 restart under the same account IS performed, because
-// the agent may.
+// What this file deliberately does NOT do: restart a container or a systemd
+// unit. Both are owner actions on these hosts (the harness denies them to
+// agents), so restart-compose and restart-systemd steps return the exact
+// command for the owner and change nothing. A pm2 restart under the same
+// account IS performed, because the agent may.
+//
+// Every secret names the ONE host it rotates on (`host`). rotate() refuses on
+// any other host before it reads the vault or touches anything: the same map
+// is deployed to srv and to mn-home, and a step aimed at a consumer that lives
+// elsewhere must fail loudly, not write a stale file or a live service across
+// a bridge.
 
 import {
   chmodSync,
@@ -47,6 +53,7 @@ import {
 import { createHash, pbkdf2Sync, createHmac, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { hostname as osHostname } from "node:os";
 
 import { addSecret, listSecrets, readSecretValue, replaceSecret, storeRoot } from "./secretstore.mjs";
 import { substituteAssignment } from "./secretdeploy.mjs";
@@ -141,6 +148,12 @@ const ENV_VAR_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const MODE_RE = /^0[0-7]{3}$/;
 const ROLE_RE = /^[a-z_][a-z0-9_]{0,62}$/;
 const CONTAINER_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+// Owner commands are pasted into a shell, so every word in them is a plain
+// token: no spaces, quotes, `$`, `;` or a leading dash.
+const PLAIN_PATH_RE = /^\/[A-Za-z0-9._/-]+$/;
+const PROJECT_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+const UNIT_RE = /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$/;
+const HOST_RE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
 
 // Replace only the password component of a DSN, URL-encoding the new value so a
 // password with '/', '@', ':' or '#' survives the round trip. `user` pins which
@@ -211,6 +224,33 @@ async function httpJson(url, { method = "GET", token = null, body = null } = {})
     /* empty or non-json body */
   }
   return { status: res.status, ok: res.ok, json };
+}
+
+// Windmill variable holding a DSN: read the live value, splice only the
+// password in, write it back. Values stay in this process.
+async function windmillGet(p, token) {
+  const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/get_value/${p.path}`, { token });
+  if (!r.ok) throw new RotateError(`windmill read failed (${r.status})`, "windmill_failed");
+  return typeof r.json === "string" ? r.json : String(r.json?.value ?? "");
+}
+
+async function windmillSplice(p, password) {
+  const token = readFileSync(p.auth_file, "utf8").trim();
+  const current = await windmillGet(p, token);
+  const value = substituteDsnPassword(current, p.user, password);
+  if (value === current) return "unchanged";
+  const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
+  if (!r.ok) throw new RotateError(`windmill update failed (${r.status})`, "windmill_failed");
+  return "applied";
+}
+
+function composeCommand(p) {
+  if (!p.project) return `cd ${p.dir} && docker compose up -d --no-build`;
+  // mn-home layout: the project name is not the directory name, and the
+  // compose and env files are root-only, so everything is named and run as root.
+  const words = ["sudo docker compose -p", p.project, "-f", p.file, "--project-directory", p.dir];
+  if (p.env_file) words.push("--env-file", p.env_file);
+  return [...words, "up -d --no-build"].join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -365,39 +405,34 @@ export const ADAPTERS = Object.freeze({
   },
 
   "windmill-variable": {
-    // The stored value is a DSN. It is assembled at runtime from `prefix`
-    // (everything up to and including "user:") and `suffix` (everything from
-    // "@host" on), with the URL-encoded password spliced between. Kept as two
-    // parts rather than one "user:{pw}@host" template on purpose: a literal
-    // DSN with an inline password on a source line is exactly what the repo's
-    // secret scanner rejects, and a config string should not look like a leak.
+    // The stored value is a DSN. Only its password component is rewritten, in
+    // whatever DSN the variable holds now: host, port and database differ per
+    // host (mn-home's Windmill workers do not share n8n-postgres's network),
+    // and a map entry must not guess them. No DSN literal appears here, so
+    // there is nothing for the repo's secret scanner to object to either.
     validate(p) {
       if (!/^[a-zA-Z0-9_-]+$/.test(p.workspace || "")) throw new RotateError("windmill.workspace malformed", "bad_params");
       if (!/^[a-zA-Z0-9_/.-]+$/.test(p.path || "")) throw new RotateError("windmill.path malformed", "bad_params");
-      if (typeof p.prefix !== "string" || typeof p.suffix !== "string") throw new RotateError("windmill.prefix/suffix required", "bad_params");
-      if (typeof p.base_url !== "string" || typeof p.auth_file !== "string") throw new RotateError("windmill base_url/auth_file required", "bad_params");
+      if (!/^[A-Za-z0-9_]+$/.test(p.user || "")) throw new RotateError("windmill.user malformed", "bad_params");
+      if (typeof p.base_url !== "string" || !/^https?:\/\/[A-Za-z0-9.:-]+$/.test(p.base_url)) throw new RotateError("windmill.base_url malformed", "bad_params");
+      if (typeof p.auth_file !== "string" || !p.auth_file.startsWith("/")) throw new RotateError("windmill.auth_file must be absolute", "bad_params");
     },
-    describe: (p) => `windmill-variable: ${p.workspace}:${p.path}`,
+    describe: (p) => `windmill-variable: ${p.workspace}:${p.path} (password of DSN user ${p.user})`,
     async apply(p, ctx) {
-      if (ctx.dryRun) return { outcome: "would-apply" };
-      const token = readFileSync(p.auth_file, "utf8").trim();
-      const value = p.prefix + encodeURIComponent(ctx.newValue) + p.suffix;
-      const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
-      if (!r.ok) throw new RotateError(`windmill update failed (${r.status})`, "windmill_failed");
-      return { outcome: "applied" };
+      if (ctx.dryRun) {
+        if (!existsSync(p.auth_file)) throw new RotateError(`${p.auth_file}: windmill token file missing`, "missing_auth_file");
+        return { outcome: "would-apply" };
+      }
+      return { outcome: await windmillSplice(p, ctx.newValue) };
     },
     async rollback(p, ctx) {
       if (ctx.oldValue == null) return { outcome: "skipped-no-old" };
-      const token = readFileSync(p.auth_file, "utf8").trim();
-      const value = p.prefix + encodeURIComponent(ctx.oldValue) + p.suffix;
-      await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/update/${p.path}`, { method: "POST", token, body: { value } });
+      await windmillSplice(p, ctx.oldValue);
       return { outcome: "rolled-back" };
     },
     async verify(p, ctx) {
-      const token = readFileSync(p.auth_file, "utf8").trim();
-      const r = await httpJson(`${p.base_url}/api/w/${p.workspace}/variables/get_value/${p.path}`, { token });
-      const got = typeof r.json === "string" ? r.json : r.json?.value ?? "";
-      return { ok: String(got).includes(encodeURIComponent(ctx.newValue)), detail: "windmill variable carries the new password" };
+      const got = await windmillGet(p, readFileSync(p.auth_file, "utf8").trim());
+      return { ok: got.includes(encodeURIComponent(ctx.newValue)), detail: "windmill variable carries the new password" };
     },
   },
 
@@ -484,14 +519,37 @@ export const ADAPTERS = Object.freeze({
   // failure, and never blocks the steps the agent CAN complete.
   "restart-compose": {
     validate(p) {
-      if (typeof p.dir !== "string" || !p.dir.startsWith("/")) throw new RotateError("compose.dir must be absolute", "bad_params");
+      if (typeof p.dir !== "string" || !PLAIN_PATH_RE.test(p.dir)) throw new RotateError("compose.dir must be an absolute plain path", "bad_params");
+      if (p.project === undefined) return;
+      if (!PROJECT_RE.test(p.project)) throw new RotateError("compose.project malformed", "bad_params");
+      if (typeof p.file !== "string" || !PLAIN_PATH_RE.test(p.file)) throw new RotateError("compose.file must be an absolute plain path", "bad_params");
+      if (p.env_file !== undefined && !PLAIN_PATH_RE.test(p.env_file)) throw new RotateError("compose.env_file must be an absolute plain path", "bad_params");
     },
-    describe: (p) => `restart (owner): cd ${p.dir} && docker compose up -d --no-build`,
+    describe: (p) => `restart (owner): ${composeCommand(p)}`,
     async apply(p) {
-      return { outcome: "owner-command", command: `! cd ${p.dir} && docker compose up -d --no-build` };
+      return { outcome: "owner-command", command: `! ${composeCommand(p)}` };
     },
     async rollback(p) {
-      return { outcome: "owner-command", command: `! cd ${p.dir} && docker compose up -d --no-build` };
+      return { outcome: "owner-command", command: `! ${composeCommand(p)}` };
+    },
+    async verify() {
+      return { ok: true, detail: "deferred to owner (not verified here)" };
+    },
+  },
+
+  // Same contract for a systemd service that reads a rotated file at start
+  // (mn-home's Itaruta is a unit, not pm2): the command for the owner, never
+  // a systemctl call from here.
+  "restart-systemd": {
+    validate(p) {
+      if (!UNIT_RE.test(p.unit || "")) throw new RotateError("systemd.unit malformed", "bad_params");
+    },
+    describe: (p) => `restart (owner): sudo systemctl restart ${p.unit}`,
+    async apply(p) {
+      return { outcome: "owner-command", command: `! sudo systemctl restart ${p.unit}` };
+    },
+    async rollback(p) {
+      return { outcome: "owner-command", command: `! sudo systemctl restart ${p.unit}` };
     },
     async verify() {
       return { ok: true, detail: "deferred to owner (not verified here)" };
@@ -507,48 +565,66 @@ export const ADAPTERS = Object.freeze({
 // host file that still holds it, never the vault (the vault may already hold
 // the new value when the owner triggered this from the browser).
 
+const MNHOME = "mn-home";
+const SRV = "srv1518109";
+const ITARUTA_ENV = "/data/services/itaruta/credentials/transcriptor-api.env";
+
+// mn-home paths, owners and modes below were checked on mn-home on 2026-10-27
+// (names and metadata only). The n8n role password lives in TWO clusters
+// there: n8n-postgres (n8n, Windmill reporting) and yafutsu-db (Itaruta),
+// which W4 split off with the same role and password.
 export const SECRET_MAP = Object.freeze({
   n8n_db_password: {
     display: "סיסמת מסד הנתונים של n8n",
     vault_type: "password",
-    currentFrom: { kind: "env", path: "/home/elron/services/n8n/.env", var: "POSTGRES_PASSWORD" },
+    host: MNHOME,
+    currentFrom: { kind: "env", path: "/data/services/n8n/.env", var: "POSTGRES_PASSWORD" },
     steps: [
       { adapter: "pg-role", params: { container: "n8n-postgres", role: "n8n", superuser: "n8n" } },
-      { adapter: "env-file", params: { path: "/home/elron/services/n8n/.env", var: "POSTGRES_PASSWORD", owner: "devuser", group: "devuser", mode: "0640" } },
-      { adapter: "dsn-env", params: { path: "/opt/transcriptor-api/.env", var: "DATABASE_URL", user: "n8n", owner: "devuserp", group: "devuserp", mode: "0600" } },
-      { adapter: "dsn-env", params: { path: "/etc/yafutsu/transcriptor-api.env", var: "DATABASE_URL", user: "n8n", owner: "root", group: "devuserp", mode: "0640" } },
-      { adapter: "dsn-file", params: { path: "/home/devuserp/.config/merkaz/library.dsn", user: "n8n", owner: "devuserp", group: "devuserp", mode: "0600" } },
-      { adapter: "windmill-variable", params: { workspace: "admins", path: "f/reporting/n8n_db", prefix: "postgresql://n8n:", suffix: "@n8n-postgres:5432/n8n", base_url: "http://127.0.0.1:8000", auth_file: "/home/devuserp/.config/merkaz/windmill_token" } },
-      { adapter: "restart-pm2", params: { user: "devuserp", name: "transcriptor-api", inject_var: "DATABASE_URL", inject_from: "/opt/transcriptor-api/.env" } },
-      { adapter: "restart-compose", params: { dir: "/home/elron/services/n8n" } },
+      { adapter: "pg-role", params: { container: "yafutsu-db", role: "n8n", superuser: "n8n" } },
+      { adapter: "env-file", params: { path: "/data/services/n8n/.env", var: "POSTGRES_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "env-file", params: { path: "/data/services/itaruta/db/.env", var: "POSTGRES_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "dsn-env", params: { path: ITARUTA_ENV, var: "DATABASE_URL", user: "n8n", owner: "root", group: "root", mode: "0400" } },
+      { adapter: "windmill-variable", params: { workspace: "admins", path: "f/reporting/n8n_db", user: "n8n", base_url: "http://127.0.0.1:8000", auth_file: "/etc/crm-secrets/windmill-rotate.token" } },
+      { adapter: "restart-systemd", params: { unit: "transcriptor-api" } },
+      { adapter: "restart-compose", params: { dir: "/data/services/n8n", project: "n8n", file: "/data/services/n8n/docker-compose.yml", env_file: "/data/services/n8n/.env" } },
+      { adapter: "restart-compose", params: { dir: "/data/services/itaruta/db", project: "itaruta-db", file: "/data/services/itaruta/db/docker-compose.yml", env_file: "/data/services/itaruta/db/.env" } },
     ],
   },
   directus_db_password: {
     display: "סיסמת מסד הנתונים של Directus (CRM)",
     vault_type: "password",
-    currentFrom: { kind: "env", path: "/opt/hoshen-yehuda/crm-stack/.env", var: "POSTGRES_PASSWORD" },
+    host: MNHOME,
+    currentFrom: { kind: "env", path: "/data/services/hycrm/.env", var: "POSTGRES_PASSWORD" },
     steps: [
       { adapter: "pg-role", params: { container: "hycrm-directus-db", role: "hycrm", superuser: "hycrm" } },
-      { adapter: "env-file", params: { path: "/opt/hoshen-yehuda/crm-stack/.env", var: "POSTGRES_PASSWORD", owner: "elron", group: "ops-vault", mode: "0640" } },
-      { adapter: "restart-compose", params: { dir: "/opt/hoshen-yehuda/crm-stack" } },
+      { adapter: "env-file", params: { path: "/data/services/hycrm/.env", var: "POSTGRES_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "restart-compose", params: { dir: "/data/services/hycrm", project: "crm-stack", file: "/data/services/hycrm/docker-compose.yml", env_file: "/data/services/hycrm/.env" } },
     ],
   },
+  // Itaruta logs in to the CRM as this same admin (its DIRECTUS_EMAIL is this
+  // account, checked value-blind), so its copy rotates in the same step list.
   directus_admin_password: {
     display: "סיסמת מנהל Directus (CRM)",
     vault_type: "password",
-    currentFrom: { kind: "env", path: "/opt/hoshen-yehuda/crm-stack/.env", var: "DIRECTUS_ADMIN_PASSWORD" },
+    host: MNHOME,
+    currentFrom: { kind: "env", path: "/data/services/hycrm/.env", var: "DIRECTUS_ADMIN_PASSWORD" },
     steps: [
       { adapter: "directus-user", params: { base_url: "http://127.0.0.1:18055", email: "admin@crm.coriathost.cloud" } },
-      { adapter: "env-file", params: { path: "/opt/hoshen-yehuda/crm-stack/.env", var: "DIRECTUS_ADMIN_PASSWORD", owner: "elron", group: "ops-vault", mode: "0640" } },
+      { adapter: "env-file", params: { path: "/data/services/hycrm/.env", var: "DIRECTUS_ADMIN_PASSWORD", owner: "root", group: "root", mode: "0600" } },
+      { adapter: "env-file", params: { path: ITARUTA_ENV, var: "DIRECTUS_PASSWORD", owner: "root", group: "root", mode: "0400" } },
+      { adapter: "restart-systemd", params: { unit: "transcriptor-api" } },
     ],
   },
-  // The one consumer is devuserp's Claude sessions: ~/.local/bin/n8n-mcp reads
-  // this file and starts supergateway. Running sessions keep the old process
-  // until they restart; new sessions pick up the new token. The old token is
-  // revoked by the owner in n8n only after this reports applied.
+  // The one consumer is devuserp's Claude sessions on srv: ~/.local/bin/n8n-mcp
+  // reads this file and starts supergateway. Running sessions keep the old
+  // process until they restart; new sessions pick up the new token. The old
+  // token is revoked by the owner in n8n only after this reports applied.
+  // Stays on srv until an n8n-mcp wrapper exists on mn-home.
   n8n_mcp_token: {
     display: "טוקן MCP של n8n",
     vault_type: "token",
+    host: SRV,
     currentFrom: { kind: "env", path: "/home/devuserp/.config/merkaz/n8n-mcp.env", var: "N8N_MCP_TOKEN" },
     steps: [
       { adapter: "env-file", params: { path: "/home/devuserp/.config/merkaz/n8n-mcp.env", var: "N8N_MCP_TOKEN", owner: "devuserp", group: "devuserp", mode: "0600" } },
@@ -559,6 +635,7 @@ export const SECRET_MAP = Object.freeze({
 export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
   const spec = map[secretId];
   if (!spec) throw new RotateError(`no such secret in the rotation map: ${secretId}`, "unknown_secret");
+  if (!HOST_RE.test(spec.host || "")) throw new RotateError(`${secretId}: the map entry names no valid host`, "bad_spec");
   for (const s of spec.steps) {
     const a = ADAPTERS[s.adapter];
     if (!a) throw new RotateError(`unknown adapter: ${s.adapter}`, "unknown_adapter");
@@ -611,9 +688,13 @@ export const defaultVault = {
 
 export async function rotate(
   secretId,
-  { newValue = null, fromVault = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault } = {},
+  { newValue = null, fromVault = false, dryRun = false, actor = "secretrotate", map = SECRET_MAP, identityFiles = {}, now = () => new Date(), vault = defaultVault, hostname = osHostname } = {},
 ) {
   const spec = secretSpec(secretId, { map });
+  const here = hostname();
+  if (spec.host !== here) {
+    throw new RotateError(`${secretId} rotates on host "${spec.host}", this is "${here}"; refusing, nothing was read or changed`, "wrong_host");
+  }
 
   if (fromVault && newValue != null) throw new RotateError("give newValue or fromVault, not both", "bad_args");
   if (!fromVault && (typeof newValue !== "string" || newValue.length === 0)) throw new RotateError("newValue is required unless fromVault", "bad_args");
@@ -625,6 +706,12 @@ export async function rotate(
   }
 
   const oldValue = readCurrent(spec.currentFrom);
+  if (oldValue == null) {
+    // Without the old value no step could be rolled back, and a half-applied
+    // role password is an outage. Refuse before step one.
+    const where = spec.currentFrom ? `${spec.currentFrom.var ?? "value"} in ${spec.currentFrom.path}` : "no currentFrom";
+    throw new RotateError(`${secretId}: current value not readable (${where}); refusing, nothing was changed`, "no_current_value");
+  }
   const ctxBase = { oldValue, newValue, now, identityFiles, dryRun };
 
   // Plan is always computed and returned, value-free.

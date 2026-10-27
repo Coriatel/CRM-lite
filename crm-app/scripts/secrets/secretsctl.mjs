@@ -395,7 +395,7 @@ const COMMANDS = {
   // --dry-run plans every step and writes nothing.
 
   "rotate-list"() {
-    for (const id of listSecretIds()) console.log(`${id}\t${secretSpec(id).display}  (${secretSpec(id).steps.length} steps)`);
+    for (const id of listSecretIds()) console.log(`${id}\t${secretSpec(id).display}  (${secretSpec(id).steps.length} steps, host ${secretSpec(id).host})`);
   },
 
   async rotate(args) {
