@@ -19,8 +19,10 @@ const t = process.argv[process.argv.indexOf("--secret") + 1];
 appendFileSync(process.env.STUB_LOG, `${t}\n`);
 console.log(`rotated ${t}`);
 STUB
+# The test's own user stands in for the app account that owns the queue.
+APP="$(id -un)"
 run() {
-  sudo -n env MS_APPLY_QUEUE_DIR="$Q" MS_APPLY_STATUS_DIR="$S" SECRETSCTL="$T/stub-secretsctl.mjs" \
+  sudo -n env MS_APPLY_QUEUE_DIR="$Q" MS_APPLY_STATUS_DIR="${STATUS_DIR:-$S}" MS_APPLY_APP_USER="$APP" SECRETSCTL="$T/stub-secretsctl.mjs" \
     STUB_LOG="$T/stub.log" SECRET_STORE_ROOT="$T/no-store" SECRET_KEY_FILE="$T/no-key" node "$BIN" 2>&1
 }
 marker() { printf '%s' "$2" >"$Q/$1"; }
@@ -32,6 +34,7 @@ o=$(run)
 check "a good marker is applied and its status written" "sudo -n grep -q '\"applied\"' '$S/req_0123abcd.json'"
 check "the processed marker is removed" "[ ! -e '$Q/good.json' ]"
 check "secretsctl was asked for the named target" "grep -qx demo_secret '$T/stub.log'"
+check "the status file belongs to the app account, not root" "[ \"\$(stat -c %U '$S/req_0123abcd.json')\" = '$APP' ]"
 
 echo "== marker contents are not trusted =="
 marker trav.json '{"request_id":"../outside/pwned","targets":["demo_secret"]}'
@@ -60,6 +63,24 @@ marker after.json '{"request_id":"req_afterdir","targets":["demo_secret"]}'
 o=$(run); rc=$?
 check "a directory marker does not stop the run" "[ $rc -eq 0 ] && sudo -n grep -q '\"applied\"' '$S/req_afterdir.json'"
 check "the directory marker is removed" "[ ! -e '$Q/dir.json' ]"
+
+echo "== root never writes or deletes inside the app's directories =="
+mkdir -p "$Q/deep.json/sub"; : >"$OUT/keep"; ln -s "$OUT" "$Q/deep.json/sub/out"
+o=$(run)
+check "a nested marker is removed without following the symlink in it" "[ ! -e '$Q/deep.json' ] && [ -f '$OUT/keep' ]"
+
+sudo -n mkdir "$Q/rootdir.json"; sudo -n touch "$Q/rootdir.json/f"
+marker after2.json '{"request_id":"req_afterroot","targets":["demo_secret"]}'
+o=$(run); rc=$?
+check "what the app account cannot delete stays (root deletes nothing there)" "sudo -n test -e '$Q/rootdir.json/f'"
+check "and the run goes on" "[ $rc -eq 0 ] && grep -q '\"applied\"' '$S/req_afterroot.json'"
+sudo -n rm -f "$Q/rootdir.json/f"; sudo -n rmdir "$Q/rootdir.json"
+
+sudo -n mkdir -m 0755 "$T/rootonly"; ln -s "$T/rootonly" "$T/status-link"
+marker swap.json '{"request_id":"req_swapped","targets":["demo_secret"]}'
+o=$(STATUS_DIR="$T/status-link" run); rc=$?
+check "a status dir swapped for a symlink is not written through as root" "! sudo -n find '$T/rootonly' -name '*.json*' | grep -q ."
+check "the marker is still removed and the run ends cleanly" "[ $rc -eq 0 ] && [ ! -e '$Q/swap.json' ]"
 
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
