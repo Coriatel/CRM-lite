@@ -5,13 +5,24 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One deploy at a time per ref; a newer run waits for the running one instead of racing its
+# publish. Per ref, so a branch dispatch can never cancel a pending main deploy.
+concurrency:
+  group: deploy-crmlite-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Actions pinned by commit (they produce what production serves). v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-node@v4
+      # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
           cache: "npm"
@@ -34,101 +45,160 @@ jobs:
             '${{ github.sha }}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             > crm-app/dist/build-info.json
 
-      - uses: webfactory/ssh-agent@v0.9.0
+      - name: Check the build is complete
+        run: |
+          test -f crm-app/dist/index.html || { echo 'build has no index.html'; exit 1; }
+          test -f crm-app/dist/build-info.json || { echo 'build has no build-info.json'; exit 1; }
+          ls crm-app/dist/assets/index-*.js >/dev/null || { echo 'build has no main bundle'; exit 1; }
+
+      # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          name: crm-app-dist
+          path: crm-app/dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Rsync to staging dir on host
+  # Production is mn-home since 2026-10-27 (server migration G2). Host Caddy serves
+  # /data/services/crmlite/web as a plain file_server, so a deploy is a file publish:
+  # nothing is restarted and no container is involved.
+  #
+  # The runner is dedicated to this job: registered to this repo only, label
+  # mnhome-crmlite-deploy and no default labels, an unprivileged user that can write
+  # only the web root and its backups, with no sudo, no docker and no loopback/LAN
+  # access. This repo is public, so a host-side job-started hook refuses every job
+  # except this workflow on main, triggered by a push or a manual dispatch.
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: mnhome-crmlite-deploy
+    timeout-minutes: 15
+    env:
+      WEB: /data/services/crmlite/web
+      BAK: /data/services/crmlite/backups
+    steps:
+      # No production deploys on Shabbat or Yom Tov. Same sources as the host's
+      # shabbat-mode: /opt/shabbat-mode/status (written by shabbat-manager) and its
+      # shabbat-times.json windows, from 60 min before candle lighting to havdalah.
+      # Fails closed: an unreadable state, a times file older than the manager's own
+      # 8-day staleness limit, or one with no future window all refuse the deploy.
+      - name: Shabbat / Yom Tov hold
         run: |
-          rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=no" \
-            crm-app/dist/ \
-            deploy@${{ secrets.DEPLOY_HOST }}:/home/elron/services/crm-lite/crm-app/dist-prod-staging/
+          python3 -I - <<'PY'
+          import datetime as dt, json, sys
+          d = "/opt/shabbat-mode/"
+          again = "Not deploying; after havdalah use Run workflow on main (a re-run of this run would be skipped as superseded if main moved on)."
+          status = open(d + "status").read().strip()
+          if status != "off":
+              sys.exit(f"Shabbat/Yom Tov hold: {d}status = {status!r}. {again}")
+          now = dt.datetime.now(dt.timezone.utc)
+          times = json.load(open(d + "shabbat-times.json"))
+          fetched = dt.datetime.fromisoformat(times["fetched_at"].replace("Z", "+00:00"))
+          if now - fetched > dt.timedelta(days=8):
+              sys.exit(f"Shabbat/Yom Tov hold: shabbat-times.json is stale (fetched {fetched.isoformat()}). {again}")
+          periods = times["periods"]
+          if not any(dt.datetime.fromisoformat(p["havdalah_date"]) > now for p in periods):
+              sys.exit(f"Shabbat/Yom Tov hold: shabbat-times.json has no future window. {again}")
+          for p in periods:
+              start = dt.datetime.fromisoformat(p["candle_date"]) - dt.timedelta(minutes=60)
+              end = dt.datetime.fromisoformat(p["havdalah_date"])
+              if start <= now <= end:
+                  sys.exit(f"Shabbat/Yom Tov hold: {start.isoformat()} to {end.isoformat()}. {again}")
+          print("Shabbat/Yom Tov hold: open (status off, times fresh, outside every listed window)")
+          PY
 
-      - name: Publish in place + refresh + prove what is live + prune
-        # Why this is an in-place rsync and no longer a directory swap:
-        #
-        # `mv dist-prod dist-prod.bak-...` gives the new build a NEW inode, but
-        # the crmlite-web bind mount was resolved to the OLD inode when the
-        # container started. The container therefore keeps serving the previous
-        # tree, and `docker compose up -d` (what the refresh wrapper runs) will
-        # not fix that: compose sees an already-correct container spec and leaves
-        # it alone. It only recreates a container that is missing or changed.
-        #
-        # On 2026-09-07 two consecutive deploys reported success while
-        # production served a build from three days earlier. Neither the local
-        # readiness probe nor the smoke test could catch it: both only asked for
-        # a 200, and the stale tree answered 200 perfectly well.
-        #
-        # Publishing into the existing directory keeps the inode stable, so the
-        # container serves the new files immediately with no recreate at all.
-        # Two passes: additive first, so no moment exists where a new index.html
-        # points at assets that are not there yet; then --delete to retire the
-        # old ones.
-        #
-        # The refresh wrapper still runs, because it remains the recovery path
-        # for a container that has gone missing (the 2026-08-01 failure mode).
-        #
-        # The readiness check now asks production which commit it is serving and
-        # compares it to this one. A deploy that cannot prove that is a failed
-        # deploy.
+      # Only main's current tip is published. A queued run whose commit was overtaken,
+      # or a re-run of an old run, would otherwise put an older build back in
+      # production (and its own health check would call that green). Such a run is
+      # skipped, not failed: the run for the newer commit deploys it.
+      - name: Is this commit still main's tip?
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          ssh -o StrictHostKeyChecking=no \
-            deploy@${{ secrets.DEPLOY_HOST }} \
-            "set -eu
-             cd /home/elron/services/crm-lite/crm-app
-             STAMP=\$(date -u +%Y%m%d-%H%M%SZ)
-             SHA=\$(echo '${{ github.sha }}' | cut -c1-7)
-             test -f dist-prod-staging/index.html || { echo 'staging missing index.html — abort'; exit 1; }
-             test -f dist-prod-staging/build-info.json || { echo 'staging missing build-info.json — abort'; exit 1; }
-             ls dist-prod-staging/assets/index-*.js >/dev/null || { echo 'staging missing main bundle — abort'; exit 1; }
-             if [ -d dist-prod ]; then cp -a dist-prod dist-prod.bak-\${SHA}-\${STAMP}; fi
-             rsync -a dist-prod-staging/ dist-prod/
-             rsync -a --delete dist-prod-staging/ dist-prod/
-             rm -rf dist-prod-staging
-             echo \"published in place; SHA=\${SHA}\"
-             sudo -n /usr/local/sbin/crmlite-web-refresh
-             echo 'container refreshed'
-             ok=0
-             for i in 1 2 3 4 5 6 7 8 9 10; do
-               live=\$(curl -sS http://127.0.0.1:8090/build-info.json 2>/dev/null | tr -d '[:space:]' || echo '')
-               case \"\$live\" in
-                 *'\"sha\":\"${{ github.sha }}\"'*)
-                   echo \"live build confirmed: 127.0.0.1:8090 is serving ${{ github.sha }}\"; ok=1; break ;;
-               esac
-               echo \"readiness retry \$i: live build-info = \${live:-<none>}\"
-               sleep 2
-             done
-             if [ \"\$ok\" -ne 1 ]; then
-               echo 'FAILED: production is not serving this commit. The tree was published but the running container is still on an older build.'
-               exit 1
-             fi
-             if ls -dt dist-prod.bak-* >/dev/null 2>&1; then
-               if ls -dt dist-prod.bak-* | tail -n +4 | xargs -r rm -rf 2>/dev/null; then
-                 echo 'pruned to last 3 backups'
-               else
-                 echo '(prune partial — non-fatal: some legacy backups not owned by deploy user)'
-               fi
-             fi"
+          set -euo pipefail
+          tip=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github.sha' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/main")
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            echo "main tip = ${GITHUB_SHA:0:7}: publishing"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::superseded: main is at ${tip:0:7}, this run is ${GITHUB_SHA:0:7}; not publishing (the run for ${tip:0:7} deploys it)"
+          fi
 
-      - name: Smoke test live URL
+      # v4.3.0, pinned by commit: this action runs as code on the production host.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.tip.outputs.current == 'true'
+        with:
+          name: crm-app-dist
+          path: ${{ runner.temp }}/dist
+
+      # Idempotent: if the web root already holds exactly this build, nothing is
+      # written. Otherwise the current tree is copied to $BAK (last 3 kept) and three
+      # rsync passes run (--checksum: a same-size file within the same mtime second is
+      # still replaced): everything except the entry points first, so no moment exists
+      # where a new index.html or sw.js points at bundles that are not there yet
+      # (try_files would answer them with index.html); then the entry points; then
+      # --delete to retire old files. Any failure before the byte-level proof restores
+      # the previous tree.
+      - name: Publish to the web root (idempotent) and prove it on disk
+        if: steps.tip.outputs.current == 'true'
         run: |
-          set -e
-          SHA_SHORT=$(echo '${{ github.sha }}' | cut -c1-7)
-          for i in 1 2 3 4 5; do
-            CODE=$(curl -fsS -o /dev/null -w "%{http_code}" https://crmphone.merkazneshama.co.il/ops || echo "000")
-            LIVE=$(curl -fsS https://crmphone.merkazneshama.co.il/build-info.json 2>/dev/null | tr -d '[:space:]' || echo "")
-            # A 200 alone proved nothing: a three-day-old tree answers 200 too.
-            case "$LIVE" in
-              *'"sha":"${{ github.sha }}"'*) SERVING=1 ;;
-              *) SERVING=0 ;;
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/dist"
+          test -f "$SRC/index.html" || { echo 'artifact has no index.html, abort'; exit 1; }
+          ls "$SRC"/assets/index-*.js >/dev/null || { echo 'artifact has no main bundle, abort'; exit 1; }
+          grep -q "\"sha\":\"$GITHUB_SHA\"" "$SRC/build-info.json" || { echo "artifact is not $GITHUB_SHA, abort"; exit 1; }
+          manifest() { (cd "$1" && LC_ALL=C find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16); }
+          want=$(manifest "$SRC")
+          if [ "$(manifest "$WEB")" = "$want" ]; then
+            echo "web root already holds this build (manifest $want): nothing to publish"
+          else
+            prev=$(grep -o '"sha":"[0-9a-f]*"' "$WEB/build-info.json" 2>/dev/null | cut -d'"' -f4 | cut -c1-7 || true)
+            keep="$BAK/web.$(date -u +%Y%m%dT%H%M%SZ).${prev:-unknown}"
+            cp -a "$WEB" "$keep"
+            trap 'echo "publish failed: restoring the previous tree from $keep"; rsync -rt --checksum --delete "$keep/" "$WEB/"' ERR
+            R=(rsync -rt --checksum --chmod=D755,F644)
+            "${R[@]}" --exclude=/index.html --exclude=/sw.js --exclude=/registerSW.js --exclude=/build-info.json "$SRC/" "$WEB/"
+            "${R[@]}" "$SRC/" "$WEB/"
+            "${R[@]}" --delete "$SRC/" "$WEB/"
+            echo "published ${GITHUB_SHA:0:7}; previous tree (${prev:-unknown}) kept at $keep"
+          fi
+          got=$(manifest "$WEB")
+          if [ "$got" != "$want" ]; then echo "FAILED: web root manifest $got != build $want"; false; fi
+          trap - ERR
+          echo "on disk: web root manifest $got = this build"
+          ls -1d "$BAK"/web.* 2>/dev/null | sort -r | tail -n +4 | xargs -r rm -rf || echo 'backup prune failed (non-fatal)'
+
+      # A 200 alone proves nothing (a days-old tree answers 200 too, 2026-09-07, and
+      # try_files answers a missing file with index.html), so the edge must report this
+      # commit in build-info.json, serve /ops, and serve the main bundle as JavaScript.
+      - name: Health check, the public edge serves this commit
+        if: steps.tip.outputs.current == 'true'
+        run: |
+          set -u
+          E=https://crmphone.merkazneshama.co.il
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$E/ops" || true)
+            live=$(curl -sS -m 15 -H 'Cache-Control: no-cache' "$E/build-info.json?v=$GITHUB_SHA" 2>/dev/null | tr -d '[:space:]' || true)
+            js=$(curl -sS -m 15 "$E/" 2>/dev/null | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -n 1 || true)
+            jst=$( [ -n "$js" ] && curl -sS -o /dev/null -m 15 -w '%{http_code} %{content_type}' "$E$js" || true)
+            case "$live" in
+              *"\"sha\":\"$GITHUB_SHA\""*) serving=1 ;;
+              *) serving=0 ;;
             esac
-            if [ "$CODE" = "200" ] && [ "$SERVING" = "1" ]; then
-              echo "smoke OK: /ops 200 and the edge is serving $SHA_SHORT"
+            case "$jst" in
+              "200 "*javascript*) bundle=1 ;;
+              *) bundle=0 ;;
+            esac
+            if [ "$code" = 200 ] && [ "$serving" = 1 ] && [ "$bundle" = 1 ]; then
+              echo "health OK: /ops 200, $js served as JavaScript, the edge serves ${GITHUB_SHA:0:7}"
               exit 0
             fi
-            echo "smoke retry $i: code=$CODE live=${LIVE:-<none>}"
-            sleep 3
+            echo "health retry $i: /ops=${code:-none} bundle=${js:-none} (${jst:-none}) build-info=${live:-none}"
+            sleep 5
           done
-          echo "smoke FAIL after retries"
+          echo 'health FAILED: the public edge is not serving this commit'
           exit 1
