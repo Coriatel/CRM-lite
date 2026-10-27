@@ -403,6 +403,99 @@ describe("windmill-variable rewrites only the password inside the live DSN", () 
   });
 });
 
+describe("directus-user: a PATCH whose reply is lost is still undone", () => {
+  // A fake Directus that knows one user and one password. `patchMode` decides
+  // what the PATCH does: land and reply 502, not land and reply 502, or land a
+  // third value (someone else changed it) and reply 502.
+  const BASE = "http://127.0.0.1:18055";
+  const EMAIL = "admin@example.test";
+  const OTHER = ["third", "party", "val"].join("-");
+  const reply = (status, json) => ({ status, ok: status >= 200 && status < 300, json: async () => json });
+  let du;
+  let origFetch;
+
+  beforeEach(() => {
+    du = { password: OLDV, patchMode: "lands", patches: 0, sessions: 0 };
+    origFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (url === `${BASE}/auth/login`) {
+        if (body.email !== EMAIL || body.password !== du.password) return reply(401, null);
+        du.sessions += 1;
+        return reply(200, { data: { access_token: "at", refresh_token: "rt" } });
+      }
+      if (url === `${BASE}/auth/logout`) {
+        du.sessions -= 1;
+        return reply(204, null);
+      }
+      if (url === `${BASE}/users/me` && init.method === "PATCH") {
+        du.patches += 1;
+        const toNew = body.password === NEWV;
+        if (!toNew) {
+          du.password = body.password;
+          return reply(200, {});
+        }
+        if (du.patchMode === "lands") du.password = NEWV;
+        if (du.patchMode === "third") du.password = OTHER;
+        return reply(502, null);
+      }
+      return reply(404, null);
+    };
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  const dmap = () => ({
+    d: {
+      display: "d",
+      vault_type: "password",
+      host: "test-host",
+      currentFrom: { kind: "env", path: join(root, "cur.env"), var: PWVAR },
+      steps: [{ adapter: "directus-user", params: { base_url: BASE, email: EMAIL } }],
+    },
+  });
+  const dopts = () => ({ newValue: NEWV, map: dmap(), hostname: () => "test-host", identityFiles: identityFiles(), actor: "test", vault: { has: () => false, read: () => "", store: () => {} } });
+
+  it("puts the old password back when the change landed but the reply was an error", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    const err = await rotate("d", dopts()).catch((e) => e);
+    expect(err.code).toBe("directus_patch_failed");
+    expect(err.rolledBack).toEqual([{ adapter: "directus-user", outcome: "rolled-back" }]);
+    expect(du.password).toBe(OLDV);
+  });
+
+  it("reports rolled back, without a PATCH, when the change never landed", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    du.patchMode = "lost";
+    const err = await rotate("d", dopts()).catch((e) => e);
+    expect(err.rolledBack).toEqual([{ adapter: "directus-user", outcome: "rolled-back" }]);
+    expect(du.patches).toBe(1);
+    expect(du.password).toBe(OLDV);
+  });
+
+  it("reports INCOMPLETE when neither the new nor the old password logs in", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    du.patchMode = "third";
+    const err = await rotate("d", dopts()).catch((e) => e);
+    expect(err.code).toBe("rollback_incomplete");
+    expect(err.message).toMatch(/INCOMPLETE: directus-user:rollback-failed-login/);
+  });
+
+  it("refuses before any change when the old password does not log in", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OTHER}\n`);
+    await expect(rotate("d", dopts())).rejects.toMatchObject({ code: "preflight_failed" });
+    expect(du.patches).toBe(0);
+  });
+
+  it("closes the sessions its own checks open", async () => {
+    writeFileSync(join(root, "cur.env"), `${PWVAR}=${OLDV}\n`);
+    du.patchMode = "lost";
+    await rotate("d", dopts()).catch(() => {});
+    expect(du.sessions).toBe(1); // only the forward apply's own session, as before
+  });
+});
+
 describe("adapter param validation", () => {
   it("rejects a malformed container, role and env var", () => {
     expect(() => ADAPTERS["pg-role"].validate({ container: "bad name!", role: "r", superuser: "r" })).toThrow();

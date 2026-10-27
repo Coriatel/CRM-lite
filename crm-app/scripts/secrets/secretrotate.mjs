@@ -284,6 +284,14 @@ async function windmillHolds(p, value) {
   return dsnPassword(await windmillGet(p, readFileSync(p.auth_file, "utf8").trim()), p.user) === value;
 }
 
+// Log in and straight out again; true when the password works.
+async function directusCanLogin(p, password) {
+  const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password } });
+  const token = login.json?.data?.access_token;
+  if (token) await httpJson(`${p.base_url}/auth/logout`, { method: "POST", body: { refresh_token: login.json?.data?.refresh_token } });
+  return Boolean(token);
+}
+
 function composeCommand(p) {
   if (!p.project) return `cd ${p.dir} && docker compose up -d --no-build`;
   // mn-home layout: the project name is not the directory name, and the
@@ -507,15 +515,18 @@ export const ADAPTERS = Object.freeze({
       if (ctx.oldValue == null) return { outcome: "skipped-no-old" };
       const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.newValue } });
       const token = login.json?.data?.access_token;
-      if (!token) return { outcome: "rollback-failed-login" };
+      // The new password does not work: a step that failed mid-way never
+      // landed. The preflight proved the old one worked; if it still does,
+      // nothing changed.
+      if (!token) return { outcome: (await directusCanLogin(p, ctx.oldValue)) ? "rolled-back" : "rollback-failed-login" };
       const patch = await httpJson(`${p.base_url}/users/me`, { method: "PATCH", token, body: { password: ctx.oldValue } });
       return { outcome: patch.ok ? "rolled-back" : "rollback-failed-patch" };
     },
+    // The PATCH may land although its reply is an error or times out.
+    rollbackIfFailed: true,
+    holds: async (p, ctx, value) => directusCanLogin(p, value),
     async verify(p, ctx) {
-      const login = await httpJson(`${p.base_url}/auth/login`, { method: "POST", body: { email: p.email, password: ctx.newValue } });
-      const token = login.json?.data?.access_token;
-      if (token) await httpJson(`${p.base_url}/auth/logout`, { method: "POST", body: { refresh_token: login.json?.data?.refresh_token } });
-      return { ok: Boolean(token), detail: "logged in with the new password" };
+      return { ok: await directusCanLogin(p, ctx.newValue), detail: "logged in with the new password" };
     },
   },
 
