@@ -632,7 +632,10 @@ describe("rotate orchestrator (mocked steps)", () => {
   });
 
   it("checks a value from the vault like a typed one: no newline, $, backslash or backtick", async () => {
-    for (const bad of [`a$b`, "a\\b", "a`b", "a\nb"]) {
+    // Quotes would unbalance an unquoted .env line (compose rejects the whole
+    // file, systemd swallows the lines after it) while verify() still passes;
+    // spaces and shell metacharacters break or run code in a sourcing reader.
+    for (const bad of [`a$b`, "a\\b", "a`b", "a\nb", `"ab`, "a'b", "a b", "a;b", "a|b", "a&b", "a#b", "a(b)", "a<b>"]) {
       const vault = { has: () => true, read: () => bad, store: () => {} };
       await expect(rotate("demo", { fromVault: true, map: twoStep(), hostname: () => "test-host", identityFiles: identityFiles(), vault }))
         .rejects.toMatchObject({ code: "bad_value" });

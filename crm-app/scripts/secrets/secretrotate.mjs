@@ -788,11 +788,15 @@ export async function rotate(
     newValue = vault.read(secretId);
   }
   // Checked after the vault read, so a browser-saved value gets the same
-  // checks. `$`, backslash and backtick are refused because compose
-  // interpolates env files and systemd unescapes EnvironmentFile values: the
-  // file would hold one password and the service read another.
+  // checks. An allowlist, not a denylist: compose interpolates `$`, systemd
+  // unescapes backslashes, a quote unbalances an unquoted .env line (compose
+  // then rejects the whole file while verify() still passes), and spaces or
+  // shell metacharacters break or run code in a reader that sources the file.
+  // Covers hex, base64/base64url and JWT values.
   if (typeof newValue !== "string" || newValue.length === 0) throw new RotateError("empty value", "bad_value");
-  if (/[\r\n$\\`]/.test(newValue)) throw new RotateError("value contains a newline, $, backslash or backtick; refusing", "bad_value");
+  if (!/^[A-Za-z0-9._~+\/=@%:,^!*-]{1,1024}$/.test(newValue)) {
+    throw new RotateError("value has a character outside [A-Za-z0-9._~+/=@%:,^!*-] (or is over 1024 chars); refusing", "bad_value");
+  }
 
   const oldValue = readCurrent(spec.currentFrom);
   if (oldValue == null) {
