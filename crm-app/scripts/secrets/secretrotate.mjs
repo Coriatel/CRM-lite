@@ -55,7 +55,7 @@ import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { hostname as osHostname } from "node:os";
 
-import { addSecret, listSecrets, readSecretValue, replaceSecret, storeRoot } from "./secretstore.mjs";
+import { addSecret, listSecrets, readSecretValue, removeSecret, replaceSecret, storeRoot } from "./secretstore.mjs";
 import { substituteAssignment } from "./secretdeploy.mjs";
 import { audit } from "./secretaudit.mjs";
 
@@ -776,8 +776,10 @@ export function listSecretIds({ map = SECRET_MAP } = {}) {
  *   fromVault  — read the current vault value as the NEW value (the browser
  *                path: the owner already saved it through merkaz-secrets)
  *   generate   — created here from randomBytes (only for a map entry that
- *                declares `generate`); never printed, returned or logged, and
- *                written to the vault last like a typed value
+ *                declares `generate`); never printed, returned or logged.
+ *                Staged in the vault under <id>.gen-<stamp>-<rand> before the
+ *                first change, recorded under <id> last, then the staged copy
+ *                is removed; kept if any target may still hold the value.
  *
  * On any step failure, completed steps are rolled back in reverse and the error
  * is rethrown. On success, and only when the value did not come from the vault,
@@ -792,6 +794,10 @@ export const defaultVault = {
     if (listSecrets().some((s) => s.name === id)) return replaceSecret(id, value);
     return addSecret({ name: id, type: spec.vault_type, purpose: spec.display, consumer: id, owner: "owner", expiry: null }, value);
   },
+  // A generated value is staged under its own name BEFORE any target changes,
+  // create-only, so it can never be applied without a recoverable copy.
+  stage: (name, value, spec) => addSecret({ name, type: spec.vault_type, purpose: `${spec.display} (generated, staged)`, consumer: name, owner: "owner", expiry: null }, value),
+  discard: (name) => removeSecret(name, { mustExist: true }),
 };
 
 export async function rotate(
@@ -869,6 +875,21 @@ export async function rotate(
     }
   }
 
+  // A generated value exists nowhere else, so it is staged in the vault before
+  // the first change. If staging fails nothing is changed.
+  let stagedName = null;
+  if (generate) {
+    const stamp = now().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z").toLowerCase();
+    const name = `${secretId}.gen-${stamp}-${randomBytes(3).toString("hex")}`;
+    try {
+      vault.stage(name, newValue, spec);
+    } catch {
+      throw new RotateError(`${secretId}: could not stage the generated value in the vault; refusing, nothing was changed`, "stage_failed");
+    }
+    stagedName = name;
+    audit({ actor, operation: "deploy", secret: secretId, outcome: "success", reason: `generated value staged as ${name} @${fp(newValue)}` });
+  }
+
   const completed = [];
   const ownerCommands = [];
   let inFlight = null;
@@ -896,13 +917,22 @@ export async function rotate(
     // the value by hand, not rolled back.
     let vaultWarning = null;
     if (!fromVault) {
+      let recorded = false;
       try {
         vault.store(secretId, newValue, spec);
+        recorded = true;
       } catch (e) {
-        vaultWarning = generate
-          ? `host rotated and verified, but recording the generated value in the vault failed (${e.message}); it now exists only in the rotated targets`
+        vaultWarning = stagedName
+          ? `host rotated and verified, but recording the generated value under ${secretId} failed (${e.message}); it is kept in the vault as ${stagedName}`
           : `host rotated and verified, but recording the value in the vault failed: ${e.message}`;
         audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: "vault record failed after successful host rotation" });
+      }
+      if (recorded && stagedName) {
+        try {
+          vault.discard(stagedName);
+        } catch {
+          vaultWarning = `rotation complete; the staged copy ${stagedName} could not be removed from the vault (it holds the current value; delete it with secretsctl delete)`;
+        }
       }
     }
 
@@ -922,28 +952,27 @@ export async function rotate(
     }
     const incomplete = rolledBack.filter((r) => r.outcome !== "rolled-back" && r.outcome !== "owner-command");
     audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `rotate failed (${err.code || "error"}); rolled back ${rolledBack.length - incomplete.length}/${rolledBack.length} step(s)` });
-    // A typed value is still known to the person who typed it. A generated one
-    // is known to nobody, so a target the rollback could not restore would hold
-    // a password no one can supply. Keep it in the vault under a separate,
-    // dated name (root-only, never printed) so that target can be finished or
-    // reset; the real entry is not advanced.
-    let unappliedName = null;
-    if (generate && incomplete.length) {
-      const name = `${secretId}.unapplied-${now().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z").toLowerCase()}`;
-      try {
-        vault.store(name, newValue, { ...spec, display: `${spec.display} (generated, not applied)` });
-        unappliedName = name;
-        audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: `generated value kept as ${name} @${fp(newValue)}` });
-      } catch {
-        audit({ actor, operation: "deploy", secret: secretId, outcome: "failure", reason: "generated value could not be kept after an incomplete rollback" });
+    // A typed value is still known to the person who typed it; a generated one
+    // only to the staged vault record. Keep that record when any target may
+    // still hold the value; drop it when every target is back on the old one.
+    let keptStaged = null;
+    if (stagedName) {
+      if (incomplete.length) {
+        keptStaged = stagedName;
+      } else {
+        try {
+          vault.discard(stagedName);
+        } catch {
+          keptStaged = stagedName;
+        }
       }
     }
     const e = incomplete.length
-      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand${unappliedName ? ` (the generated value is in the vault as ${unappliedName})` : ""}`, "rollback_incomplete")
+      ? new RotateError(`rotation of ${secretId} failed (${err.code || "error"}) and the rollback is INCOMPLETE: ${incomplete.map((r) => `${r.adapter}:${r.outcome}`).join(", ")}; check those by hand${keptStaged ? ` (the generated value is in the vault as ${keptStaged})` : ""}`, "rollback_incomplete")
       : new RotateError(`rotation of ${secretId} failed and was rolled back: ${err.message}`, err.code || "rotate_failed");
     e.rolledBack = rolledBack;
     e.ownerCommands = ownerCommands;
-    e.unappliedName = unappliedName;
+    e.stagedName = keptStaged;
     throw e;
   }
 }
