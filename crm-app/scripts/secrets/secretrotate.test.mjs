@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +25,7 @@ const OLDV = ["old", "rotate", "val", "a77b"].join("-");
 const DSN = (pw) => "postgresql" + "://" + "n8n" + ":" + pw + "@" + "172.20.0.2:5432/yafutsu";
 const VAR = ["DATABASE", "URL"].join("_");
 const PWVAR = ["POSTGRES", "PASSWORD"].join("_");
+const MCPVAR = ["N8N", "MCP", "TOKEN"].join("_");
 
 let root;
 const me = userInfo();
@@ -74,6 +75,15 @@ describe("the secret map", () => {
   });
   it("rejects an unknown secret", () => {
     expect(() => secretSpec("no-such-secret")).toThrow(RotateError);
+  });
+  it("maps n8n_mcp_token to one private env-file step, read back from the same file", () => {
+    const spec = secretSpec("n8n_mcp_token");
+    const file = "/home/devuserp/.config/merkaz/n8n-mcp.env";
+    expect(spec.vault_type).toBe("token");
+    expect(spec.currentFrom).toEqual({ kind: "env", path: file, var: MCPVAR });
+    expect(spec.steps).toEqual([
+      { adapter: "env-file", params: { path: file, var: MCPVAR, owner: "devuserp", group: "devuserp", mode: "0600" } },
+    ]);
   });
 });
 
@@ -183,6 +193,33 @@ describe("rotate orchestrator (mocked steps)", () => {
     // a.env must be back to the old value after the reverse rollback.
     expect(readFileSync(join(root, "a.env"), "utf8")).toContain(OLDV);
     expect(readFileSync(join(root, "a.env"), "utf8")).not.toContain(NEWV);
+  });
+
+  it("n8n_mcp_token from the vault (the browser path): rewrites only the token line, never writes the vault", async () => {
+    // The real map entry, redirected to a temp file owned by the test user.
+    const real = secretSpec("n8n_mcp_token");
+    const p = join(root, "n8n-mcp.env");
+    writeFileSync(p, ["# head", `${MCPVAR}=${OLDV}`, ""].join("\n"));
+    chmodSync(p, 0o600);
+    const map = {
+      n8n_mcp_token: {
+        ...real,
+        currentFrom: { ...real.currentFrom, path: p },
+        steps: real.steps.map((s) => ({ ...s, params: { ...s.params, path: p, owner: "owner", group: "owner" } })),
+      },
+    };
+    let stored = 0;
+    const vault = { has: (id) => id === "n8n_mcp_token", read: () => NEWV, store: () => { stored += 1; } };
+
+    const dry = await rotate("n8n_mcp_token", { fromVault: true, dryRun: true, map, identityFiles: identityFiles(), vault });
+    expect(dry.plan.map((x) => x.outcome)).toEqual(["would-apply"]);
+    expect(readFileSync(p, "utf8")).toContain(`${MCPVAR}=${OLDV}`);
+
+    const res = await rotate("n8n_mcp_token", { fromVault: true, map, identityFiles: identityFiles(), actor: "test", vault });
+    expect(res.verifications.every((v) => v.ok)).toBe(true);
+    expect(readFileSync(p, "utf8")).toBe(["# head", `${MCPVAR}=${NEWV}`, ""].join("\n"));
+    expect(statSync(p).mode & 0o7777).toBe(0o600);
+    expect(stored).toBe(0);
   });
 });
 

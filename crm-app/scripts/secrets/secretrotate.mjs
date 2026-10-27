@@ -542,6 +542,18 @@ export const SECRET_MAP = Object.freeze({
       { adapter: "env-file", params: { path: "/opt/hoshen-yehuda/crm-stack/.env", var: "DIRECTUS_ADMIN_PASSWORD", owner: "elron", group: "ops-vault", mode: "0640" } },
     ],
   },
+  // The one consumer is devuserp's Claude sessions: ~/.local/bin/n8n-mcp reads
+  // this file and starts supergateway. Running sessions keep the old process
+  // until they restart; new sessions pick up the new token. The old token is
+  // revoked by the owner in n8n only after this reports applied.
+  n8n_mcp_token: {
+    display: "טוקן MCP של n8n",
+    vault_type: "token",
+    currentFrom: { kind: "env", path: "/home/devuserp/.config/merkaz/n8n-mcp.env", var: "N8N_MCP_TOKEN" },
+    steps: [
+      { adapter: "env-file", params: { path: "/home/devuserp/.config/merkaz/n8n-mcp.env", var: "N8N_MCP_TOKEN", owner: "devuserp", group: "devuserp", mode: "0600" } },
+    ],
+  },
 });
 
 export function secretSpec(secretId, { map = SECRET_MAP } = {}) {
