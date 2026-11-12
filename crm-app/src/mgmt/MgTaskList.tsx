@@ -20,7 +20,8 @@ export function MgTaskRow({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
   const person = task.subject_contact_id;
-  const tel = person ? telHref(person.phone_e164) : "";
+  // On a person card the call button already sits at the top of the card.
+  const tel = showPerson && person ? telHref(person.phone_e164) : "";
   const meta = taskMeta(task, bucket);
 
   async function toggle() {

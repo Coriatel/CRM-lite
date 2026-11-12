@@ -1532,3 +1532,33 @@ export async function createMgTask(input: {
     }),
   });
 }
+
+/** One person's income transactions, newest first. Read-only. */
+export async function getContactIncome(
+  contactId: string,
+): Promise<{ id: string; amount: string | number; date: string }[]> {
+  const qs = buildQuery({
+    fields: "id,amount,date",
+    "filter[direction][_eq]": "income",
+    "filter[contact_id][_eq]": contactId,
+    sort: "-date",
+    limit: "-1",
+  });
+  const res = await directusFetch(`/items/transactions${qs}`);
+  const json: DirectusResponse<{ id: string; amount: string | number; date: string }[]> =
+    await res.json();
+  return json.data;
+}
+
+/** Date of the newest income transaction of anyone; null when there are none. */
+export async function getLatestIncomeDate(): Promise<string | null> {
+  const qs = buildQuery({
+    fields: "date",
+    "filter[direction][_eq]": "income",
+    sort: "-date",
+    limit: "1",
+  });
+  const res = await directusFetch(`/items/transactions${qs}`);
+  const json: DirectusResponse<{ date: string }[]> = await res.json();
+  return json.data[0]?.date ?? null;
+}
