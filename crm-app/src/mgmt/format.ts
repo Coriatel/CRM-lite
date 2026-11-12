@@ -54,3 +54,24 @@ export function classificationLabel(value: string | null | undefined): string {
 export function shekels(amount: number): string {
   return `${Math.round(amount).toLocaleString("en-US")} ₪`;
 }
+
+export interface Freshness {
+  /** Date of the newest record, as text; "" when there are no records. */
+  until: string;
+  stale: boolean;
+  label: string;
+}
+
+const STALE_AFTER_DAYS = 7;
+
+/**
+ * How current a data set is, judged from its own newest record and not from
+ * when the page was loaded. Money screens show this next to every total.
+ */
+export function freshness(latestIso: string | null | undefined, now: Date = new Date()): Freshness {
+  if (!latestIso) return { until: "", stale: true, label: "אין נתונים" };
+  const until = fullDate(latestIso);
+  const age = daysAgo(latestIso, now);
+  if (age <= STALE_AFTER_DAYS) return { until, stale: false, label: `נתונים עד ${until}` };
+  return { until, stale: true, label: `נתונים עד ${until} · לא התעדכנו מאז (${age} ימים)` };
+}

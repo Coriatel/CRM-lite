@@ -16,6 +16,13 @@ const lazyImports: Array<[string, LazyImporter]> = [
     () => import("../mgmt/MgmtShell").then((m) => ({ default: m.MgmtShell })),
   ],
   [
+    "MgmtDonorsPage",
+    () =>
+      import("../mgmt/MgmtDonorsPage").then((m) => ({
+        default: m.MgmtDonorsPage,
+      })),
+  ],
+  [
     "MgmtContactsPage",
     () =>
       import("../mgmt/MgmtContactsPage").then((m) => ({

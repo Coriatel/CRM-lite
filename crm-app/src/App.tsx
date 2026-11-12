@@ -111,6 +111,9 @@ const OwnerDecisionViewPage = lazy(() =>
 const MgmtShell = lazy(() =>
   import("./mgmt/MgmtShell").then((m) => ({ default: m.MgmtShell })),
 );
+const MgmtDonorsPage = lazy(() =>
+  import("./mgmt/MgmtDonorsPage").then((m) => ({ default: m.MgmtDonorsPage })),
+);
 const MgmtContactsPage = lazy(() =>
   import("./mgmt/MgmtContactsPage").then((m) => ({
     default: m.MgmtContactsPage,
@@ -260,6 +263,7 @@ function AppContent() {
         >
           <Route index element={<Navigate to="/m/people" replace />} />
           <Route path="people" element={<MgmtContactsPage />} />
+          <Route path="donors" element={<MgmtDonorsPage />} />
         </Route>
         <Route
           path="call/:contactId"

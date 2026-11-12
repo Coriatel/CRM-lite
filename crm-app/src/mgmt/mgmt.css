@@ -464,3 +464,5 @@
 .mg-topbar .mg-brand { display: flex; align-items: center; min-block-size: 44px; }
 .mg-topbar .mg-brand img { block-size: 34px; inline-size: auto; display: block; }
 .mg-stale { font-size: 14px; font-weight: 600; color: var(--copper-text); }
+
+.mg-page-head .mg-sub.mg-stale { color: var(--copper-text); font-weight: 600; }
