@@ -108,6 +108,15 @@ const OwnerDecisionViewPage = lazy(() =>
   })),
 );
 
+const MgmtShell = lazy(() =>
+  import("./mgmt/MgmtShell").then((m) => ({ default: m.MgmtShell })),
+);
+const MgmtContactsPage = lazy(() =>
+  import("./mgmt/MgmtContactsPage").then((m) => ({
+    default: m.MgmtContactsPage,
+  })),
+);
+
 import { AppShell } from "./components/layout/AppShell";
 import { DECISIONS_ENABLED } from "./pages/control/decisionTypes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -239,6 +248,18 @@ function AppContent() {
             }
           />
           <Route path="people/:id" element={<PersonPage />} />
+        </Route>
+        {/* Management area: its own shell, beside the existing screens. */}
+        <Route
+          path="m"
+          element={
+            <Suspense fallback={null}>
+              <MgmtShell />
+            </Suspense>
+          }
+        >
+          <Route index element={<Navigate to="/m/people" replace />} />
+          <Route path="people" element={<MgmtContactsPage />} />
         </Route>
         <Route
           path="call/:contactId"

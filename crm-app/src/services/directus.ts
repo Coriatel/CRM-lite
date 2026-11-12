@@ -1415,3 +1415,59 @@ export async function getFollowUpCandidates(
   const json: DirectusResponse<DirectusContact[]> = await res.json();
   return json.data;
 }
+
+// ---------- Management area (src/mgmt): paged contact list ----------
+
+export interface MgContactRow {
+  id: string;
+  full_name: string;
+  phone_e164: string | null;
+  email: string | null;
+  city: string | null;
+  classification: string | null;
+  assigned_to: string | null;
+  last_call_date: string | null;
+}
+
+export const MG_UNCLASSIFIED = "__unset__";
+
+/**
+ * One page of contacts plus the total that matches the filter (Directus
+ * `meta=filter_count`), so the list can say "showing N of M". Search covers
+ * name, both phones and email. Read-only; the user's own token decides what
+ * comes back.
+ */
+export async function getContactsPaged(q: {
+  search?: string;
+  classification?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ rows: MgContactRow[]; total: number }> {
+  const params: Record<string, string> = {
+    fields:
+      "id,full_name,phone_e164,email,city,classification,assigned_to,last_call_date",
+    sort: "full_name",
+    limit: String(q.limit ?? 50),
+    offset: String(q.offset ?? 0),
+    meta: "filter_count",
+  };
+  const search = q.search?.trim();
+  if (search) {
+    params["filter[_or][0][full_name][_icontains]"] = search;
+    params["filter[_or][1][phone_e164][_contains]"] = search;
+    params["filter[_or][2][phone2][_contains]"] = search;
+    params["filter[_or][3][email][_icontains]"] = search;
+  }
+  if (q.classification === MG_UNCLASSIFIED) {
+    params["filter[classification][_null]"] = "true";
+  } else if (q.classification) {
+    params["filter[classification][_eq]"] = q.classification;
+  }
+  const res = await directusFetch(`/items/contacts${buildQuery(params)}`);
+  const json: { data: MgContactRow[]; meta?: { filter_count?: number } } =
+    await res.json();
+  return {
+    rows: json.data,
+    total: Number(json.meta?.filter_count ?? json.data.length),
+  };
+}

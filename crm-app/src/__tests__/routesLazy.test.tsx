@@ -12,6 +12,17 @@ type LazyImporter = () => Promise<{ default: unknown }>;
 
 const lazyImports: Array<[string, LazyImporter]> = [
   [
+    "MgmtShell",
+    () => import("../mgmt/MgmtShell").then((m) => ({ default: m.MgmtShell })),
+  ],
+  [
+    "MgmtContactsPage",
+    () =>
+      import("../mgmt/MgmtContactsPage").then((m) => ({
+        default: m.MgmtContactsPage,
+      })),
+  ],
+  [
     "ContactsPage",
     () =>
       import("../pages/ContactsPage").then((m) => ({ default: m.ContactsPage })),

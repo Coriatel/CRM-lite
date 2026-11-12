@@ -1,0 +1,56 @@
+const DAY = 86_400_000;
+
+/** +972501234567 -> 050-123-4567. Placeholder phones (no real number) -> "". */
+export function displayPhone(e164: string | null | undefined): string {
+  if (!e164 || e164.startsWith("_no_phone_")) return "";
+  const local = e164.startsWith("+972") ? "0" + e164.slice(4) : e164;
+  const m = /^(0\d{2})(\d{3})(\d{4})$/.exec(local);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : local;
+}
+
+/** tel: target for a stored phone, or "" when there is no real number. */
+export function telHref(e164: string | null | undefined): string {
+  return !e164 || e164.startsWith("_no_phone_") ? "" : `tel:${e164}`;
+}
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Whole local days from `iso` to `now` (0 = today, 1 = yesterday). */
+export function daysAgo(iso: string, now: Date = new Date()): number {
+  return Math.round((startOfDay(now) - startOfDay(new Date(iso))) / DAY);
+}
+
+/** "היום" / "אתמול" / "לפני N ימים" / "לפני N חודשים" / full date beyond a year. */
+export function relDay(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "";
+  const n = daysAgo(iso, now);
+  if (n <= 0) return "היום";
+  if (n === 1) return "אתמול";
+  if (n === 2) return "לפני יומיים";
+  if (n < 31) return `לפני ${n} ימים`;
+  if (n < 61) return "לפני חודש";
+  if (n < 365) return `לפני ${Math.floor(n / 30)} חודשים`;
+  return fullDate(iso);
+}
+
+/** 24.9.2026 */
+export function fullDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+}
+
+const CLASSIFICATION: Record<string, string> = {
+  donor: "תורם/ת",
+  lead: "מתעניין/ת",
+};
+
+export function classificationLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return CLASSIFICATION[value] ?? value;
+}
+
+export function shekels(amount: number): string {
+  return `${Math.round(amount).toLocaleString("en-US")} ₪`;
+}
