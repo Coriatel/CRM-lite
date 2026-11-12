@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MgmtPersonPage } from "../MgmtPersonPage";
+import { setAuthToken } from "../../services/directus";
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -24,6 +25,8 @@ let tasksStatus = 200;
 let personStatus = 200;
 let noIncome = false;
 let patchStatus = 200;
+let waStatus = 200;
+let waBody: unknown = { match: true, last_at: "2026-11-11T16:40:00", last_from: "them" };
 
 function mount() {
   return render(
@@ -64,6 +67,7 @@ describe("MgmtPersonPage", () => {
         return jsonResponse({ data: [{ date: "2026-09-24T06:00:00.000Z" }] });
       if (url.includes("/items/transactions"))
         return jsonResponse({ data: noIncome ? [] : [{ id: "x1", amount: "360", date: "2026-09-24T06:00:00.000Z" }, { id: "x2", amount: 720, date: "2026-03-01T06:00:00.000Z" }] });
+      if (url.includes("/api/wa-contact")) return jsonResponse(waBody, waStatus);
       return jsonResponse({ data: [] });
     });
   });
@@ -80,6 +84,59 @@ describe("MgmtPersonPage", () => {
     expect(screen.getByText("050-123-4567")).toBeTruthy();
     expect(screen.getByText("חיוג").getAttribute("href")).toBe("tel:+972501234567");
     expect(screen.getByText("‹ אנשי קשר").getAttribute("href")).toBe("/m/people");
+  });
+
+  describe("WhatsApp contact picture", () => {
+    beforeEach(() => {
+      waStatus = 200;
+      waBody = { match: true, last_at: "2026-11-11T16:40:00", last_from: "them" };
+      setAuthToken("tok");
+    });
+    afterEach(() => setAuthToken(""));
+
+    it("shows the owner when the last message was and that a reply may be owed", async () => {
+      mount();
+      const panel = await screen.findByLabelText("וואטסאפ");
+      expect(within(panel).getByText("אישי · רק לך")).toBeTruthy();
+      expect(within(panel).getByText(/אתמול/)).toBeTruthy();
+      expect(within(panel).getByText("16:40")).toBeTruthy();
+      expect(within(panel).getByText(/התקבלה/)).toBeTruthy();
+      expect(within(panel).getByText(/ייתכן שממתין למענה/)).toBeTruthy();
+      const call = calls.find((c) => c.url.includes("/api/wa-contact"))!;
+      expect(call.url).toContain("phone=972501234567");
+      expect(call.method).toBe("GET");
+    });
+
+    it("does not claim a reply is owed when the owner wrote last", async () => {
+      waBody = { match: true, last_at: "2026-11-11T16:40:00", last_from: "me" };
+      mount();
+      const panel = await screen.findByLabelText("וואטסאפ");
+      expect(within(panel).getByText("נשלחה")).toBeTruthy();
+      expect(within(panel).queryByText(/ממתין/)).toBeNull();
+    });
+
+    it("says no history is available instead of zero messages", async () => {
+      waBody = { match: false };
+      mount();
+      const panel = await screen.findByLabelText("וואטסאפ");
+      expect(within(panel).getByText("אין היסטוריית קשר זמינה.")).toBeTruthy();
+    });
+
+    it("shows nothing to a user the server refuses", async () => {
+      waStatus = 403;
+      waBody = { error: "forbidden" };
+      mount();
+      await screen.findByText(/אירוע 1/);
+      await waitFor(() => expect(calls.some((c) => c.url.includes("/api/wa-contact"))).toBe(true));
+      expect(screen.queryByLabelText("וואטסאפ")).toBeNull();
+    });
+
+    it("shows nothing when the route is not there", async () => {
+      waBody = { data: [] };
+      mount();
+      await screen.findByText(/אירוע 1/);
+      expect(screen.queryByLabelText("וואטסאפ")).toBeNull();
+    });
   });
 
   it("lists only this person's open tasks, without repeating the name", async () => {
