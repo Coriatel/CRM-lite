@@ -467,3 +467,20 @@
 
 .mg-page-head .mg-sub.mg-stale { color: var(--copper-text); font-weight: 600; }
 .mg-task .mg-meta.mg-warn { color: var(--copper-text); font-weight: 600; }
+
+/* Sign-in screen of the management area */
+.mg-login { min-block-size: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.mg-login-card {
+  inline-size: min(100%, 380px); display: grid; gap: 16px;
+  background: var(--cream); border: 1px solid var(--line-card); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card); padding: 28px 22px;
+}
+.mg-login-mark { block-size: 56px; inline-size: auto; justify-self: center; }
+.mg-login-card h1 { font-size: 22px; font-weight: 500; text-align: center; margin-block-end: 4px; }
+.mg-login-card form { display: grid; }
+.mg-login-card .mg-btn { inline-size: 100%; justify-content: center; min-block-size: 48px; }
+.mg-login-card .mg-link-act { justify-self: center; margin-block-start: 12px; min-block-size: 44px; }
+.mg-login-text { color: var(--ink-soft); }
+.mg-login-err { color: var(--copper-text); font-weight: 600; }
+/* the generic `.mg button` / `.mg a` colour rules outrank a single class */
+.mg .mg-btn-cta { color: #fff; font-weight: 700; }

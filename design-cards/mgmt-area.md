@@ -35,3 +35,7 @@ Open (not applied, to decide before build): במחשב הפעולה רחוקה �
 4. כרטיס אדם בטלפון: פעולות מהירות, משימות פתוחות ושלושה אירועים אחרונים למעלה; תרומות, לימוד, פרטים והסכמות מקופלים לשורת סיכום. גובה המסך ירד מכ־2,050 לכ־1,100 פיקסלים.
 
 Still open: תגית "מרחב הניהול" נראית כמו כפתור (ירושה מהנקודה שלי); תג המספר מכסה חלק מאייקון "היום"; שבירת שורה בין מספר לשם עצם בשני מקומות; במחשב הפעולה רחוקה מהשם בשורות רחבות (הדגשת שורה במעבר עכבר נוספה, לא נראית בצילום).
+
+## Sign-in screen (owner request 2026-11-12)
+
+What it is: one action, signing in. The one thing: the copper "כניסה" button. Labels above the fields (information is not a placeholder); logo and area name as the only heading; "שכחתי סיסמה" is a quiet link. The note "Google sign-in is not configured" is removed: it is not something the person can act on. Pattern borrowed from the usual sign-in card (Google / Microsoft).
