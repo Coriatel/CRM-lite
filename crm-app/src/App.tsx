@@ -9,6 +9,7 @@ import {
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ProjectProvider, useProjectContext } from "./contexts/ProjectContext";
 import { LoginPage } from "./pages/LoginPage";
+import { MgmtLoginPage } from "./mgmt/MgmtLoginPage";
 import { OAuthCallback } from "./pages/OAuthCallback";
 
 const ContactsPage = lazy(() =>
@@ -185,6 +186,7 @@ function AppContent() {
     return (
       <Routes>
         <Route path="/auth/callback" element={<OAuthCallback />} />
+        <Route path="/m/*" element={<MgmtLoginPage />} />
         <Route path="*" element={<LoginPage />} />
       </Routes>
     );
