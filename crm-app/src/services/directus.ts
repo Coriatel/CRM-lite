@@ -1471,3 +1471,64 @@ export async function getContactsPaged(q: {
     total: Number(json.meta?.filter_count ?? json.data.length),
   };
 }
+
+// ---------- Management area: tasks (HyCRM `tasks`, as the signed-in user) ----------
+
+export interface MgTask {
+  id: string;
+  kind: string | null;
+  status: string;
+  priority: number | null;
+  due_at: string | null;
+  notes: string | null;
+  subject_contact_id: {
+    id: string;
+    full_name: string;
+    phone_e164: string | null;
+  } | null;
+}
+
+const MG_TASK_FIELDS =
+  "id,kind,status,priority,due_at,notes,subject_contact_id.id,subject_contact_id.full_name,subject_contact_id.phone_e164";
+
+/** Open tasks, soonest first. `contactId` narrows to tasks about one person. */
+export async function getOpenTasks(contactId?: string): Promise<MgTask[]> {
+  const params: Record<string, string> = {
+    fields: MG_TASK_FIELDS,
+    "filter[status][_eq]": "open",
+    sort: "due_at",
+    limit: "200",
+  };
+  if (contactId) params["filter[subject_contact_id][_eq]"] = contactId;
+  const res = await directusFetch(`/items/tasks${buildQuery(params)}`);
+  const json: DirectusResponse<MgTask[]> = await res.json();
+  return json.data;
+}
+
+export async function setTaskStatus(
+  id: string,
+  status: "open" | "done",
+): Promise<void> {
+  await directusFetch(`/items/tasks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function createMgTask(input: {
+  notes: string;
+  kind: string;
+  due_at: string | null;
+  subject_contact_id?: string | null;
+}): Promise<void> {
+  await directusFetch(`/items/tasks`, {
+    method: "POST",
+    body: JSON.stringify({
+      status: "open",
+      notes: input.notes,
+      kind: input.kind,
+      due_at: input.due_at,
+      subject_contact_id: input.subject_contact_id ?? null,
+    }),
+  });
+}
