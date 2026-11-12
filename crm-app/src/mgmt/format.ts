@@ -13,6 +13,18 @@ export function telHref(e164: string | null | undefined): string {
   return !e164 || e164.startsWith("_no_phone_") ? "" : `tel:${e164}`;
 }
 
+/** WhatsApp chat link for a stored phone, or "" when it is not a mobile number we can address.
+ *  Builds the international form for the link only; the stored number is never changed. */
+export function waHref(phone: string | null | undefined): string {
+  if (!phone || phone.startsWith("_no_phone_")) return "";
+  let d = phone.replace(/[^\d+]/g, "");
+  if (d.startsWith("+")) d = d.slice(1);
+  else if (d.startsWith("00")) d = d.slice(2);
+  else if (d.startsWith("0")) d = "972" + d.slice(1);
+  if (d.startsWith("972") && !/^9725\d{8}$/.test(d)) return ""; // Israeli landline: no WhatsApp
+  return /^\d{9,15}$/.test(d) ? `https://wa.me/${d}` : "";
+}
+
 function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
