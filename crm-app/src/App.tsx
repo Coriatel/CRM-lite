@@ -160,8 +160,13 @@ function RouteTracker() {
   return null;
 }
 
+// The nihul address is the management area alone. Caddy redirects other paths, but an installed
+// app or the service worker opens "/" from cache without asking the server, so the app enforces it too.
+const MGMT_ONLY_HOST = window.location.hostname.startsWith("nihul.");
+
 function AppContent() {
   const { user, loading } = useAuth();
+  const { pathname } = useLocation();
   const { loading: projectsLoading } = useProjectContext();
   const [sortBy, setSortBy] = useState<SortOption>("full_name");
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>({});
@@ -180,6 +185,10 @@ function AppContent() {
         <div className="spinner"></div>
       </div>
     );
+  }
+
+  if (MGMT_ONLY_HOST && !/^\/(m|auth)(\/|$)/.test(pathname)) {
+    return <Navigate to="/m" replace />;
   }
 
   if (!user) {
