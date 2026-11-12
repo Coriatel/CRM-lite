@@ -6,7 +6,7 @@ import {
   type MgContactRow,
 } from "../services/directus";
 import { useDebounce } from "../hooks/useDebounce";
-import { useContactActions } from "../hooks/useContacts";
+import { newContactSaver, type NewContactResult } from "./newContact";
 import { EditContactModal } from "../components/EditContactModal";
 import { MgLoading, MgNotice } from "./MgState";
 import { classificationLabel, displayPhone, fullDate, relDay, telHref } from "./format";
@@ -34,7 +34,13 @@ export function MgmtContactsPage() {
   const [more, setMore] = useState<"" | "busy" | "failed">("");
   // Which search+filter the list on screen belongs to; a late page for another one is dropped.
   const listKey = useRef("");
-  const { createContact } = useContactActions();
+  const saver = useRef(newContactSaver());
+  const [saved, setSaved] = useState<NewContactResult | null>(null);
+
+  function afterSave(result: NewContactResult | null) {
+    setSaved(result);
+    if (result && result.kind !== "exists") setReload((n) => n + 1);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +99,31 @@ export function MgmtContactsPage() {
           </button>
         </div>
       </div>
+
+      {saved && (
+        <p className="mg-panel" role="status">
+          {saved.kind === "exists" && "כבר קיים איש קשר עם הטלפון הזה, ולכן לא נוצר חדש: "}
+          {saved.kind === "created" && "נשמר: "}
+          {saved.kind === "untagged" && "איש הקשר נשמר, אבל השיוך לקטגוריה לא נשמר: "}
+          {saved.id ? (
+            <Link to={`/m/people/${saved.id}`}>{saved.name || "ללא שם"}</Link>
+          ) : (
+            saved.name
+          )}
+          {saved.kind === "untagged" && (
+            <>
+              {" "}
+              <button
+                className="mg-link-act"
+                type="button"
+                onClick={async () => afterSave(await saver.current.retryTag())}
+              >
+                ניסיון נוסף לשיוך
+              </button>
+            </>
+          )}
+        </p>
+      )}
 
       <form className="mg-search" role="search" onSubmit={(e) => e.preventDefault()}>
         <label className="mg-sr-only" htmlFor="mg-q">
@@ -159,10 +190,7 @@ export function MgmtContactsPage() {
       <EditContactModal
         isOpen={adding}
         onClose={() => setAdding(false)}
-        onSave={async (data) => {
-          await createContact(data);
-          setReload((n) => n + 1);
-        }}
+        onSave={async (data) => afterSave(await saver.current.save(data))}
       />
     </>
   );

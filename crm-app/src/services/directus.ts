@@ -1495,18 +1495,48 @@ export interface MgTask {
 const MG_TASK_FIELDS =
   "id,kind,status,priority,due_at,notes,subject_contact_id.id,subject_contact_id.full_name,subject_contact_id.phone_e164";
 
-/** Open tasks, soonest first. `contactId` narrows to tasks about one person. */
-export async function getOpenTasks(contactId?: string): Promise<MgTask[]> {
+export const MG_TASK_PAGE = 200;
+
+/**
+ * Open tasks, soonest first, one page at a time. `total` is the server's count
+ * of all open tasks that match, so a screen can say when it shows only part.
+ * `contactId` narrows to tasks about one person.
+ */
+export async function getOpenTasks(
+  contactId?: string,
+  offset = 0,
+): Promise<{ rows: MgTask[]; total: number }> {
   const params: Record<string, string> = {
     fields: MG_TASK_FIELDS,
     "filter[status][_eq]": "open",
-    sort: "due_at",
-    limit: "200",
+    sort: "due_at,id",
+    limit: String(MG_TASK_PAGE),
+    offset: String(offset),
+    meta: "filter_count",
   };
   if (contactId) params["filter[subject_contact_id][_eq]"] = contactId;
   const res = await directusFetch(`/items/tasks${buildQuery(params)}`);
-  const json: DirectusResponse<MgTask[]> = await res.json();
-  return json.data;
+  const json: { data: MgTask[]; meta?: { filter_count?: number } } =
+    await res.json();
+  return {
+    rows: json.data,
+    total: Number(json.meta?.filter_count ?? json.data.length),
+  };
+}
+
+/** The contact that already holds this exact stored phone, if any. Read-only. */
+export async function findContactByPhone(
+  phone: string,
+): Promise<{ id: string; full_name: string } | null> {
+  const qs = buildQuery({
+    fields: "id,full_name",
+    "filter[phone_e164][_eq]": phone,
+    limit: "1",
+  });
+  const res = await directusFetch(`/items/contacts${qs}`);
+  const json: DirectusResponse<{ id: string; full_name: string }[]> =
+    await res.json();
+  return json.data[0] ?? null;
 }
 
 export async function setTaskStatus(

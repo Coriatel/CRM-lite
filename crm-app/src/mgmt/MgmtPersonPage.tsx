@@ -7,6 +7,7 @@ import {
   getInteractions,
   getLatestIncomeDate,
   getOpenTasks,
+  updateContact,
   type DirectusInteraction,
 } from "../services/directus";
 import { isForbidden } from "./errors";
@@ -108,11 +109,11 @@ export function MgmtPersonPage() {
           <section className="mg-panel" aria-label="משימות פתוחות">
             <div className="mg-panel-head">
               <h2>משימות פתוחות</h2>
-              {tasks.data && <span className="mg-count">{tasks.data.length}</span>}
+              {tasks.data && <span className="mg-count">{tasks.data.total}</span>}
             </div>
-            <Section state={tasks} empty="אין משימות פתוחות.">
-              {(list) =>
-                list.map((t) => (
+            <Section state={tasks} empty="אין משימות פתוחות." isEmpty={(d) => d.rows.length === 0}>
+              {(page) =>
+                page.rows.map((t) => (
                   <MgTaskRow key={t.id} task={t} bucket={taskBucket(t.due_at)} showPerson={false} />
                 ))
               }
@@ -123,7 +124,12 @@ export function MgmtPersonPage() {
             <div className="mg-panel-head">
               <h2>ציר זמן</h2>
             </div>
-            <NoteForm contactId={id} onSaved={timeline.reload} />
+            <NoteForm
+              contactId={id}
+              onSaved={() => {
+                timeline.reload();
+              }}
+            />
             <Section state={timeline} empty="עדיין לא תועד קשר.">
               {(list) => <Timeline items={list} />}
             </Section>
@@ -249,6 +255,13 @@ function NoteForm({ contactId, onSaved }: { contactId: string; onSaved: () => vo
       await createInteraction({ contact_id: contactId, type: "note", summary: text.trim() });
       setText("");
       onSaved();
+      // Same as the old screen: a note counts as contact, so "last contact" follows it.
+      // The note is already saved; if this second step is refused, say so and keep the note.
+      try {
+        await updateContact(contactId, { last_call_date: new Date().toISOString() });
+      } catch {
+        setFailed('ההערה נשמרה, אבל "קשר אחרון" לא עודכן.');
+      }
     } catch (err) {
       setFailed(isForbidden(err) ? "אין לך הרשאה להוסיף הערות." : "ההערה לא נשמרה. נסו שוב.");
     } finally {

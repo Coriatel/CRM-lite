@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { getOpenTasks, type MgTask } from "../services/directus";
+import { isForbidden } from "./errors";
 import { MgLoading, MgNotice } from "./MgState";
 import { MgTaskForm, MgTaskRow } from "./MgTaskList";
 import { groupTasks } from "./tasks";
 
 export function MgmtTasksPage() {
   const [tasks, setTasks] = useState<MgTask[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [more, setMore] = useState<"" | "busy" | "failed">("");
   const [error, setError] = useState<unknown>(null);
   const [reload, setReload] = useState(0);
   const [adding, setAdding] = useState(false);
@@ -14,8 +17,13 @@ export function MgmtTasksPage() {
     let cancelled = false;
     setTasks(null);
     setError(null);
+    setMore("");
     getOpenTasks()
-      .then((t) => !cancelled && setTasks(t))
+      .then((page) => {
+        if (cancelled) return;
+        setTasks(page.rows);
+        setTotal(page.total);
+      })
       .catch((e) => !cancelled && setError(e));
     return () => {
       cancelled = true;
@@ -23,13 +31,33 @@ export function MgmtTasksPage() {
   }, [reload]);
 
   const groups = tasks ? groupTasks(tasks) : [];
+  const remaining = tasks ? total - tasks.length : 0;
+
+  async function loadMore() {
+    if (!tasks) return;
+    setMore("busy");
+    try {
+      const page = await getOpenTasks(undefined, tasks.length);
+      const known = new Set(tasks.map((t) => t.id));
+      setTasks([...tasks, ...page.rows.filter((t) => !known.has(t.id))]);
+      setTotal(page.total);
+      setMore("");
+    } catch (e) {
+      if (isForbidden(e)) setError(e);
+      else setMore("failed");
+    }
+  }
 
   return (
     <>
       <div className="mg-page-head">
         <div className="mg-head-text">
           <h1>משימות</h1>
-          {tasks && <p className="mg-sub">{tasks.length} פתוחות</p>}
+          {tasks && (
+            <p className="mg-sub">
+              {total} פתוחות{remaining > 0 && ` · מוצגות ${tasks.length} הקרובות ביותר`}
+            </p>
+          )}
         </div>
         {!error && !adding && (
           <div className="mg-head-actions">
@@ -63,17 +91,35 @@ export function MgmtTasksPage() {
           <MgNotice empty="אין משימות פתוחות." />
         </section>
       ) : (
-        groups.map((g) => (
-          <section className="mg-panel" key={g.bucket} aria-label={g.label}>
-            <div className="mg-panel-head">
-              <h2>{g.label}</h2>
-              <span className="mg-count">{g.tasks.length}</span>
-            </div>
-            {g.tasks.map((t) => (
-              <MgTaskRow key={t.id} task={t} bucket={g.bucket} />
-            ))}
-          </section>
-        ))
+        <>
+          {groups.map((g) => (
+            <section className="mg-panel" key={g.bucket} aria-label={g.label}>
+              <div className="mg-panel-head">
+                <h2>{g.label}</h2>
+                <span className="mg-count">
+                  {g.tasks.length}
+                  {remaining > 0 && "+"}
+                </span>
+              </div>
+              {g.tasks.map((t) => (
+                <MgTaskRow key={t.id} task={t} bucket={g.bucket} />
+              ))}
+            </section>
+          ))}
+          {remaining > 0 && (
+            <p style={{ marginBlockEnd: 16 }}>
+              <button className="mg-link-act" type="button" onClick={loadMore} disabled={more === "busy"}>
+                הצגת {Math.min(200, remaining)} הבאות (נשארו {remaining})
+              </button>
+              {more === "failed" && (
+                <span className="mg-stale" role="alert">
+                  {" "}
+                  הטעינה נכשלה. נסו שוב.
+                </span>
+              )}
+            </p>
+          )}
+        </>
       )}
     </>
   );

@@ -37,6 +37,7 @@ const TASKS = [
 let calls: { url: string; method: string; body: unknown }[] = [];
 let getStatus = 200;
 let writeStatus = 200;
+let total: number | null = null;
 
 function mount() {
   return render(
@@ -77,6 +78,7 @@ describe("MgmtTasksPage", () => {
     calls = [];
     getStatus = 200;
     writeStatus = 200;
+    total = null;
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -86,7 +88,12 @@ describe("MgmtTasksPage", () => {
         method,
         body: init?.body ? JSON.parse(String(init.body)) : null,
       });
-      if (method === "GET") return jsonResponse(getStatus === 200 ? { data: TASKS } : { errors: [] }, getStatus);
+      if (method === "GET") {
+        if (getStatus !== 200) return jsonResponse({ errors: [] }, getStatus);
+        const next = decodeURIComponent(String(input)).includes("offset=4");
+        const data = next ? [task("p2", "2026-12-20T08:00:00")] : TASKS;
+        return jsonResponse(total === null ? { data } : { data, meta: { filter_count: total } });
+      }
       return jsonResponse(writeStatus === 200 ? { data: {} } : { errors: [] }, writeStatus);
     });
   });
@@ -106,6 +113,19 @@ describe("MgmtTasksPage", () => {
     expect(within(late).getByText("נועה בדויה").getAttribute("href")).toBe("/m/people/a");
     expect(within(late).getByText("חיוג").getAttribute("href")).toBe("tel:+972501234567");
     expect(within(late).getByText("מ־9.11.2026 · שיחה").className).toContain("mg-warn");
+  });
+
+  it("says when it shows only part of the open tasks and loads the rest in steps", async () => {
+    total = 5;
+    mount();
+    await screen.findByText("משימה today");
+    expect(screen.getByText("5 פתוחות · מוצגות 4 הקרובות ביותר")).toBeTruthy();
+    expect(calls[0].url).toContain("meta=filter_count");
+    fireEvent.click(screen.getByRole("button", { name: "הצגת 1 הבאות (נשארו 1)" }));
+    await screen.findByText("משימה p2");
+    expect(calls[1].url).toContain("offset=4");
+    expect(screen.getByText("5 פתוחות")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /הבאות/ })).toBeNull();
   });
 
   it("marks a task done on the server and lets it be undone", async () => {

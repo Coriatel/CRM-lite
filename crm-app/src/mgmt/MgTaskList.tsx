@@ -11,10 +11,13 @@ export function MgTaskRow({
   task,
   bucket,
   showPerson = true,
+  onDone,
 }: {
   task: MgTask;
   bucket: DueBucket;
   showPerson?: boolean;
+  /** Called after the server accepted the change, so counters can follow. */
+  onDone?: (taskId: string, done: boolean) => void;
 }) {
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -30,6 +33,7 @@ export function MgTaskRow({
     try {
       await setTaskStatus(task.id, done ? "open" : "done");
       setDone(!done);
+      onDone?.(task.id, !done);
     } catch (e) {
       setFailed(isForbidden(e) ? "אין לך הרשאה לעדכן משימות." : "העדכון לא נשמר. נסו שוב.");
     } finally {

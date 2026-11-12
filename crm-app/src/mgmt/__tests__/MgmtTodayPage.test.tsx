@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { MgmtTodayPage } from "../MgmtTodayPage";
 
@@ -18,6 +18,7 @@ const t = (id: string, due: string | null) => ({
 });
 let tasks = [t("late", "2026-11-09T08:00:00"), t("now", "2026-11-12T16:00:00"), t("week", "2026-11-16T08:00:00")];
 let tasksStatus = 200;
+let total: number | null = null;
 let latest: { date: string }[] = [{ date: "2026-09-24T06:00:00.000Z" }];
 
 function mount() {
@@ -32,13 +33,18 @@ describe("MgmtTodayPage", () => {
   beforeEach(() => {
     tasks = [t("late", "2026-11-09T08:00:00"), t("now", "2026-11-12T16:00:00"), t("week", "2026-11-16T08:00:00")];
     tasksStatus = 200;
+    total = null;
     latest = [{ date: "2026-09-24T06:00:00.000Z" }];
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = decodeURIComponent(String(input));
+      if (init?.method === "PATCH") return jsonResponse({ data: {} });
       if (url.includes("/items/tasks"))
-        return jsonResponse(tasksStatus === 200 ? { data: tasks } : { errors: [] }, tasksStatus);
+        return jsonResponse(
+          tasksStatus === 200 ? (total === null ? { data: tasks } : { data: tasks, meta: { filter_count: total } }) : { errors: [] },
+          tasksStatus,
+        );
       return jsonResponse({ data: latest });
     });
   });
@@ -56,6 +62,26 @@ describe("MgmtTodayPage", () => {
     expect(screen.queryByText("משימה week")).toBeNull();
     expect(screen.getByText(/2 משימות מחכות/)).toBeTruthy();
     expect(screen.getByText("לכל המשימות (עוד 1 בהמשך)").getAttribute("href")).toBe("/m/tasks");
+  });
+
+  it("drops the counters as soon as a task is ticked, and restores them on undo", async () => {
+    mount();
+    await screen.findByText("משימה late");
+    const box = screen.getByLabelText("סימון כבוצע: משימה late");
+    fireEvent.click(box);
+    await waitFor(() => expect(screen.getByText(/משימה אחת מחכה/)).toBeTruthy());
+    expect(within(screen.getByLabelText("משימות באיחור")).getByText("0")).toBeTruthy();
+    fireEvent.click(box);
+    await waitFor(() => expect(screen.getByText(/2 משימות מחכות/)).toBeTruthy());
+  });
+
+  it("does not claim an exact count when more urgent tasks may exist than were loaded", async () => {
+    tasks = [t("late", "2026-11-09T08:00:00"), t("now", "2026-11-12T16:00:00")];
+    total = 300;
+    mount();
+    await screen.findByText("משימה late");
+    expect(screen.getByText(/לפחות 2 משימות מחכות/)).toBeTruthy();
+    expect(screen.getByText("לכל המשימות (יש עוד שלא מוצגות כאן)")).toBeTruthy();
   });
 
   it("says plainly when nothing is waiting", async () => {

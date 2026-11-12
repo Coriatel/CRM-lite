@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { getLatestIncomeDate, getOpenTasks } from "../services/directus";
 import { freshness } from "./format";
@@ -13,10 +14,25 @@ export function MgmtTodayPage() {
   const tasks = useLoad(() => getOpenTasks(), []);
   const income = useLoad(() => getLatestIncomeDate(), []);
 
-  const groups = tasks.data ? groupTasks(tasks.data) : [];
+  // Tasks ticked on this screen: they stay visible with an undo, but stop counting.
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  function onDone(id: string, done: boolean) {
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (done) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  const rows = tasks.data?.rows ?? [];
+  const groups = tasks.data ? groupTasks(rows) : [];
   const urgent = groups.filter((g) => g.bucket === "overdue" || g.bucket === "today");
-  const waiting = urgent.reduce((n, g) => n + g.tasks.length, 0);
-  const later = tasks.data ? tasks.data.length - waiting : 0;
+  const urgentCount = urgent.reduce((n, g) => n + g.tasks.length, 0);
+  const waiting = urgent.reduce((n, g) => n + g.tasks.filter((t) => !ticked.has(t.id)).length, 0);
+  // Tasks come soonest first, so when every loaded row is urgent there may be more urgent ones not loaded.
+  const partial = !!tasks.data && tasks.data.total > rows.length && urgentCount === rows.length;
+  const later = tasks.data ? tasks.data.total - urgentCount : 0;
 
   return (
     <>
@@ -25,7 +41,7 @@ export function MgmtTodayPage() {
           <h1>היום</h1>
           <p className="mg-sub">
             {DATE_FMT.format(new Date())}
-            {tasks.data && ` · ${waiting === 0 ? "אין משימות שמחכות" : waiting === 1 ? "משימה אחת מחכה" : `${waiting} משימות מחכות`}`}
+            {tasks.data && ` · ${waiting === 0 ? "אין משימות שמחכות" : waiting === 1 ? "משימה אחת מחכה" : `${partial ? "לפחות " : ""}${waiting} משימות מחכות`}`}
           </p>
         </div>
       </div>
@@ -52,16 +68,16 @@ export function MgmtTodayPage() {
             <section className="mg-panel" key={g.bucket} aria-label={g.bucket === "overdue" ? "משימות באיחור" : "משימות להיום"}>
               <div className="mg-panel-head">
                 <h2>{g.bucket === "overdue" ? "משימות באיחור" : "משימות להיום"}</h2>
-                <span className="mg-count">{g.tasks.length}</span>
+                <span className="mg-count">{g.tasks.filter((t) => !ticked.has(t.id)).length}</span>
               </div>
               {g.tasks.map((t) => (
-                <MgTaskRow key={t.id} task={t} bucket={g.bucket} />
+                <MgTaskRow key={t.id} task={t} bucket={g.bucket} onDone={onDone} />
               ))}
             </section>
           ))}
           <p style={{ marginBlockEnd: 16 }}>
             <Link className="mg-link-act" to="/m/tasks">
-              {later > 0 ? `לכל המשימות (עוד ${later} בהמשך)` : "לכל המשימות"}
+              {partial ? "לכל המשימות (יש עוד שלא מוצגות כאן)" : later > 0 ? `לכל המשימות (עוד ${later} בהמשך)` : "לכל המשימות"}
             </Link>
           </p>
         </>

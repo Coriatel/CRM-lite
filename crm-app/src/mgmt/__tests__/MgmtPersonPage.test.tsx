@@ -23,6 +23,7 @@ let calls: { url: string; method: string; body: unknown }[] = [];
 let tasksStatus = 200;
 let personStatus = 200;
 let noIncome = false;
+let patchStatus = 200;
 
 function mount() {
   return render(
@@ -40,12 +41,14 @@ describe("MgmtPersonPage", () => {
     tasksStatus = 200;
     personStatus = 200;
     noIncome = false;
+    patchStatus = 200;
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = decodeURIComponent(String(input));
       const method = init?.method ?? "GET";
       calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (method === "PATCH") return jsonResponse(patchStatus === 200 ? { data: {} } : { errors: [] }, patchStatus);
       if (method !== "GET") return jsonResponse({ data: {} });
       if (url.includes("/items/contacts/a")) return jsonResponse(personStatus === 200 ? { data: PERSON } : { errors: [] }, personStatus);
       if (url.includes("/items/tasks")) {
@@ -107,6 +110,28 @@ describe("MgmtPersonPage", () => {
     await waitFor(() =>
       expect(calls.filter((c) => c.method === "GET" && c.url.includes("/items/interactions"))).toHaveLength(2),
     );
+  });
+
+  it("moves 'last contact' to now when a note is added, like the old screen", async () => {
+    mount();
+    await screen.findByText(/אירוע 1/);
+    fireEvent.change(screen.getByLabelText("הערה חדשה"), { target: { value: "דיברנו" } });
+    fireEvent.click(screen.getByRole("button", { name: "הוספה" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const patch = calls.find((c) => c.method === "PATCH")!;
+    expect(patch.url).toContain("/items/contacts/a");
+    expect(patch.body).toEqual({ last_call_date: NOW.toISOString() });
+    expect(calls.findIndex((c) => c.method === "POST")).toBeLessThan(calls.findIndex((c) => c.method === "PATCH"));
+  });
+
+  it("keeps the note and says so when updating 'last contact' is refused", async () => {
+    patchStatus = 403;
+    mount();
+    await screen.findByText(/אירוע 1/);
+    fireEvent.change(screen.getByLabelText("הערה חדשה"), { target: { value: "דיברנו" } });
+    fireEvent.click(screen.getByRole("button", { name: "הוספה" }));
+    await screen.findByText(/ההערה נשמרה, אבל "קשר אחרון" לא עודכן/);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
   it("shows donations with full dates and how current the data is", async () => {
