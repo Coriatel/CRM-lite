@@ -1454,8 +1454,12 @@ export async function getContactsPaged(q: {
   const search = q.search?.trim();
   if (search) {
     params["filter[_or][0][full_name][_icontains]"] = search;
-    params["filter[_or][1][phone_e164][_contains]"] = search;
-    params["filter[_or][2][phone2][_contains]"] = search;
+    // A phone typed the local way (050-123-4567) is stored as +972501234567.
+    const phone = /^[\d\s-]+$/.test(search)
+      ? search.replace(/\D/g, "").replace(/^0/, "")
+      : search;
+    params["filter[_or][1][phone_e164][_contains]"] = phone;
+    params["filter[_or][2][phone2][_contains]"] = phone;
     params["filter[_or][3][email][_icontains]"] = search;
   }
   if (q.classification === MG_UNCLASSIFIED) {

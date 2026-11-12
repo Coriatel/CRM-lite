@@ -51,11 +51,23 @@ export interface TaskGroup {
   tasks: MgTask[];
 }
 
+/**
+ * Due bucket by the local calendar day. `due_at` is a timestamp with a zone, so
+ * its first ten characters are the UTC day, which is the day before for anything
+ * due in the first hours after local midnight.
+ */
+export function taskBucket(dueAt: string | null, now: Date = new Date()): DueBucket {
+  if (!dueAt) return "none";
+  const d = new Date(dueAt);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return dueBucket(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, now);
+}
+
 /** Open tasks grouped overdue → today → week → later → undated; empty groups dropped. */
 export function groupTasks(tasks: MgTask[], now: Date = new Date()): TaskGroup[] {
   return DUE_BUCKET_ORDER.map((bucket) => ({
     bucket,
     label: DUE_BUCKET_LABEL[bucket],
-    tasks: tasks.filter((t) => dueBucket(t.due_at, now) === bucket),
+    tasks: tasks.filter((t) => taskBucket(t.due_at, now) === bucket),
   })).filter((g) => g.tasks.length > 0);
 }

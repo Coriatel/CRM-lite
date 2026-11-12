@@ -22,6 +22,7 @@ const NOTES = [1, 2, 3, 4].map((n) => ({
 let calls: { url: string; method: string; body: unknown }[] = [];
 let tasksStatus = 200;
 let personStatus = 200;
+let noIncome = false;
 
 function mount() {
   return render(
@@ -38,6 +39,7 @@ describe("MgmtPersonPage", () => {
     calls = [];
     tasksStatus = 200;
     personStatus = 200;
+    noIncome = false;
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -58,7 +60,7 @@ describe("MgmtPersonPage", () => {
       if (url.includes("/items/transactions") && url.includes("limit=1"))
         return jsonResponse({ data: [{ date: "2026-09-24T06:00:00.000Z" }] });
       if (url.includes("/items/transactions"))
-        return jsonResponse({ data: [{ id: "x1", amount: "360", date: "2026-09-24T06:00:00.000Z" }, { id: "x2", amount: 720, date: "2026-03-01T06:00:00.000Z" }] });
+        return jsonResponse({ data: noIncome ? [] : [{ id: "x1", amount: "360", date: "2026-09-24T06:00:00.000Z" }, { id: "x2", amount: 720, date: "2026-03-01T06:00:00.000Z" }] });
       return jsonResponse({ data: [] });
     });
   });
@@ -114,6 +116,14 @@ describe("MgmtPersonPage", () => {
     expect(panel.textContent).toContain("1,080 ₪ · 2 תרומות");
     expect(panel.textContent).toContain("360 ₪ · 24.9.2026");
     expect(panel.textContent).not.toMatch(/היום|אתמול/);
+  });
+
+  it("states data freshness also for a person with no recorded donations", async () => {
+    noIncome = true;
+    mount();
+    const panel = await screen.findByLabelText("תרומות");
+    await within(panel).findByText("לא נרשמו תרומות.");
+    expect(within(panel).getByText(/נתונים עד 24\.9\.2026 · לא התעדכנו מאז/)).toBeTruthy();
   });
 
   it("keeps the rest of the card when tasks are refused, and offers no new task", async () => {

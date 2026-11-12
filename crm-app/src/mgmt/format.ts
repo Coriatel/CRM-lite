@@ -72,6 +72,7 @@ export function freshness(latestIso: string | null | undefined, now: Date = new 
   if (!latestIso) return { until: "", stale: true, label: "אין נתונים" };
   const until = fullDate(latestIso);
   const age = daysAgo(latestIso, now);
+  if (age < 0) return { until, stale: true, label: `נתונים עד ${until} · תאריך עתידי, לבדיקה` };
   if (age <= STALE_AFTER_DAYS) return { until, stale: false, label: `נתונים עד ${until}` };
   return { until, stale: true, label: `נתונים עד ${until} · לא התעדכנו מאז (${age} ימים)` };
 }

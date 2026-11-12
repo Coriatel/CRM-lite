@@ -9,11 +9,11 @@ import {
   getOpenTasks,
   type DirectusInteraction,
 } from "../services/directus";
-import { dueBucket } from "../data/rabbiTasks";
 import { isForbidden } from "./errors";
 import { classificationLabel, displayPhone, freshness, fullDate, shekels, telHref } from "./format";
 import { MgLoading, MgNotice } from "./MgState";
 import { MgTaskForm, MgTaskRow } from "./MgTaskList";
+import { taskBucket } from "./tasks";
 import { useLoad, type Loaded } from "./useLoad";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -113,7 +113,7 @@ export function MgmtPersonPage() {
             <Section state={tasks} empty="אין משימות פתוחות.">
               {(list) =>
                 list.map((t) => (
-                  <MgTaskRow key={t.id} task={t} bucket={dueBucket(t.due_at)} showPerson={false} />
+                  <MgTaskRow key={t.id} task={t} bucket={taskBucket(t.due_at)} showPerson={false} />
                 ))
               }
             </Section>
@@ -141,13 +141,16 @@ export function MgmtPersonPage() {
                   </span>
                 )}
               </summary>
+              {income.data && (
+                <p className={freshness(income.data[1]).stale ? "mg-stale" : "mg-plain"}>
+                  {freshness(income.data[1]).label}
+                </p>
+              )}
               <Section state={income} empty="לא נרשמו תרומות." isEmpty={(d) => d[0].length === 0}>
-                {([rows, latest]) => {
-                  const fresh = freshness(latest);
+                {([rows]) => {
                   const total = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
                   return (
                     <>
-                      <p className={fresh.stale ? "mg-stale" : "mg-plain"}>{fresh.label}</p>
                       <dl>
                         <div className="mg-kv">
                           <dt>סך הכול</dt>

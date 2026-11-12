@@ -72,6 +72,44 @@ describe("MgmtContactsPage", () => {
     expect(u).toContain("filter[_or][1][phone_e164][_contains]=noa@");
   });
 
+  it("finds a phone typed the local way", async () => {
+    mount();
+    await screen.findByText("נועה בדויה");
+    fireEvent.change(screen.getByLabelText("חיפוש"), { target: { value: "050-123 4567" } });
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("filter[_or][1][phone_e164][_contains]=501234567"))).toBe(true),
+    );
+  });
+
+  it("drops a late next page that belongs to a filter the user already left", async () => {
+    mount();
+    await screen.findByText("נועה בדויה");
+    let release: (r: Response) => void = () => {};
+    respond = (url) => {
+      if (url.includes("offset=2")) return new Promise<Response>((r) => (release = r)) as unknown as Response;
+      return jsonResponse({ data: [{ ...ROWS[1], id: "d", full_name: "רות בדויה" }], meta: { filter_count: 1 } });
+    };
+    fireEvent.click(screen.getByRole("button", { name: "הצגת 50 הבאים" }));
+    fireEvent.click(screen.getByRole("button", { name: "תורמים" }));
+    await screen.findByText("רות בדויה");
+    release(jsonResponse({ data: [{ ...ROWS[0], id: "z", full_name: "ישן בדוי" }], meta: { filter_count: 120 } }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("ישן בדוי")).toBeNull();
+    expect(screen.getByText("1 אנשים · מוצגים 1")).toBeTruthy();
+  });
+
+  it("keeps the loaded rows when the next page fails, and ignores a double tap", async () => {
+    mount();
+    await screen.findByText("נועה בדויה");
+    respond = () => jsonResponse({}, 500);
+    const btn = screen.getByRole("button", { name: "הצגת 50 הבאים" });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await screen.findByText(/הטעינה נכשלה/);
+    expect(screen.getByText("נועה בדויה")).toBeTruthy();
+    expect(urls.filter((u) => u.includes("offset=2"))).toHaveLength(1);
+  });
+
   it("filters by classification, including contacts with none", async () => {
     mount();
     await screen.findByText("נועה בדויה");

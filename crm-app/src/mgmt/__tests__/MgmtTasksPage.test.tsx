@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { MgmtTasksPage } from "../MgmtTasksPage";
-import { groupTasks, taskMeta, taskTitle } from "../tasks";
+import { groupTasks, taskBucket, taskMeta, taskTitle } from "../tasks";
 import type { MgTask } from "../../services/directus";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -51,6 +51,15 @@ describe("task helpers", () => {
     const groups = groupTasks(TASKS, NOW);
     expect(groups.map((g) => g.label)).toEqual(["באיחור", "היום", "השבוע", "ללא תאריך"]);
     expect(groups[0].tasks.map((t) => t.id)).toEqual(["late"]);
+  });
+  it("buckets by the local day, not by the UTC date in the timestamp", () => {
+    // 22:30Z is already the next calendar day in Israel.
+    const zoned = [task("z", "2026-11-11T22:30:00.000Z")];
+    const local = new Date("2026-11-11T22:30:00.000Z");
+    const sameLocalDay = local.getDate() === NOW.getDate();
+    expect(groupTasks(zoned, NOW)[0].label).toBe(sameLocalDay ? "היום" : "באיחור");
+    expect(taskBucket("2026-11-12T00:30:00", NOW)).toBe("today");
+    expect(taskBucket(null, NOW)).toBe("none");
   });
   it("titles a task by its note, or by its kind when there is none", () => {
     expect(taskTitle(TASKS[0])).toBe("משימה late");
@@ -137,7 +146,7 @@ describe("MgmtTasksPage", () => {
       status: "open",
       notes: "להתקשר",
       kind: "followup",
-      due_at: "2026-11-20",
+      due_at: new Date("2026-11-20T12:00:00").toISOString(),
       subject_contact_id: null,
     });
     await waitFor(() => expect(calls.filter((c) => c.method === "GET")).toHaveLength(2));

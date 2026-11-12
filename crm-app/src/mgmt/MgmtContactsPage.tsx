@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   getContactsPaged,
@@ -31,12 +31,17 @@ export function MgmtContactsPage() {
   const [error, setError] = useState<unknown>(null);
   const [reload, setReload] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [more, setMore] = useState<"" | "busy" | "failed">("");
+  // Which search+filter the list on screen belongs to; a late page for another one is dropped.
+  const listKey = useRef("");
   const { createContact } = useContactActions();
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setMore("");
+    listKey.current = `${search}\n${classification}\n${reload}`;
     getContactsPaged({ search, classification, limit: PAGE })
       .then((page) => {
         if (cancelled) return;
@@ -51,6 +56,8 @@ export function MgmtContactsPage() {
   }, [search, classification, reload]);
 
   const loadMore = useCallback(async () => {
+    const key = listKey.current;
+    setMore("busy");
     try {
       const page = await getContactsPaged({
         search,
@@ -58,10 +65,12 @@ export function MgmtContactsPage() {
         limit: PAGE,
         offset: rows.length,
       });
+      if (listKey.current !== key) return;
       setRows((prev) => [...prev, ...page.rows]);
       setTotal(page.total);
-    } catch (e) {
-      setError(e);
+      setMore("");
+    } catch {
+      if (listKey.current === key) setMore("failed");
     }
   }, [search, classification, rows.length]);
 
@@ -134,9 +143,15 @@ export function MgmtContactsPage() {
         )}
         {!loading && !error && remaining > 0 && (
           <div className="mg-panel-foot">
-            <button className="mg-link-act" type="button" onClick={loadMore}>
+            <button className="mg-link-act" type="button" onClick={loadMore} disabled={more === "busy"}>
               הצגת {Math.min(PAGE, remaining)} הבאים
             </button>
+            {more === "failed" && (
+              <span className="mg-stale" role="alert">
+                {" "}
+                הטעינה נכשלה. נסו שוב.
+              </span>
+            )}
           </div>
         )}
       </section>

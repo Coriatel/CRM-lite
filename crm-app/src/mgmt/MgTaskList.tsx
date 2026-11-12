@@ -103,7 +103,9 @@ export function MgTaskForm({
       await createMgTask({
         notes: notes.trim(),
         kind,
-        due_at: due || null,
+        // Noon local time: the column is a timestamp, and noon keeps the chosen day
+        // the same in UTC and across daylight-saving changes.
+        due_at: due ? new Date(`${due}T12:00:00`).toISOString() : null,
         subject_contact_id: contactId ?? null,
       });
       onSaved();

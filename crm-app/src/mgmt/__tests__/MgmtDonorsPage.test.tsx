@@ -49,6 +49,11 @@ describe("freshness", () => {
     expect(f.stale).toBe(false);
     expect(f.label).toBe("נתונים עד 10.11.2026");
   });
+  it("does not let a future-dated record pass as current", () => {
+    const f = freshness("2027-01-01T06:00:00.000Z", NOW);
+    expect(f.stale).toBe(true);
+    expect(f.label).toContain("תאריך עתידי");
+  });
   it("says so when there is nothing at all", () => {
     expect(freshness(null, NOW)).toEqual({ until: "", stale: true, label: "אין נתונים" });
   });
