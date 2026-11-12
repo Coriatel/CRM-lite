@@ -11,7 +11,7 @@ import {
   type DirectusInteraction,
 } from "../services/directus";
 import { isForbidden } from "./errors";
-import { classificationLabel, displayPhone, freshness, fullDate, shekels, telHref } from "./format";
+import { classificationLabel, displayPhone, freshness, fullDate, shekels, telHref, waHref } from "./format";
 import { MgLoading, MgNotice } from "./MgState";
 import { MgTaskForm, MgTaskRow } from "./MgTaskList";
 import { taskBucket } from "./tasks";
@@ -62,6 +62,7 @@ export function MgmtPersonPage() {
   const c = person.data;
   const phone = displayPhone(c.phone_e164);
   const tel = telHref(c.phone_e164);
+  const wa = waHref(c.phone_e164);
   const facts = [classificationLabel(c.classification), c.city].filter(Boolean).join(" · ");
 
   return (
@@ -84,6 +85,11 @@ export function MgmtPersonPage() {
         {tel && (
           <a className="mg-btn mg-btn-cta" href={tel}>
             חיוג
+          </a>
+        )}
+        {wa && (
+          <a className="mg-btn" href={wa} target="_blank" rel="noopener noreferrer">
+            וואטסאפ
           </a>
         )}
         {!tasks.error && !addingTask && (

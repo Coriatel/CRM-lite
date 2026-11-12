@@ -1,10 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { classificationLabel, displayPhone, fullDate, relDay, telHref } from "../format";
+import { classificationLabel, displayPhone, fullDate, relDay, telHref, waHref } from "../format";
 import { httpStatusOf, isForbidden } from "../errors";
 
 const NOW = new Date(2026, 10, 12, 15, 0); // 12.11.2026 local
 
 describe("mgmt format", () => {
+  it("builds a WhatsApp link from the number as stored, mobile numbers only", () => {
+    expect(waHref("+972501234567")).toBe("https://wa.me/972501234567");
+    expect(waHref("050-123-4567")).toBe("https://wa.me/972501234567");
+    expect(waHref("+1 (212) 555-0100")).toBe("https://wa.me/12125550100");
+    expect(waHref("03-1234567")).toBe("");
+    expect(waHref("_no_phone_abc")).toBe("");
+    expect(waHref(null)).toBe("");
+  });
+
   it("shows a stored phone the way people write it", () => {
     expect(displayPhone("+972501234567")).toBe("050-123-4567");
     expect(displayPhone("031234567")).toBe("031234567");
