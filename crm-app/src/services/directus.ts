@@ -1415,3 +1415,185 @@ export async function getFollowUpCandidates(
   const json: DirectusResponse<DirectusContact[]> = await res.json();
   return json.data;
 }
+
+// ---------- Management area (src/mgmt): paged contact list ----------
+
+export interface MgContactRow {
+  id: string;
+  full_name: string;
+  phone_e164: string | null;
+  email: string | null;
+  city: string | null;
+  classification: string | null;
+  assigned_to: string | null;
+  last_call_date: string | null;
+}
+
+export const MG_UNCLASSIFIED = "__unset__";
+
+/**
+ * One page of contacts plus the total that matches the filter (Directus
+ * `meta=filter_count`), so the list can say "showing N of M". Search covers
+ * name, both phones and email. Read-only; the user's own token decides what
+ * comes back.
+ */
+export async function getContactsPaged(q: {
+  search?: string;
+  classification?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ rows: MgContactRow[]; total: number }> {
+  const params: Record<string, string> = {
+    fields:
+      "id,full_name,phone_e164,email,city,classification,assigned_to,last_call_date",
+    sort: "full_name",
+    limit: String(q.limit ?? 50),
+    offset: String(q.offset ?? 0),
+    meta: "filter_count",
+  };
+  const search = q.search?.trim();
+  if (search) {
+    params["filter[_or][0][full_name][_icontains]"] = search;
+    // A phone typed the local way (050-123-4567) is stored as +972501234567.
+    const phone = /^[\d\s-]+$/.test(search)
+      ? search.replace(/\D/g, "").replace(/^0/, "")
+      : search;
+    params["filter[_or][1][phone_e164][_contains]"] = phone;
+    params["filter[_or][2][phone2][_contains]"] = phone;
+    params["filter[_or][3][email][_icontains]"] = search;
+  }
+  if (q.classification === MG_UNCLASSIFIED) {
+    params["filter[classification][_null]"] = "true";
+  } else if (q.classification) {
+    params["filter[classification][_eq]"] = q.classification;
+  }
+  const res = await directusFetch(`/items/contacts${buildQuery(params)}`);
+  const json: { data: MgContactRow[]; meta?: { filter_count?: number } } =
+    await res.json();
+  return {
+    rows: json.data,
+    total: Number(json.meta?.filter_count ?? json.data.length),
+  };
+}
+
+// ---------- Management area: tasks (HyCRM `tasks`, as the signed-in user) ----------
+
+export interface MgTask {
+  id: string;
+  kind: string | null;
+  status: string;
+  priority: number | null;
+  due_at: string | null;
+  notes: string | null;
+  subject_contact_id: {
+    id: string;
+    full_name: string;
+    phone_e164: string | null;
+  } | null;
+}
+
+const MG_TASK_FIELDS =
+  "id,kind,status,priority,due_at,notes,subject_contact_id.id,subject_contact_id.full_name,subject_contact_id.phone_e164";
+
+export const MG_TASK_PAGE = 200;
+
+/**
+ * The first `limit` open tasks, soonest first. `total` is the server's count of
+ * all open tasks that match, so a screen can say when it shows only part. To
+ * show more, ask again with a larger limit: paging by offset would skip tasks
+ * once some of the shown ones were marked done.
+ * `contactId` narrows to tasks about one person.
+ */
+export async function getOpenTasks(
+  contactId?: string,
+  limit = MG_TASK_PAGE,
+): Promise<{ rows: MgTask[]; total: number }> {
+  const params: Record<string, string> = {
+    fields: MG_TASK_FIELDS,
+    "filter[status][_eq]": "open",
+    sort: "due_at,id",
+    limit: String(limit),
+    meta: "filter_count",
+  };
+  if (contactId) params["filter[subject_contact_id][_eq]"] = contactId;
+  const res = await directusFetch(`/items/tasks${buildQuery(params)}`);
+  const json: { data: MgTask[]; meta?: { filter_count?: number } } =
+    await res.json();
+  return {
+    rows: json.data,
+    total: Number(json.meta?.filter_count ?? json.data.length),
+  };
+}
+
+/** The contact that already holds this exact stored phone, if any. Read-only. */
+export async function findContactByPhone(
+  phone: string,
+): Promise<{ id: string; full_name: string } | null> {
+  const qs = buildQuery({
+    fields: "id,full_name",
+    "filter[phone_e164][_eq]": phone,
+    limit: "1",
+  });
+  const res = await directusFetch(`/items/contacts${qs}`);
+  const json: DirectusResponse<{ id: string; full_name: string }[]> =
+    await res.json();
+  return json.data[0] ?? null;
+}
+
+export async function setTaskStatus(
+  id: string,
+  status: "open" | "done",
+): Promise<void> {
+  await directusFetch(`/items/tasks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function createMgTask(input: {
+  notes: string;
+  kind: string;
+  due_at: string | null;
+  subject_contact_id?: string | null;
+}): Promise<void> {
+  await directusFetch(`/items/tasks`, {
+    method: "POST",
+    body: JSON.stringify({
+      status: "open",
+      notes: input.notes,
+      kind: input.kind,
+      due_at: input.due_at,
+      subject_contact_id: input.subject_contact_id ?? null,
+    }),
+  });
+}
+
+/** One person's income transactions, newest first. Read-only. */
+export async function getContactIncome(
+  contactId: string,
+): Promise<{ id: string; amount: string | number; date: string }[]> {
+  const qs = buildQuery({
+    fields: "id,amount,date",
+    "filter[direction][_eq]": "income",
+    "filter[contact_id][_eq]": contactId,
+    sort: "-date",
+    limit: "-1",
+  });
+  const res = await directusFetch(`/items/transactions${qs}`);
+  const json: DirectusResponse<{ id: string; amount: string | number; date: string }[]> =
+    await res.json();
+  return json.data;
+}
+
+/** Date of the newest income transaction of anyone; null when there are none. */
+export async function getLatestIncomeDate(): Promise<string | null> {
+  const qs = buildQuery({
+    fields: "date",
+    "filter[direction][_eq]": "income",
+    sort: "-date",
+    limit: "1",
+  });
+  const res = await directusFetch(`/items/transactions${qs}`);
+  const json: DirectusResponse<{ date: string }[]> = await res.json();
+  return json.data[0]?.date ?? null;
+}

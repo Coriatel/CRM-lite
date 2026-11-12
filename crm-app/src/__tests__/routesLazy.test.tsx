@@ -12,6 +12,45 @@ type LazyImporter = () => Promise<{ default: unknown }>;
 
 const lazyImports: Array<[string, LazyImporter]> = [
   [
+    "MgmtShell",
+    () => import("../mgmt/MgmtShell").then((m) => ({ default: m.MgmtShell })),
+  ],
+  [
+    "MgmtDonorsPage",
+    () =>
+      import("../mgmt/MgmtDonorsPage").then((m) => ({
+        default: m.MgmtDonorsPage,
+      })),
+  ],
+  [
+    "MgmtTasksPage",
+    () =>
+      import("../mgmt/MgmtTasksPage").then((m) => ({
+        default: m.MgmtTasksPage,
+      })),
+  ],
+  [
+    "MgmtPersonPage",
+    () =>
+      import("../mgmt/MgmtPersonPage").then((m) => ({
+        default: m.MgmtPersonPage,
+      })),
+  ],
+  [
+    "MgmtTodayPage",
+    () =>
+      import("../mgmt/MgmtTodayPage").then((m) => ({
+        default: m.MgmtTodayPage,
+      })),
+  ],
+  [
+    "MgmtContactsPage",
+    () =>
+      import("../mgmt/MgmtContactsPage").then((m) => ({
+        default: m.MgmtContactsPage,
+      })),
+  ],
+  [
     "ContactsPage",
     () =>
       import("../pages/ContactsPage").then((m) => ({ default: m.ContactsPage })),

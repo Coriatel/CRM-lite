@@ -108,6 +108,27 @@ const OwnerDecisionViewPage = lazy(() =>
   })),
 );
 
+const MgmtShell = lazy(() =>
+  import("./mgmt/MgmtShell").then((m) => ({ default: m.MgmtShell })),
+);
+const MgmtDonorsPage = lazy(() =>
+  import("./mgmt/MgmtDonorsPage").then((m) => ({ default: m.MgmtDonorsPage })),
+);
+const MgmtTasksPage = lazy(() =>
+  import("./mgmt/MgmtTasksPage").then((m) => ({ default: m.MgmtTasksPage })),
+);
+const MgmtPersonPage = lazy(() =>
+  import("./mgmt/MgmtPersonPage").then((m) => ({ default: m.MgmtPersonPage })),
+);
+const MgmtTodayPage = lazy(() =>
+  import("./mgmt/MgmtTodayPage").then((m) => ({ default: m.MgmtTodayPage })),
+);
+const MgmtContactsPage = lazy(() =>
+  import("./mgmt/MgmtContactsPage").then((m) => ({
+    default: m.MgmtContactsPage,
+  })),
+);
+
 import { AppShell } from "./components/layout/AppShell";
 import { DECISIONS_ENABLED } from "./pages/control/decisionTypes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -239,6 +260,22 @@ function AppContent() {
             }
           />
           <Route path="people/:id" element={<PersonPage />} />
+        </Route>
+        {/* Management area: its own shell, beside the existing screens. */}
+        <Route
+          path="m"
+          element={
+            <Suspense fallback={null}>
+              <MgmtShell />
+            </Suspense>
+          }
+        >
+          <Route index element={<Navigate to="/m/today" replace />} />
+          <Route path="today" element={<MgmtTodayPage />} />
+          <Route path="people" element={<MgmtContactsPage />} />
+          <Route path="people/:id" element={<MgmtPersonPage />} />
+          <Route path="donors" element={<MgmtDonorsPage />} />
+          <Route path="tasks" element={<MgmtTasksPage />} />
         </Route>
         <Route
           path="call/:contactId"
