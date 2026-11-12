@@ -36,6 +36,7 @@ export function MgmtContactsPage() {
   const listKey = useRef("");
   const saver = useRef(newContactSaver());
   const [saved, setSaved] = useState<NewContactResult | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   function afterSave(result: NewContactResult | null) {
     setSaved(result);
@@ -116,7 +117,15 @@ export function MgmtContactsPage() {
               <button
                 className="mg-link-act"
                 type="button"
-                onClick={async () => afterSave(await saver.current.retryTag())}
+                disabled={retrying}
+                onClick={async () => {
+                  setRetrying(true);
+                  try {
+                    afterSave(await saver.current.retryTag());
+                  } finally {
+                    setRetrying(false);
+                  }
+                }}
               >
                 ניסיון נוסף לשיוך
               </button>

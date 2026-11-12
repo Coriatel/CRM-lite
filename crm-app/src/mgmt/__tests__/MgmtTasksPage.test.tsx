@@ -38,6 +38,7 @@ let calls: { url: string; method: string; body: unknown }[] = [];
 let getStatus = 200;
 let writeStatus = 200;
 let total: number | null = null;
+let doneOnServer = new Set<string>();
 
 function mount() {
   return render(
@@ -79,6 +80,7 @@ describe("MgmtTasksPage", () => {
     getStatus = 200;
     writeStatus = 200;
     total = null;
+    doneOnServer = new Set();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -90,9 +92,17 @@ describe("MgmtTasksPage", () => {
       });
       if (method === "GET") {
         if (getStatus !== 200) return jsonResponse({ errors: [] }, getStatus);
-        const next = decodeURIComponent(String(input)).includes("offset=4");
-        const data = next ? [task("p2", "2026-12-20T08:00:00")] : TASKS;
+        const u = decodeURIComponent(String(input));
+        const wide = /limit=(\d+)/.exec(u) && Number(/limit=(\d+)/.exec(u)![1]) > 200;
+        // What is still open on the server: anything ticked is gone from it.
+        const open = TASKS.filter((x) => !doneOnServer.has(x.id));
+        const data = wide ? [...open, task("p2", "2026-12-20T08:00:00")] : open;
         return jsonResponse(total === null ? { data } : { data, meta: { filter_count: total } });
+      }
+      if (writeStatus === 200 && method === "PATCH") {
+        const id = String(input).split("/").pop()!;
+        if (JSON.parse(String(init!.body)).status === "done") doneOnServer.add(id);
+        else doneOnServer.delete(id);
       }
       return jsonResponse(writeStatus === 200 ? { data: {} } : { errors: [] }, writeStatus);
     });
@@ -123,9 +133,33 @@ describe("MgmtTasksPage", () => {
     expect(calls[0].url).toContain("meta=filter_count");
     fireEvent.click(screen.getByRole("button", { name: "הצגת 1 הבאות (נשארו 1)" }));
     await screen.findByText("משימה p2");
-    expect(calls[1].url).toContain("offset=4");
+    expect(calls[1].url).toContain("limit=204");
+    expect(calls[1].url).not.toContain("offset");
     expect(screen.getByText("5 פתוחות")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /הבאות/ })).toBeNull();
+  });
+
+  it("marks only the last loaded group as possibly incomplete", async () => {
+    total = 5;
+    mount();
+    await screen.findByText("משימה today");
+    expect(within(screen.getByLabelText("באיחור")).getByText("1")).toBeTruthy();
+    expect(within(screen.getByLabelText("ללא תאריך")).getByText("1+")).toBeTruthy();
+  });
+
+  it("does not skip tasks when some were ticked before loading more", async () => {
+    total = 5;
+    mount();
+    await screen.findByText("משימה today");
+    fireEvent.click(screen.getByLabelText("סימון כבוצע: משימה today"));
+    await waitFor(() => expect(screen.getByText("בוצע")).toBeTruthy());
+    total = 4;
+    fireEvent.click(screen.getByRole("button", { name: /הבאות/ }));
+    await screen.findByText("משימה p2");
+    for (const id of ["late", "week"]) expect(screen.getByText(new RegExp(`משימה ${id}`))).toBeTruthy();
+    expect(screen.getByText("מנהלה")).toBeTruthy();
+    expect(screen.queryByText("משימה today")).toBeNull();
+    expect(screen.getByText("4 פתוחות")).toBeTruthy();
   });
 
   it("marks a task done on the server and lets it be undone", async () => {

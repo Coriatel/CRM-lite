@@ -32,7 +32,7 @@ describe("newContactSaver", () => {
       if (method === "POST" && url.endsWith("/items/contacts"))
         return createFails ? jsonResponse({}, 500) : jsonResponse({ data: { id: "new1" } });
       if (url.includes("/items/tags")) {
-        return tagFails ? jsonResponse({}, 500) : jsonResponse({ data: [{ id: "tg", name: "אנשי_קשר" }] });
+        return tagFails ? jsonResponse({}, 500) : jsonResponse({ data: [{ id: "tg", name: "אנשי_קשר" }, { id: "tg2", name: "תלמידים" }] });
       }
       return jsonResponse({ data: [] });
     });
@@ -60,15 +60,25 @@ describe("newContactSaver", () => {
     expect(calls[0].url).toContain("filter[phone_e164][_eq]=+972501234567");
   });
 
-  it("repeats only the category step when the contact was already saved", async () => {
+  it("keeps the phone exactly as typed, spaces included", async () => {
+    await newContactSaver().save({ fullName: "נועה בדויה", phone1: " 0501234567 " });
+    expect(creates()[0].body.phone_e164).toBe(" 0501234567 ");
+    expect(calls[0].url).toContain("filter[phone_e164][_eq]=+0501234567+");
+  });
+
+  it("treats a second save as a new person even with the same name and no phone", async () => {
     const saver = newContactSaver();
     tagFails = true;
-    const first = await saver.save({ fullName: "דוד בדוי", phone1: "" });
-    expect(first.kind).toBe("untagged");
+    expect((await saver.save({ fullName: "דוד בדוי", phone1: "" })).kind).toBe("untagged");
     tagFails = false;
-    const again = await saver.save({ fullName: "דוד בדוי", phone1: "" });
-    expect(again).toEqual({ kind: "created", id: "new1", name: "דוד בדוי" });
-    expect(creates()).toHaveLength(1);
+    await saver.save({ fullName: "דוד בדוי", phone1: "" });
+    expect(creates()).toHaveLength(2);
+  });
+
+  it("tags with the category chosen in the form", async () => {
+    await newContactSaver().save({ fullName: "רות בדויה", phone1: "", source: "תלמידים" });
+    const tagPost = calls.find((c) => c.method === "POST" && c.url.includes("/items/contact_tags"))!;
+    expect(tagPost.body).toEqual([{ contact_id: "new1", tag_id: "tg2" }]);
   });
 
   it("offers a category-only retry, and nothing to retry once it is done", async () => {

@@ -1498,20 +1498,21 @@ const MG_TASK_FIELDS =
 export const MG_TASK_PAGE = 200;
 
 /**
- * Open tasks, soonest first, one page at a time. `total` is the server's count
- * of all open tasks that match, so a screen can say when it shows only part.
+ * The first `limit` open tasks, soonest first. `total` is the server's count of
+ * all open tasks that match, so a screen can say when it shows only part. To
+ * show more, ask again with a larger limit: paging by offset would skip tasks
+ * once some of the shown ones were marked done.
  * `contactId` narrows to tasks about one person.
  */
 export async function getOpenTasks(
   contactId?: string,
-  offset = 0,
+  limit = MG_TASK_PAGE,
 ): Promise<{ rows: MgTask[]; total: number }> {
   const params: Record<string, string> = {
     fields: MG_TASK_FIELDS,
     "filter[status][_eq]": "open",
     sort: "due_at,id",
-    limit: String(MG_TASK_PAGE),
-    offset: String(offset),
+    limit: String(limit),
     meta: "filter_count",
   };
   if (contactId) params["filter[subject_contact_id][_eq]"] = contactId;

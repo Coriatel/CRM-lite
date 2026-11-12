@@ -81,6 +81,8 @@ describe("MgmtTodayPage", () => {
     mount();
     await screen.findByText("משימה late");
     expect(screen.getByText(/לפחות 2 משימות מחכות/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("סימון כבוצע: משימה late"));
+    await waitFor(() => expect(screen.getByText(/לפחות 1 משימות מחכות/)).toBeTruthy());
     expect(screen.getByText("לכל המשימות (יש עוד שלא מוצגות כאן)")).toBeTruthy();
   });
 

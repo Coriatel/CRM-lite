@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getOpenTasks, type MgTask } from "../services/directus";
+import { getOpenTasks, MG_TASK_PAGE, type MgTask } from "../services/directus";
+import { taskBucket } from "./tasks";
 import { isForbidden } from "./errors";
 import { MgLoading, MgNotice } from "./MgState";
 import { MgTaskForm, MgTaskRow } from "./MgTaskList";
@@ -31,15 +32,18 @@ export function MgmtTasksPage() {
   }, [reload]);
 
   const groups = tasks ? groupTasks(tasks) : [];
-  const remaining = tasks ? total - tasks.length : 0;
+  const remaining = tasks ? Math.max(0, total - tasks.length) : 0;
+  // Rows come soonest first, so only the group of the last loaded row can be incomplete.
+  const openGroup = remaining > 0 && tasks?.length ? taskBucket(tasks[tasks.length - 1].due_at) : null;
 
   async function loadMore() {
     if (!tasks) return;
     setMore("busy");
     try {
-      const page = await getOpenTasks(undefined, tasks.length);
-      const known = new Set(tasks.map((t) => t.id));
-      setTasks([...tasks, ...page.rows.filter((t) => !known.has(t.id))]);
+      // Ask again from the start with a larger limit and replace the list, so
+      // tasks ticked on this screen cannot shift the rest out of view.
+      const page = await getOpenTasks(undefined, tasks.length + MG_TASK_PAGE);
+      setTasks(page.rows);
       setTotal(page.total);
       setMore("");
     } catch (e) {
@@ -98,7 +102,7 @@ export function MgmtTasksPage() {
                 <h2>{g.label}</h2>
                 <span className="mg-count">
                   {g.tasks.length}
-                  {remaining > 0 && "+"}
+                  {g.bucket === openGroup && "+"}
                 </span>
               </div>
               {g.tasks.map((t) => (
@@ -109,7 +113,7 @@ export function MgmtTasksPage() {
           {remaining > 0 && (
             <p style={{ marginBlockEnd: 16 }}>
               <button className="mg-link-act" type="button" onClick={loadMore} disabled={more === "busy"}>
-                הצגת {Math.min(200, remaining)} הבאות (נשארו {remaining})
+                הצגת {Math.min(MG_TASK_PAGE, remaining)} הבאות (נשארו {remaining})
               </button>
               {more === "failed" && (
                 <span className="mg-stale" role="alert">

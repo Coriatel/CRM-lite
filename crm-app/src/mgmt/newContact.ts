@@ -15,13 +15,16 @@ export type NewContactResult =
 /**
  * Saves a new contact so that trying again can never create it twice.
  *
- * The save has two server steps (the contact, then its category tag). The
- * contact's id is remembered once step one succeeds, so a retry after a failed
- * tag step repeats only the tag. A phone that already belongs to a contact is
- * reported instead of saved. Stored values are the same as on the old screen.
+ * The save has two server steps (the contact, then its category tag). If the
+ * tag step fails the contact is reported as saved-but-untagged and only the tag
+ * step can be repeated (retryTag), so the contact is never posted twice. A phone
+ * whose exact stored text already belongs to a contact is reported instead of
+ * saved. Stored values are the same as on the old screen.
+ *
+ * Not covered: a create that reached the server while its answer was lost.
  */
 export function newContactSaver() {
-  let saved: { key: string; id: string; name: string; tagName: string } | null = null;
+  let saved: { id: string; name: string; tagName: string } | null = null;
 
   async function tag(): Promise<NewContactResult> {
     const s = saved!;
@@ -38,10 +41,13 @@ export function newContactSaver() {
   return {
     async save(data: Partial<Contact>): Promise<NewContactResult> {
       const name = (data.fullName ?? "").trim();
-      const phone = (data.phone1 ?? "").trim();
+      // Stored exactly as typed, as the old screen does: no trimming, no reformatting.
+      const phone = data.phone1 ?? "";
       if (IS_DEMO_MODE) return { kind: "created", id: "", name };
-      const key = `${name}\n${phone}`;
-      if (!saved || saved.key !== key) {
+      // Every save through the form is a new person. A half-finished earlier
+      // save is finished only through retryTag(), never by matching name and phone.
+      saved = null;
+      {
         if (phone) {
           const existing = await findContactByPhone(phone);
           if (existing) return { kind: "exists", id: existing.id, name: existing.full_name };
@@ -57,7 +63,7 @@ export function newContactSaver() {
           call_status: "not_checked",
           original_note: data.originalNote || "",
         });
-        saved = { key, id: created.id, name, tagName: data.source || "אנשי_קשר" };
+        saved = { id: created.id, name, tagName: data.source || "אנשי_קשר" };
       }
       return tag();
     },

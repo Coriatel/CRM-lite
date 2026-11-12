@@ -41,7 +41,16 @@ export function MgmtTodayPage() {
           <h1>היום</h1>
           <p className="mg-sub">
             {DATE_FMT.format(new Date())}
-            {tasks.data && ` · ${waiting === 0 ? "אין משימות שמחכות" : waiting === 1 ? "משימה אחת מחכה" : `${partial ? "לפחות " : ""}${waiting} משימות מחכות`}`}
+            {tasks.data &&
+              ` · ${
+                partial
+                  ? `לפחות ${waiting} משימות מחכות`
+                  : waiting === 0
+                    ? "אין משימות שמחכות"
+                    : waiting === 1
+                      ? "משימה אחת מחכה"
+                      : `${waiting} משימות מחכות`
+              }`}
           </p>
         </div>
       </div>
