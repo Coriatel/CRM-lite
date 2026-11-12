@@ -115,6 +115,22 @@ describe("MgmtPersonPage", () => {
       expect(within(panel).queryByText(/ממתין/)).toBeNull();
     });
 
+    it("shows the time alone when the server does not know who wrote last", async () => {
+      waBody = { match: true, last_at: "2026-11-11T16:40:00", last_from: null };
+      mount();
+      const panel = await screen.findByLabelText("וואטסאפ");
+      expect(within(panel).getByText("16:40")).toBeTruthy();
+      expect(within(panel).queryByText("הודעה אחרונה")).toBeNull();
+      expect(within(panel).queryByText(/ממתין/)).toBeNull();
+    });
+
+    it("says the data is unavailable when the server is busy or limits the caller", async () => {
+      waStatus = 429;
+      mount();
+      const panel = await screen.findByLabelText("וואטסאפ");
+      expect(within(panel).getByText("הנתון לא זמין כרגע.")).toBeTruthy();
+    });
+
     it("says no history is available instead of zero messages", async () => {
       waBody = { match: false };
       mount();

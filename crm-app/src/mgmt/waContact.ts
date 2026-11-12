@@ -4,7 +4,8 @@ export interface WaContact {
   /** False when the number has no one-to-one chat: "no history available", not "zero messages". */
   match: boolean;
   last_at?: string;
-  last_from?: "me" | "them";
+  /** null: there is a chat and this is its last time, but who wrote is not known. */
+  last_from?: "me" | "them" | null;
   unavailable?: boolean;
 }
 
@@ -21,7 +22,7 @@ export async function getWaContact(digits: string): Promise<WaContact | null> {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       cache: "no-store",
     });
-    if (res.status === 503) return { match: false, unavailable: true };
+    if (res.status === 503 || res.status === 429) return { match: false, unavailable: true };
     if (!res.ok) return null;
     const d = await res.json();
     return d && typeof d.match === "boolean" ? (d as WaContact) : null;

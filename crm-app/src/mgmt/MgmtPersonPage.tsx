@@ -220,13 +220,15 @@ function WaPanel({ digits }: { digits: string }) {
               <bdi>{at.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</bdi>
             </dd>
           </div>
-          <div className="mg-kv">
-            <dt>הודעה אחרונה</dt>
-            <dd>
-              {d.last_from === "them" ? "התקבלה" : "נשלחה"}
-              {d.last_from === "them" && <span className="mg-plain"> · ייתכן שממתין למענה</span>}
-            </dd>
-          </div>
+          {d.last_from && (
+            <div className="mg-kv">
+              <dt>הודעה אחרונה</dt>
+              <dd>
+                {d.last_from === "them" ? "התקבלה" : "נשלחה"}
+                {d.last_from === "them" && <span className="mg-plain"> · ייתכן שממתין למענה</span>}
+              </dd>
+            </div>
+          )}
         </dl>
       )}
     </section>
