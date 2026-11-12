@@ -39,3 +39,7 @@ Still open: תגית "מרחב הניהול" נראית כמו כפתור (יר�
 ## Sign-in screen (owner request 2026-11-12)
 
 What it is: one action, signing in. The one thing: the copper "כניסה" button. Labels above the fields (information is not a placeholder); logo and area name as the only heading; "שכחתי סיסמה" is a quiet link. The note "Google sign-in is not configured" is removed: it is not something the person can act on. Pattern borrowed from the usual sign-in card (Google / Microsoft).
+
+## WhatsApp section on the person card (owner approval 2026-11-12)
+
+What it is: information, not an action; the action stays the existing "וואטסאפ" button above it. The one thing: when the last contact was. Two plain rows (קשר אחרון, הודעה אחרונה) in the same heading → list structure as the other panels. "ייתכן שממתין למענה" is quiet text beside the direction, never a badge or a task: the other side writing last does not prove a reply is owed. The heading carries "אישי · רק לך" because the source is the owner's personal WhatsApp; the server answers the owner alone and everyone else sees no section at all. No match is worded "אין היסטוריית קשר זמינה", not as zero messages.

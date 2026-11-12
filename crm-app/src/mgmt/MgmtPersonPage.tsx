@@ -11,11 +11,12 @@ import {
   type DirectusInteraction,
 } from "../services/directus";
 import { isForbidden } from "./errors";
-import { classificationLabel, displayPhone, freshness, fullDate, shekels, telHref, waHref } from "./format";
+import { classificationLabel, displayPhone, freshness, fullDate, relDay, shekels, telHref, waHref } from "./format";
 import { MgLoading, MgNotice } from "./MgState";
 import { MgTaskForm, MgTaskRow } from "./MgTaskList";
 import { taskBucket } from "./tasks";
 import { useLoad, type Loaded } from "./useLoad";
+import { getWaContact } from "./waContact";
 
 const TYPE_LABEL: Record<string, string> = {
   call: "שיחת טלפון",
@@ -98,6 +99,8 @@ export function MgmtPersonPage() {
           </button>
         )}
       </div>
+
+      {wa && <WaPanel digits={wa.slice(WA_PREFIX.length)} />}
 
       {addingTask && (
         <MgTaskForm
@@ -187,6 +190,48 @@ export function MgmtPersonPage() {
         </div>
       </div>
     </>
+  );
+}
+
+const WA_PREFIX = "https://wa.me/";
+
+/** The owner's personal WhatsApp: shown only when the server answers, which it does for the owner alone. */
+function WaPanel({ digits }: { digits: string }) {
+  const wa = useLoad(() => getWaContact(digits), [digits]);
+  const d = wa.data;
+  if (!d) return null;
+  const at = d.last_at ? new Date(d.last_at) : null;
+  return (
+    <section className="mg-panel" aria-label="וואטסאפ">
+      <div className="mg-panel-head">
+        <h2>וואטסאפ</h2>
+        <span className="mg-count">אישי · רק לך</span>
+      </div>
+      {d.unavailable ? (
+        <p className="mg-plain mg-why">הנתון לא זמין כרגע.</p>
+      ) : !d.match || !at ? (
+        <p className="mg-plain mg-why">אין היסטוריית קשר זמינה.</p>
+      ) : (
+        <dl>
+          <div className="mg-kv">
+            <dt>קשר אחרון</dt>
+            <dd>
+              {relDay(d.last_at)},{" "}
+              <bdi>{at.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</bdi>
+            </dd>
+          </div>
+          {d.last_from && (
+            <div className="mg-kv">
+              <dt>הודעה אחרונה</dt>
+              <dd>
+                {d.last_from === "them" ? "התקבלה" : "נשלחה"}
+                {d.last_from === "them" && <span className="mg-plain"> · ייתכן שממתין למענה</span>}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </section>
   );
 }
 
