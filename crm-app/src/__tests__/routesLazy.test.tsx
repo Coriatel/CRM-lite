@@ -37,6 +37,13 @@ const lazyImports: Array<[string, LazyImporter]> = [
       })),
   ],
   [
+    "MgmtTodayPage",
+    () =>
+      import("../mgmt/MgmtTodayPage").then((m) => ({
+        default: m.MgmtTodayPage,
+      })),
+  ],
+  [
     "MgmtContactsPage",
     () =>
       import("../mgmt/MgmtContactsPage").then((m) => ({
