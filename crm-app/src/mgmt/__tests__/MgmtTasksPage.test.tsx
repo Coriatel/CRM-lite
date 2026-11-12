@@ -144,7 +144,7 @@ describe("MgmtTasksPage", () => {
     mount();
     await screen.findByText("משימה today");
     expect(within(screen.getByLabelText("באיחור")).getByText("1")).toBeTruthy();
-    expect(within(screen.getByLabelText("ללא תאריך")).getByText("1+")).toBeTruthy();
+    expect(within(screen.getByLabelText("ללא תאריך")).getByText("1 ויותר")).toBeTruthy();
   });
 
   it("does not skip tasks when some were ticked before loading more", async () => {

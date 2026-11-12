@@ -102,7 +102,7 @@ export function MgmtTasksPage() {
                 <h2>{g.label}</h2>
                 <span className="mg-count">
                   {g.tasks.length}
-                  {g.bucket === openGroup && "+"}
+                  {g.bucket === openGroup && " ויותר"}
                 </span>
               </div>
               {g.tasks.map((t) => (
