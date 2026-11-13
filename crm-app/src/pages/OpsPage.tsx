@@ -3009,10 +3009,13 @@ function CampaignsCard({
             {shown.map((c) => (
               <li key={c.id} style={{ fontSize: 13, color: "#404040" }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
-                  <span
+                  <Link
+                    to={`/ops/campaign/${encodeURIComponent(c.id)}`}
+                    data-testid="campaign-drilldown"
                     style={{
                       fontWeight: 600,
-                      color: "#171717",
+                      color: "#2563eb",
+                      textDecoration: "none",
                       direction: "ltr",
                       unicodeBidi: "isolate",
                       overflowWrap: "anywhere",
@@ -3020,7 +3023,7 @@ function CampaignsCard({
                     }}
                   >
                     {c.id}
-                  </span>
+                  </Link>
                   <span style={{ ...pill, background: campaignStatusColor(c.status) }}>
                     {(c.status ?? "?").toUpperCase()}
                   </span>
