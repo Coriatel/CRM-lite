@@ -32,6 +32,13 @@ jobs:
         run: npm ci
         working-directory: crm-app
 
+      # The deploy gate: the unit tests run on the exact commit that is about to be
+      # published. A failure ends this job, no artifact is uploaded, and deploy
+      # (needs: build) does not run.
+      - name: Unit tests
+        run: npm test
+        working-directory: crm-app
+
       - name: Build
         run: npm run build
         working-directory: crm-app
@@ -173,17 +180,18 @@ jobs:
           ls -1d "$BAK"/web.* 2>/dev/null | sort -r | tail -n +4 | xargs -r rm -rf || echo 'backup prune failed (non-fatal)'
 
       # A 200 alone proves nothing (a days-old tree answers 200 too, 2026-09-07, and
-      # try_files answers a missing file with index.html), so the edge must report this
-      # commit in build-info.json, serve /ops, and serve the main bundle as JavaScript.
-      - name: Health check, the public edge serves this commit
+      # try_files answers a missing file with index.html), so each public name that
+      # serves this web root must report this commit in build-info.json, answer its
+      # entry page, and serve the main bundle as JavaScript.
+      - name: Health check, both public names serve this commit
         if: steps.tip.outputs.current == 'true'
         run: |
           set -u
-          E=https://crmphone.merkazneshama.co.il
-          for i in 1 2 3 4 5 6; do
-            code=$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$E/ops" || true)
+          check() {
+            E=$1; page=$2
+            code=$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$E$page" || true)
             live=$(curl -sS -m 15 -H 'Cache-Control: no-cache' "$E/build-info.json?v=$GITHUB_SHA" 2>/dev/null | tr -d '[:space:]' || true)
-            js=$(curl -sS -m 15 "$E/" 2>/dev/null | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -n 1 || true)
+            js=$(curl -sS -m 15 "$E$page" 2>/dev/null | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -n 1 || true)
             jst=$( [ -n "$js" ] && curl -sS -o /dev/null -m 15 -w '%{http_code} %{content_type}' "$E$js" || true)
             case "$live" in
               *"\"sha\":\"$GITHUB_SHA\""*) serving=1 ;;
@@ -193,12 +201,16 @@ jobs:
               "200 "*javascript*) bundle=1 ;;
               *) bundle=0 ;;
             esac
-            if [ "$code" = 200 ] && [ "$serving" = 1 ] && [ "$bundle" = 1 ]; then
-              echo "health OK: /ops 200, $js served as JavaScript, the edge serves ${GITHUB_SHA:0:7}"
+            echo "$E$page: page=${code:-none} bundle=${js:-none} (${jst:-none}) build-info=${live:-none}"
+            [ "$code" = 200 ] && [ "$serving" = 1 ] && [ "$bundle" = 1 ]
+          }
+          for i in 1 2 3 4 5 6; do
+            if check https://crmphone.merkazneshama.co.il / && check https://nihul.merkazneshama.co.il /m; then
+              echo "health OK: both names serve ${GITHUB_SHA:0:7}"
               exit 0
             fi
-            echo "health retry $i: /ops=${code:-none} bundle=${js:-none} (${jst:-none}) build-info=${live:-none}"
+            echo "health retry $i"
             sleep 5
           done
-          echo 'health FAILED: the public edge is not serving this commit'
+          echo 'health FAILED: a public name is not serving this commit'
           exit 1
