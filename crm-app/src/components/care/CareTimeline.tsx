@@ -5,6 +5,7 @@ import {
   type DirectusCareReport,
 } from "../../services/directus";
 import { CareReportForm } from "./CareReportForm";
+import { CareQuickLog } from "./CareQuickLog";
 
 interface CareTimelineProps {
   contactId: string;
@@ -86,6 +87,8 @@ export function CareTimeline({ contactId, contactName }: CareTimelineProps) {
           <Plus size={16} /> דיווח
         </button>
       </div>
+
+      <CareQuickLog contactId={contactId} onSaved={load} />
 
       {loading && (
         <div className="loading">
