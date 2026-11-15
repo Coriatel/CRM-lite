@@ -170,6 +170,14 @@ describe("target validation — what may be declared at all", () => {
       .toThrow(/may not be written to/);
   });
 
+  it("allows ANTHROPIC_API_KEY at the Neshama AI entry, and nothing else there", () => {
+    const path = "/etc/ai-secrets/nai-anthropic.env";
+    expect(validateTarget(target({ path, env_var: "ANTHROPIC_API_KEY", mode: "0640" })).envVar)
+      .toBe("ANTHROPIC_API_KEY");
+    expect(() => validateTarget(target({ path, env_var: "OPENAI_API_KEY", mode: "0640" })))
+      .toThrow(/may not be written to/);
+  });
+
   it("allows the two targets declared on 2026-09-28, one variable each", () => {
     const pairs = [
       ["/etc/ai-secrets/yafutsu-owner-login.env", "YAFUTSU_OWNER_PASSWORD", "0640"],

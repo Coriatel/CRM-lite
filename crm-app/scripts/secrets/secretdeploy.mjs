@@ -91,6 +91,11 @@ export const DESTINATIONS = Object.freeze({
   "/etc/ai-secrets/google-tts.env": Object.freeze({
     vars: Object.freeze(["GOOGLE_TTS_API_KEY"]),
   }),
+  // Neshama AI's model backend (owner, 2026-11-15): conversations of the users
+  // the owner lists run `claude -p` on this key, billed to the Console
+  // organization's monthly API credit instead of the subscription. Group nai,
+  // not aisecrets: only the agent's own account reads it.
+  "/etc/ai-secrets/nai-anthropic.env": Object.freeze({ vars: Object.freeze(["ANTHROPIC_API_KEY"]) }),
   // GitHub tokens rotated 2026-10-08 after "Codex vps" was abused for 80 spam
   // repos. github-pat.env replaces a world-readable github.env; gh-cli.env is
   // read by root to re-login gh (stdin) for root/devuserp/elron.
