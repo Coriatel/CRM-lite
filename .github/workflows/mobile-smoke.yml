@@ -1,11 +1,12 @@
 name: Mobile Smoke
 
+# Tests the live site, not the code of a pull request, so it runs after a deploy
+# (and on demand). It is not part of the merge gate.
 on:
-  pull_request:
+  workflow_run:
+    workflows: ["Deploy CRM Lite"]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'crm-app/**'
-      - '.github/workflows/mobile-smoke.yml'
   workflow_dispatch:
     inputs:
       base_url:
@@ -19,7 +20,9 @@ concurrency:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Pinned: this Playwright version has no browser build for the newer runner image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       CRM_SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://crmphone.merkazneshama.co.il' }}
