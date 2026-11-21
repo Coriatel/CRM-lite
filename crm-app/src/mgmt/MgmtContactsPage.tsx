@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getContactsPaged,
   MG_UNCLASSIFIED,
@@ -38,7 +38,14 @@ export function MgmtContactsPage() {
   const [saved, setSaved] = useState<NewContactResult | null>(null);
   const [retrying, setRetrying] = useState(false);
 
+  const navigate = useNavigate();
+
   function afterSave(result: NewContactResult | null) {
+    // A clean save goes straight to the new card. The other outcomes stay here with their notice.
+    if (result?.kind === "created" && result.id) {
+      navigate(`/m/people/${result.id}`);
+      return;
+    }
     setSaved(result);
     if (result && result.kind !== "exists") setReload((n) => n + 1);
   }

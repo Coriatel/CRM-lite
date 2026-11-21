@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MgmtContactsPage } from "../MgmtContactsPage";
+
+let saveResult: unknown;
+vi.mock("../newContact", () => ({
+  newContactSaver: () => ({ save: async () => saveResult, retryTag: async () => saveResult }),
+}));
+vi.mock("../../components/EditContactModal", () => ({
+  EditContactModal: ({ isOpen, onSave }: { isOpen: boolean; onSave: (d: object) => void }) =>
+    isOpen ? <button onClick={() => onSave({ fullName: "חדש בדוי" })}>שמירת בדיקה</button> : null,
+}));
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -22,8 +31,11 @@ let respond: (url: string) => Response;
 
 function mount() {
   return render(
-    <MemoryRouter>
-      <MgmtContactsPage />
+    <MemoryRouter initialEntries={["/m/people"]}>
+      <Routes>
+        <Route path="/m/people" element={<MgmtContactsPage />} />
+        <Route path="/m/people/:id" element={<p>כרטיס האדם</p>} />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -139,6 +151,23 @@ describe("MgmtContactsPage", () => {
     mount();
     await screen.findByText(/אין לך הרשאה/);
     expect(screen.queryByText(/לא נמצאו/)).toBeNull();
+  });
+
+  it("opens the new person's card after a clean save", async () => {
+    saveResult = { kind: "created", id: "n1", name: "חדש בדוי" };
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "איש קשר חדש" }));
+    fireEvent.click(screen.getByRole("button", { name: "שמירת בדיקה" }));
+    expect(await screen.findByText("כרטיס האדם")).toBeTruthy();
+  });
+
+  it("stays on the list with a notice when the phone already belongs to someone", async () => {
+    saveResult = { kind: "exists", id: "a", name: "נועה בדויה" };
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "איש קשר חדש" }));
+    fireEvent.click(screen.getByRole("button", { name: "שמירת בדיקה" }));
+    expect(await screen.findByText(/כבר קיים איש קשר עם הטלפון הזה/)).toBeTruthy();
+    expect(screen.queryByText("כרטיס האדם")).toBeNull();
   });
 
   it("offers a retry when loading fails", async () => {
