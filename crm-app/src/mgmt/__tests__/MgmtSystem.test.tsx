@@ -363,14 +363,14 @@ describe("System map: the drawn atlas (S7b)", () => {
         </Routes>
       </MemoryRouter>,
     );
-  it("is the default: five areas from above, the four layers, and the list form one link away", async () => {
+  it("is the default: five areas from above, the five layers, and the list form one link away", async () => {
     api.map = data();
     at("/m/system/map");
     const box = await screen.findByTestId("atlas");
     expect(box.querySelectorAll("[data-z]")).toHaveLength(5);
     expect(box.querySelectorAll("svg.sy-al > path")).toHaveLength(1);
     const nav = screen.getByRole("navigation", { name: "שכבות המפה" });
-    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["מבנה", "מצב", "מסלולים", "של מי"]);
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["מבנה", "מצב", "מסלולים", "של מי", "קומות"]);
     expect(box.querySelector('[data-z="reach"]')?.textContent).toContain("תקלה אחת");
     expect(box.querySelector('[data-z="learn"]')?.textContent).toContain("נקודה שלי");
     expect(document.querySelector('a[href="/m/system/map?det=1"]')).toBeTruthy();
@@ -396,6 +396,35 @@ describe("System map: the drawn atlas (S7b)", () => {
     const b2 = await screen.findByTestId("atlas");
     expect(b2.querySelector('[data-z="reach"]')?.textContent).toMatch(/עדי\s*1/);
     expect(b2.querySelector('[data-z="learn"]')?.className).toContain("sy-off");
+  });
+  it("קומות (S9): three floors in Hebrew names; a tap lights the column and says in words where the map has no edge", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    api.map = {
+      _meta: { generated_at: new Date().toISOString() },
+      nodes: [
+        { id: "site:n", kind: "site", name: "nekuda.example.org", state: "works", purpose_he: "אתר הלמידה" },
+        { id: "c:app", kind: "container", name: "nekuda-app", state: "works", purpose_he: "שרת האתר" },
+        { id: "ext:v", kind: "external", name: "Vimeo", state: "unknown", purpose_he: "שירות חיצוני: Vimeo" },
+        { id: "site:lone", kind: "site", name: "lone.example.org", state: "works", purpose_he: "אתר בודד" },
+        { id: "wf:x", kind: "workflow", name: "x", state: "works", title_he: "העלאת וידאו" },
+      ],
+      edges: [{ from: "site:n", to: "c:app", rel: "calls" }, { from: "c:app", to: "ext:v", rel: "calls" }, { from: "wf:x", to: "ext:v", rel: "calls" }],
+      groups: [],
+    };
+    at("/m/system/map?ly=floors");
+    const fl = await screen.findByTestId("floors");
+    const chips = (k: string) => Array.from(fl.querySelectorAll(`section[aria-label^="${k}"] [data-f]`)).map((e) => e.textContent);
+    expect(chips("קומה 3")).toEqual(["אתר הלמידה", "אתר בודד"]);
+    expect(chips("קומה 2")).toEqual(["שרת האתר", "תהליכים אוטומטיים · 1"]);
+    expect(chips("קומה 1")).toContain("Vimeo");
+    expect(fl.querySelectorAll("svg.sy-fpil line")).toHaveLength(3);
+    fireEvent.click(fl.querySelector('[data-f="site:n"]')!);
+    expect(fl.querySelectorAll(".sy-fchip.sy-on")).toHaveLength(3);
+    expect(fl.querySelector('[data-f="site:lone"]')?.className).not.toContain("sy-on");
+    const aside = screen.getByRole("complementary", { name: "מבט על" });
+    expect(aside.textContent).toMatch(/נשען על\s*שרת האתר/);
+    fireEvent.click(fl.querySelector('[data-f="site:lone"]')!);
+    expect(aside.textContent).toContain("אין במפה קשר רשום");
   });
   it("full screen (S8): the button opens it with the same layer; it covers the page, keeps the layer in its links, and exits back to the map", async () => {
     api.map = data();

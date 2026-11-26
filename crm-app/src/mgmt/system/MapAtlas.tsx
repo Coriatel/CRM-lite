@@ -1,10 +1,11 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { SystemNode } from "./systemApi";
 import { consequence, groupStatus, isProblem, nodeStatus, title, whose, type Group, type Model, type StatusK } from "./model";
 import { KSHORT } from "./inventory";
 import { OC, OUTCOMES, SV, SVC, type Services, type Svc } from "./services";
 import { itemHref } from "./SystemHead";
+import { buildFloors, FloorInfo, FloorsView } from "./MapFloors";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
 
 // The drawn atlas of the approved mockup (v4d): the system from above as five areas -> the domains of one area -> the components
@@ -19,7 +20,7 @@ export const ZONES = [
 export type Zone = (typeof ZONES)[number];
 export const ZN: Record<string, Zone> = Object.fromEntries(ZONES.map((z) => [z.id, z]));
 export const ZG: Record<string, string> = Object.fromEntries(ZONES.flatMap((z) => z.gs.map((g) => [g, z.id])));
-export const LAYERS: [string, string][] = [["struct", "מבנה"], ["status", "מצב"], ["routes", "מסלולים"], ["whose", "של מי"]];
+export const LAYERS: [string, string][] = [["struct", "מבנה"], ["status", "מצב"], ["routes", "מסלולים"], ["whose", "של מי"], ["floors", "קומות"]];
 export const CHAIN_HUE: Record<string, string> = { lesson: "#1f7a68", donation: "#c05030", ai: "#6a4fb0", owner: "#2b5f9e" };
 export const PEOPLE = ["עדי", "הרב", "הילד", "לא ידוע"];
 const SRANK: Record<string, number> = { down: 3, care: 2, ok: 0 };
@@ -271,7 +272,10 @@ function Overview({ m, G, zl, p }: { m: Model; G: Record<string, Group>; zl: Ret
 
 export function Atlas({ m, x, edges, p }: { m: Model; x: Services; edges: Edge[]; p: AtlasP }) {
   const G: Record<string, Group> = Object.fromEntries(m.groups.map((g) => [g.id, g]));
-  const z = p.z && ZN[p.z] ? p.z : null, d = z && p.d && G[p.d] && ZG[p.d] === z ? p.d : null;
+  const fl0 = p.ly === "floors";
+  const z = !fl0 && p.z && ZN[p.z] ? p.z : null, d = z && p.d && G[p.d] && ZG[p.d] === z ? p.d : null;
+  const fl = useMemo(() => buildFloors(m, edges), [m, edges]);
+  const [fsel, setFsel] = useState<string | null>(null);
   const P: AtlasP = { ...p, z, d, o: p.ly === "routes" && p.o && OC[p.o] ? p.o : null, pw: p.ly === "whose" && p.pw && PEOPLE.includes(p.pw) ? p.pw : null };
   const zl = zoneLinks(m, edges);
   const lines: Line[] = z ? [] : rootLines(x, zl, P);
@@ -309,19 +313,23 @@ export function Atlas({ m, x, edges, p }: { m: Model; x: Services; edges: Edge[]
             </button>
           </nav>
           <div className={`sy-ac sy-ly-${P.ly}${P.o ? " sy-has-o" : ""}${P.pw ? " sy-has-pw" : ""}`} data-testid="atlas">
-            {!z && <Wires lines={lines} dep={`${P.ly}|${P.o}|${P.pw}|${lines.length}`} />}
-            {d ? <DomainLevel g={G[d]} m={m} />
+            {!z && !fl0 && <Wires lines={lines} dep={`${P.ly}|${P.o}|${P.pw}|${lines.length}`} />}
+            {fl0 ? <FloorsView fl={fl} sel={fsel} onPick={(id) => setFsel(fsel === id ? null : id)} />
+              : d ? <DomainLevel g={G[d]} m={m} />
               : zz ? <div className="sy-dgrid">{zz.gs.filter((g) => G[g]).map((g) => <DomainTile key={g} g={G[g]} zz={zz} m={m} x={x} p={P} />)}</div>
               : <div className="sy-zgrid">{ZONES.map((y) => <ZoneTile key={y.id} zz={y} m={m} x={x} G={G} p={P} />)}</div>}
           </div>
           <div className="sy-akey">
-            {d ? null : z ? <span>לחיצה על תחום מראה ממה הוא בנוי</span>
+            {fl0 ? <><span><i className="sy-ln sy-thin" />קו = נשען על, לפי הקשרים שנמצאו בנתונים</span><span>חלק בלי קו: אין במפה קשר רשום</span><span>נגיעה מדליקה את כל העמוד</span></>
+              : d ? null : z ? <span>לחיצה על תחום מראה ממה הוא בנוי</span>
               : P.ly === "routes" ? <><span>המספר = סדר השלבים במסלול</span><span>חץ = המסלול עובר לאזור אחר</span><span><i className="sy-ln sy-dash" />לומדים תורמים מתוך נקודה שלי</span></>
               : <><span><i className="sy-ln" />קו = יש קשרים בנתונים בין האזורים</span><span><i className="sy-ln sy-dash" />קו מקווקו = קשר לא ודאי</span></>}
             <Link to="/m/system/map?det=1">התוצאות והשירותים כרשימה</Link>
           </div>
         </div>
-        <aside className="sy-aside" aria-label="מבט על"><Overview m={m} G={G} zl={zl} p={P} /></aside>
+        <aside className="sy-aside" aria-label="מבט על">
+          {fl0 && fsel ? <FloorInfo fl={fl} id={fsel} onClear={() => setFsel(null)} actions={m.N[fsel] && <Link className="mg-btn mg-btn-cta" to={itemHref(fsel)}>כל הפרטים</Link>} /> : <Overview m={m} G={G} zl={zl} p={P} />}
+        </aside>
       </div>
     </>
   );

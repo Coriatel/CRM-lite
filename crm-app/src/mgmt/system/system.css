@@ -259,3 +259,24 @@ body.sy-fs-on { overflow: hidden; }
 .sy-fs-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 8px; } .sy-fs-acts .mg-btn { flex: 1; justify-content: center; min-block-size: 48px; }
 @media (min-width: 56rem) { .sy-fs-ly { align-self: center; min-inline-size: 440px; } .sy-fs-sheet { inset-inline: auto 16px; inline-size: 380px; inset-block-end: 16px; border-radius: 18px; } }
 .sy-fworld .sy-zgrid { column-gap: 56px; }
+/* S9: "קומות" — three flat floors, pillars from the map's edges, a tap lights the whole column */
+.sy-fl3 { position: relative; display: flex; flex-direction: column; gap: 40px; padding: 4px 0 8px; }
+.sy-fpil { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: visible; }
+.sy-fpil line { stroke: #4b5d6e; stroke-width: 1.5; opacity: .22; }
+.sy-fl3.sy-lit .sy-fpil line { opacity: .06; }
+.sy-fl3.sy-lit .sy-fpil line.sy-on { stroke: #0b1f2a; stroke-width: 3.5; opacity: 1; }
+.sy-flr { position: relative; padding: 10px 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--hue) 13%, #fff); border: 2px solid color-mix(in srgb, var(--hue) 75%, #fff); box-shadow: 0 8px 0 0 color-mix(in srgb, var(--hue) 50%, #fff); }
+.sy-flt, .sy-fls, .sy-fchips { position: relative; z-index: 2; }
+.sy-flt { margin: 0; font-size: 18px; font-weight: 500; color: color-mix(in srgb, var(--hue) 55%, #0b1f2a); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sy-fln { font-size: 13px; font-weight: 700; color: #fff; background: var(--hue); border-radius: 99em; padding: 1px 8px; }
+.sy-flc { font-size: 13px; font-weight: 700; color: var(--ink); background: #fff; border: 1.5px solid color-mix(in srgb, var(--hue) 75%, #fff); border-radius: 99em; padding: 0 7px; }
+.sy-fls { margin: 2px 0 8px; font-size: 13px; color: var(--ink-soft); }
+.sy-fchips { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 120px), 1fr)); gap: 6px; }
+.sy-fchip { display: flex; align-items: center; justify-content: center; min-block-size: 44px; padding: 4px 8px; border-radius: 10px; background: #fff; border: 1.5px solid color-mix(in srgb, var(--hue) 60%, #fff); box-shadow: 0 3px 0 color-mix(in srgb, var(--hue) 45%, #fff); text-align: center; font: inherit; color: var(--ink); cursor: pointer; }
+.sy-fchip .sy-t { font-size: 13px; font-weight: 600; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.sy-fchip.sy-hot { border: 2px solid var(--sy-down); background: #fdeeec; }
+.sy-fl3.sy-lit .sy-fchip { color: #7d8a94; background: #f4f6f7; border-color: #d5dbe0; box-shadow: none; }
+.sy-fl3.sy-lit .sy-fchip.sy-on { color: var(--ink); background: #fff; border: 2.5px solid #0b1f2a; }
+.sy-akey .sy-ln.sy-thin { border-block-start: 2px solid #4b5d6e; opacity: .5; }
+.sy-aside .sy-fs-acts .mg-btn { flex: 1; justify-content: center; min-block-size: 44px; }
+.sy-layers a { white-space: nowrap; }

@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { consequence, groupStatus, isProblem, nodeStatus, title, whose, type Group, type Model } from "./model";
 import { dupTitles, KSHORT, purpose } from "./inventory";
 import { OUTCOMES, type Services } from "./services";
 import { itemHref } from "./SystemHead";
 import { Bidi, St } from "./MgmtSystemPage";
+import { buildFloors, FloorInfo, FloorsView } from "./MapFloors";
 import {
   atlasHref, CHAIN_HUE, DomainTile, fsHref, gNodes, LAYERS, needsLook, PEOPLE, rootLines, scopeStatus, SO, SPill, Wires, ZG, ZN, ZONES, zNodes, ZoneTile, zoneLinks, type AtlasP,
 } from "./MapAtlas";
@@ -13,7 +14,7 @@ import {
 // what was last chosen. Three levels laid out for the screen: the whole system -> one area -> one domain. Pinching in on an area
 // or a domain opens it; pinching out past "fit" goes one level up. Only translate + scale, never below "fit".
 const FMAX = 3, FDRILL = 1.8, FFLOOR = 0.85;
-type Sel = { k: "z" | "g" | "n"; id: string } | null;
+type Sel = { k: "z" | "g" | "n" | "f"; id: string } | null;
 type Edge = { from: string; to: string; confidence?: string; purpose_he?: string };
 
 // the map's buttons act on the finger's lift: a tap right after a quick drag can lose its click on a phone; then swallow the ghost click
@@ -44,6 +45,7 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
   lvRef.current = lv;
   const T = useRef({ s: 0, x: 0, y: 8, fit: 1, pull: 1, pinch: false, mid: null as HTMLElement | null, ly: "" });
   const zl = zoneLinks(m, edges);
+  const fl = useMemo(() => buildFloors(m, edges), [m, edges]);
   const lines = rootLines(x, zl, p);
 
   const applyT = () => {
@@ -166,6 +168,7 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
     if (!cur) return atlasHref(p);
     if (cur.k === "z") return atlasHref(p, { z: cur.id, d: null });
     if (cur.k === "g") return `/m/system/all?g=${encodeURIComponent(cur.id)}`;
+    if (cur.k === "f" && !m.N[cur.id]) return atlasHref(p);
     const n = m.N[cur.id];
     return `/m/system/all?g=${encodeURIComponent(n?.group || "")}&q=${encodeURIComponent(n ? title(n) : "")}`;
   };
@@ -187,7 +190,9 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
   const ly = p.ly;
   const cls = `sy-ac sy-fsa sy-ly-${ly}${p.o ? " sy-has-o" : ""}${p.pw ? " sy-has-pw" : ""}`;
   let world: React.ReactNode;
-  if (lv.g && G[lv.g]) {
+  if (ly === "floors") {
+    world = <FloorsView fl={fl} sel={sel?.k === "f" ? sel.id : null} onPick={(id) => { setSel({ k: "f", id }); setSheet(true); }} />;
+  } else if (lv.g && G[lv.g]) {
     const g = G[lv.g], dups = dupTitles(m), s = groupStatus(g, m), ns = [...gNodes(m, g)].sort((a, b) => SO[nodeStatus(a).k] - SO[nodeStatus(b).k]);
     const unk = ns.filter((n) => nodeStatus(n).k === "unk").length, off = ns.filter((n) => nodeStatus(n).k === "off").length;
     world = (
@@ -230,7 +235,7 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
     );
   }
 
-  const hint = lv.g ? "נגיעה ברכיב מסבירה מה הוא. צביטה החוצה חוזרת לאזור." : lv.z ? "צביטה על תחום פותחת אותו, החוצה חוזרת." : "צביטה על אזור פותחת אותו. נגיעה מסבירה מה זה.";
+  const hint = ly === "floors" ? "נגיעה בחלק מדליקה את כל העמוד שלו: על מה הוא נשען ומה נשען עליו." : lv.g ? "נגיעה ברכיב מסבירה מה הוא. צביטה החוצה חוזרת לאזור." : lv.z ? "צביטה על תחום פותחת אותו, החוצה חוזרת." : "צביטה על אזור פותחת אותו. נגיעה מסבירה מה זה.";
   return (
     <div className={`sy-fs sy-ly-${ly}`} role="dialog" aria-label="המפה במסך מלא">
       <div className="sy-fs-top">
@@ -270,7 +275,13 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
         </div>
         <p className="sy-fs-hint">{hint}</p>
       </div>
-      {sel && sheet && <Sheet sel={sel} m={m} G={G} lv={lv} go={go} close={() => setSheet(false)} exit={() => leave(target())} />}
+      {sel?.k === "f" && sheet && (
+        <div className="sy-fs-sheet" id="fss">
+          <button type="button" className="mg-btn sy-fs-x" aria-label="סגירה" {...act(() => setSheet(false))}>✕</button>
+          <FloorInfo fl={fl} id={sel.id} onClear={() => { setSel(null); setSheet(false); }} actions={m.N[sel.id] && <button type="button" className="mg-btn mg-btn-cta" {...act(() => leave(target()))}>לראות ברשימה</button>} />
+        </div>
+      )}
+      {sel && sel.k !== "f" && sheet && <Sheet sel={sel} m={m} G={G} lv={lv} go={go} close={() => setSheet(false)} exit={() => leave(target())} />}
     </div>
   );
 }
