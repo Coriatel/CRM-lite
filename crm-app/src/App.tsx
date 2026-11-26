@@ -124,6 +124,9 @@ const MgmtPersonPage = lazy(() =>
 const MgmtTodayPage = lazy(() =>
   import("./mgmt/MgmtTodayPage").then((m) => ({ default: m.MgmtTodayPage })),
 );
+const MgmtSystemPage = lazy(() =>
+  import("./mgmt/system/MgmtSystemPage").then((m) => ({ default: m.MgmtSystemPage })),
+);
 const MgmtContactsPage = lazy(() =>
   import("./mgmt/MgmtContactsPage").then((m) => ({
     default: m.MgmtContactsPage,
@@ -287,6 +290,7 @@ function AppContent() {
           <Route path="people/:id" element={<MgmtPersonPage />} />
           <Route path="donors" element={<MgmtDonorsPage />} />
           <Route path="tasks" element={<MgmtTasksPage />} />
+          <Route path="system" element={<MgmtSystemPage />} />
         </Route>
         <Route
           path="call/:contactId"

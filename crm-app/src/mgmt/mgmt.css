@@ -90,7 +90,7 @@
 .mg-tabbar {
   
   position: sticky; inset-block-end: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);   /* 4 items, or 5 for the owner (מערכת) */
   background: var(--cream);
   border-block-start: 1px solid var(--line);
   padding-block-end: env(safe-area-inset-bottom);
