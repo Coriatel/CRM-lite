@@ -8,12 +8,13 @@ import { builtBy, checkedBy, lastRunTxt, maintBy, purpose, schedTxt, verdTxt } f
 import { buildServices, downstream, outcomesOf, svcOf } from "./services";
 import { itemHref, SystemHead } from "./SystemHead";
 import { Bidi, St, Val, Whose } from "./MgmtSystemPage";
+import { boundary, SUDO, type Permissions } from "./MapAccessSec";
 import "./system.css";
 
-// One record of the map, in the eight sections of the approved mockup v4d. Permissions (section 7) come with S10.
+// One record of the map, in the eight sections of the approved mockup v4d.
 const KIND: Record<string, string> = { site: "אתר", container: "קונטיינר (תוכנה ארוזה שרצה בשרת)", timer: "משימה מתוזמנת", "user-timer": "משימה מתוזמנת", service: "שירות רקע", workflow: "תהליך אוטומטי", script: "סקריפט", external: "שירות שאנחנו משתמשים בו", machine: "המחשב", disk: "דיסק", gpu: "כרטיס מסך", "network-entry": "כניסת רשת", "person-env": "סביבה אישית", "env-service": "שירות בסביבה אישית" };
 const ENTRY: Record<string, string> = { cloudflare: "מבחוץ, דרך Cloudflare", tailnet: "רק מהרשת הפרטית", caddy: "דרך שרת האינטרנט הפנימי", none: "אין לו כתובת" };
-const REG: Record<string, string> = { yes: "רשום", no: "לא נמצא ברישום", "n/a": "לא רלוונטי" };
+const REG: Record<string, string> = { yes: "רשום", no: "לא נמצא ברישום", "n/a": "לא רלוונטי", na: "לא רלוונטי" };
 const CONF: Record<string, string> = { high: "גבוה", medium: "בינוני", low: "נמוך" };
 const VISION: Record<string, string> = { torah: "הפצת פנימיות התורה", income: "פרנסה", operations: "תפעול", "owner-control": "שליטה של הבעלים" };
 
@@ -49,7 +50,7 @@ const Kv = ({ k, children }: { k: string; children: ReactNode }) => (
   <div><dt>{k}</dt><dd>{children}</dd></div>
 );
 
-function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
+function Body({ n, m, map, perm }: { n: SystemNode; m: Model; map: SystemMap; perm: Permissions | null | undefined }) {
   const x = useMemo(() => buildServices(m, map.edges), [m, map.edges]);
   const uniq = (a: (SystemNode | undefined)[]) => [...new Map(a.filter((y): y is SystemNode => !!y).map((y) => [y.id, y])).values()];
   const outs = uniq(map.edges.filter((e) => e.from === n.id).map((e) => m.N[e.to]));
@@ -65,6 +66,10 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
   const ownerBasis = o(n.owner_label_basis);
   const lead = purpose(n) || s(o(n.serves)?.text_he);
   const sid = s(n.short_id || n.id);
+  const b = n.kind === "site" && perm ? boundary(n, perm) : null;
+  const pnote = b ? s(perm?.sites.find((p) => p.id === sid)?.note_he) : "";
+  const scope = s(n.scope);
+  const runAs = /devuser/.test(scope) ? perm?.identities.find((i) => i.id === "user:devuser") : scope === "system" ? perm?.identities.find((i) => i.id === "user:root") : undefined;
   return (
     <>
       <div className="sy-ihead">
@@ -113,12 +118,18 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
           <Kv k="איך מגיעים אליו">{entries.length ? <Names a={entries} /> : ENTRY[s(host?.entry)] || <Unk />}</Kv>
           {disks.length > 0 && <Kv k="דיסק"><Names a={disks} /></Kv>}
         </Sec>
+        <Sec i={7} t="הרשאות ואבטחה">
+          {n.kind === "site" && <Kv k="כניסה">{b ? <>{b.t}<Ev t={pnote} /></> : perm === undefined ? <Unk t="נטען" /> : perm ? <Unk /> : <Unk t="הנתונים נאספים" />}</Kv>}
+          {runAs ? <Kv k="רץ בהרשאות של"><Bidi t={runAs.label_he} />{runAs.sudo && <Ev t={`הרשאת מנהל: ${SUDO[runAs.sudo] || runAs.sudo}`} />}</Kv>
+            : scope ? <Kv k="רץ בהרשאות של"><Bidi t={scope} /></Kv> : null}
+          <Kv k="ברישום הנכסים">{REG[s(reg?.estate)] || <Unk />}</Kv>
+          <Kv k="בבדיקות הבריאות">{REG[s(reg?.health)] || <Unk />}</Kv>
+          <Kv k="ברישום ההכרות">{REG[s(reg?.awareness)] || <Unk />}</Kv>
+        </Sec>
         <Sec i={8} t="מזהה, תאריכים ומקורות">
           <Kv k="מזהה"><bdi className="sy-ltr">{sid}</bdi></Kv>
           <Kv k="שם טכני"><bdi className="sy-ltr">{n.name}</bdi></Kv>
           <Kv k="מתי נוצר">{madeAt ? <>{when(madeAt, m.gen, true)}{made?.strength === "weak" && " (משוער)"}</> : <Unk />}{made?.strength === "weak" && <Ev t={s(made.reason)} />}</Kv>
-          <Kv k="ברישום הנכסים">{REG[s(reg?.estate)] || <Unk />}</Kv>
-          <Kv k="בבדיקות הבריאות">{REG[s(reg?.health)] || <Unk />}</Kv>
           <Kv k="ביטחון בנתון">{CONF[s(n.confidence)] || <Unk />}</Kv>
           <Kv k="מקור">{n.source_of_truth ? <bdi className="sy-ltr">{s(n.source_of_truth)}</bdi> : <Unk />}</Kv>
         </Sec>
@@ -133,6 +144,9 @@ export function MgmtSystemItem() {
   const map = useLoad<SystemMap>(() => getSystem("map"), []);
   const m = useMemo(() => (map.data ? buildModel(map.data) : null), [map.data]);
   const n = m?.N[id];
+  // Access data is optional: until the producer publishes it (or on an error) the sheet still opens.
+  const pl = useLoad<Permissions>(() => getSystem<Permissions>("permissions"), []);
+  const perm = pl.data ?? (pl.loaded || pl.error != null ? null : undefined);
   return (
     <>
       <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} />
@@ -143,7 +157,7 @@ export function MgmtSystemItem() {
           <MgNotice error={map.error} onRetry={map.reload} />
         </section>
       )}
-      {m && map.data && (n ? <Body n={n} m={m} map={map.data} /> : <p>לא נמצא בשם <bdi className="sy-ltr">{id}</bdi>.</p>)}
+      {m && map.data && (n ? <Body n={n} m={m} map={map.data} perm={perm} /> : <p>לא נמצא בשם <bdi className="sy-ltr">{id}</bdi>.</p>)}
     </>
   );
 }

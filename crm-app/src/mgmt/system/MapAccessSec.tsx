@@ -13,7 +13,7 @@ export interface Permissions { generated_at?: string; identities: Identity[]; si
 export interface Finding { id: string; severity: "high" | "medium" | "low"; what_he: string; why_it_matters_he?: string; suggested_fix_he?: string; needs_owner?: boolean; evidence?: string; node_id?: string }
 export interface Security { generated_at?: string; layers: Record<string, R>; findings: Finding[] }
 
-const SUDO: Record<string, string> = { full: "שליטה מלאה", full_passwordless: "שליטה מלאה, בלי סיסמה", limited: "מוגבלת", none: "אין", "n/a": "לא רלוונטי" };
+export const SUDO: Record<string, string> = { full: "שליטה מלאה", full_passwordless: "שליטה מלאה, בלי סיסמה", limited: "מוגבלת", none: "אין", "n/a": "לא רלוונטי" };
 const SEV: Record<string, string> = { high: "חומרה גבוהה", medium: "חומרה בינונית", low: "חומרה נמוכה" };
 const BOUNDS: [string, string][] = [["pub", "ציבורי: נפתח לכל אחד"], ["pass", "כניסה בסיסמה"], ["redir", "מעביר לכתובת אחרת"], ["tail", "רק ברשת הפרטית"], ["srv", "רק מהשרת"], ["none", "לא עונה"], ["np", "לא נבדק"]];
 const sid = (n: SystemNode) => String(n.short_id || n.id);

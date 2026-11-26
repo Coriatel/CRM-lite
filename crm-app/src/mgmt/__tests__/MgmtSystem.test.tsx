@@ -310,6 +310,22 @@ describe("System item sheet", () => {
     expect(dep.getAttribute("href")).toBe(itemHref("site:a"));
     expect(screen.getByRole("link", { name: "תחום בדיקה" }).getAttribute("href")).toBe("/m/system/all?g=g1");
   });
+  it("section 7: a site's entry and the account it runs as come from the access data, the registries from the map", async () => {
+    const d = data();
+    Object.assign(d.nodes[1], { scope: "system", registered: { estate: "yes", health: "no", awareness: "na" } });
+    api.map = d;
+    api.perm = { identities: [{ id: "user:root", label_he: "מנהל השרת", sudo: "full" }], sites: [{ id: "site:a", observed: "basic_or_login_401", note_he: "סיסמה אחת לכולם" }], shared_authority: [] };
+    at(itemHref("site:a"));
+    await screen.findByText("כניסה בסיסמה");
+    const body = document.body.textContent || "";
+    for (const t of ["הרשאות ואבטחה", "סיסמה אחת לכולם", "מנהל השרת", "הרשאת מנהל: שליטה מלאה", "רשום", "לא נמצא ברישום", "לא רלוונטי"]) expect(body).toContain(t);
+  });
+  it("section 7 still opens before the access data is published", async () => {
+    api.map = data();
+    at(itemHref("site:a"));
+    await screen.findByText("הנתונים נאספים");
+    expect(document.body.textContent).not.toContain("רץ בהרשאות של");
+  });
   it("an unknown id says so", async () => {
     api.map = data();
     at(itemHref("nope:1"));
