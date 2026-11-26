@@ -7,6 +7,7 @@ import { buildModel, consequence, isAuto, lastGood, nodeStatus, title, when, who
 import { builtBy, checkedBy, lastRunTxt, maintBy, purpose, schedTxt, verdTxt } from "./inventory";
 import { buildServices, downstream, outcomesOf, svcOf } from "./services";
 import { itemHref, SystemHead } from "./SystemHead";
+import { openQs, qFor } from "./questions";
 import { Bidi, St, Val, Whose } from "./MgmtSystemPage";
 import { boundary, SUDO, type Permissions } from "./MapAccessSec";
 import "./system.css";
@@ -66,6 +67,7 @@ function Body({ n, m, map, perm }: { n: SystemNode; m: Model; map: SystemMap; pe
   const ownerBasis = o(n.owner_label_basis);
   const lead = purpose(n) || s(o(n.serves)?.text_he);
   const sid = s(n.short_id || n.id);
+  const q = qFor(map, n.id);
   const b = n.kind === "site" && perm ? boundary(n, perm) : null;
   const pnote = b ? s(perm?.sites.find((p) => p.id === sid)?.note_he) : "";
   const scope = s(n.scope);
@@ -86,6 +88,7 @@ function Body({ n, m, map, perm }: { n: SystemNode; m: Model; map: SystemMap; pe
         </Sec>
         <Sec i={2} t="צריך אותו?">
           <Kv k="החלטה">{verdTxt(n) || <Unk />}<Ev t={s(n._owner_note || n.verdict_reason_he)} /></Kv>
+          {q && <Kv k="מחכה לך">{q.default_he ? <>ההצעה: <Bidi t={q.default_he} /></> : null}<span className="sy-ev">לענות בשיחה עם Claude: „החלטה על <bdi className="sy-ltr">{sid}</bdi>”. <Link to="/m/system/decide">כל ההחלטות הפתוחות</Link></span></Kv>}
           <Kv k="מה ייפסק בלעדיו">
             {ds.length ? <>{ds.map((y) => y.t).join(", ")}<Ev t={`דרך השירות „${sv[0].t}” במפה`} /></> : ins.length ? <><Names a={ins} /><Ev t="אלה מצביעים עליו בנתונים" /></> : <Unk t="שום דבר שידוע לנו" />}
           </Kv>
@@ -149,7 +152,7 @@ export function MgmtSystemItem() {
   const perm = pl.data ?? (pl.loaded || pl.error != null ? null : undefined);
   return (
     <>
-      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} />
+      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={openQs(map.data).length} />
       <button type="button" className="sy-back" onClick={() => nav(-1)}><span aria-hidden="true">→</span> חזרה</button>
       {!map.loaded && map.error == null && <MgLoading />}
       {map.error != null && (

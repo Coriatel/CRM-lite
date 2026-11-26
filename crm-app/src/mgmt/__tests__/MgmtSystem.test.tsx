@@ -26,6 +26,7 @@ import { MgmtSystemPage } from "../system/MgmtSystemPage";
 import { MgmtSystemAll } from "../system/MgmtSystemAll";
 import { MgmtSystemItem } from "../system/MgmtSystemItem";
 import { MgmtSystemMap } from "../system/MgmtSystemMap";
+import { MgmtSystemDecide } from "../system/MgmtSystemDecide";
 import { itemHref } from "../system/SystemHead";
 import { buildModel, groupStatus, nodeStatus, title, W } from "../system/model";
 
@@ -325,6 +326,38 @@ describe("System item sheet", () => {
     at(itemHref("site:a"));
     await screen.findByText("הנתונים נאספים");
     expect(document.body.textContent).not.toContain("רץ בהרשאות של");
+  });
+  it("decisions tab: only open questions, by consequence and proposal, badge on the tab, and the item points to it", async () => {
+    const d = { ...data(), questions: [
+      { n: 1, group: "g1", text_he: "לתקן או להפסיק?", default_he: "לתקן", reason_he: "נכשל בכל ריצה", node_ids: [id], decided_today: [] },
+      { n: 2, group: "g1", text_he: "שאלה שהוכרעה", default_he: "x", node_ids: ["site:a"], decided_today: ["site:a"] },
+      { n: 3, group: "g1", text_he: "שאלה עם תשובה", answer: "כן", node_ids: [] },
+    ] };
+    api.map = d;
+    render(
+      <MemoryRouter initialEntries={["/m/system/decide"]}>
+        <Routes>
+          <Route path="/m/system/decide" element={<MgmtSystemDecide />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const list = await screen.findByRole("list", { name: "החלטות פתוחות" });
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(1);
+    expect(list.textContent).toContain("מסלול בדיקה:");
+    expect(list.textContent).toContain("משהו פעיל תלוי בו.");
+    expect(list.textContent).toContain("ההצעה: לתקן");
+    expect(document.body.textContent).toContain("2 שכבר הוכרעו לא מוצגות");
+    expect(screen.getByRole("link", { name: /מחכה להחלטה שלך/ }).textContent).toContain("1");
+    expect(list.querySelector("a")?.getAttribute("href")).toBe(itemHref(id));
+    cleanup();
+    at(itemHref(id));
+    await screen.findByText("מחכה לך");
+    expect(document.body.textContent).toContain("ההצעה: לתקן");
+  });
+  it("decisions tab says when the map does not carry the questions yet", async () => {
+    api.map = data();
+    render(<MemoryRouter><MgmtSystemDecide /></MemoryRouter>);
+    await screen.findByText(/עוד לא מתפרסמות במפה/);
   });
   it("an unknown id says so", async () => {
     api.map = data();

@@ -7,6 +7,7 @@ import { buildModel, consequence, nodeStatus, title, type Model, type StatusK } 
 import { KSHORT } from "./inventory";
 import { buildServices, downstream, OC, OUTCOMES, outcomeStatus, outcomesOf, SV, SVC, svcStatus, type Services } from "./services";
 import { itemHref, SystemHead } from "./SystemHead";
+import { openQs } from "./questions";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
 import { AccessView, SecView, type Permissions, type Security } from "./MapAccessSec";
 import { Atlas, LAYERS } from "./MapAtlas";
@@ -169,7 +170,7 @@ export function MgmtSystemMap() {
 
   return (
     <>
-      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} />
+      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={openQs(map.data).length} />
       {!map.loaded && map.error == null && <MgLoading />}
       {map.error != null && (
         <section className="mg-panel">

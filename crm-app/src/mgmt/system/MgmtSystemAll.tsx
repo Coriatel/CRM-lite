@@ -6,6 +6,7 @@ import { getSystem, type SystemMap, type SystemNode } from "./systemApi";
 import { buildModel, consequence, isAuto, lastGood, nodeStatus, title, when, type Model } from "./model";
 import { builtBy, COL, COLS, dupTitles, FILTERS, lastRunTxt, maintBy, matches, purpose, rowsFor, schedTxt, verdTxt, VIEWS, WHOSE, type FDef, type Filter } from "./inventory";
 import { itemHref, SystemHead } from "./SystemHead";
+import { openQs } from "./questions";
 import { Bidi, St, Val, Whose } from "./MgmtSystemPage";
 import "./system.css";
 
@@ -140,7 +141,7 @@ export function MgmtSystemAll() {
 
   return (
     <>
-      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} />
+      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={openQs(map.data).length} />
       {!map.loaded && map.error == null && <MgLoading />}
       {map.error != null && (
         <section className="mg-panel">
