@@ -280,3 +280,26 @@ body.sy-fs-on { overflow: hidden; }
 .sy-akey .sy-ln.sy-thin { border-block-start: 2px solid #4b5d6e; opacity: .5; }
 .sy-aside .sy-fs-acts .mg-btn { flex: 1; justify-content: center; min-block-size: 44px; }
 .sy-layers a { white-space: nowrap; }
+/* S5b: all filters, the column picker, and the phone filter sheet */
+@media (min-width: 56rem) { .sy-filters { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+.sy-fbtn { position: relative; min-inline-size: 44px; min-block-size: 44px; justify-content: center; gap: 6px; }
+.sy-fbtn svg, .sy-colpick svg { inline-size: 18px; block-size: 18px; }
+.sy-badge { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 20px; block-size: 20px; padding: 0 6px; border-radius: 999px; background: var(--sy-care-t); color: #fff; font-size: 13px; font-weight: 700; line-height: 1; }
+.sy-colpick { position: relative; }
+.sy-colpick > .mg-btn { min-block-size: 44px; gap: 6px; }
+.sy-colpanel { position: absolute; inset-inline-end: 0; inset-block-start: calc(100% + 6px); z-index: 25; inline-size: 18rem; max-inline-size: calc(100vw - 32px); background: var(--cream); border: 1px solid var(--line-card); border-radius: 12px; box-shadow: var(--shadow-card); padding: 8px 12px 12px; }
+.sy-colpanel h4 { margin: 4px 0 6px; font-size: 14px; }
+.sy-colrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 6px; align-items: center; min-block-size: 44px; border-block-start: 1px solid var(--line); font-size: 14px; }
+.sy-colrow input { inline-size: 20px; block-size: 20px; }
+.sy-mv { inline-size: 40px; block-size: 40px; border: 1px solid var(--line); border-radius: 8px; background: var(--cream); cursor: pointer; font-size: 14px; color: var(--ink); }
+.sy-mv:disabled { opacity: .3; cursor: default; }
+.sy-colreset { inline-size: 100%; justify-content: center; margin-block-start: 8px; min-block-size: 44px; }
+.sy-active { display: flex; flex-wrap: wrap; gap: 6px; margin-block-end: 8px; }
+.sy-af { display: inline-flex; align-items: center; gap: 6px; min-block-size: 44px; padding-inline: 14px 10px; border-radius: 999px; background: var(--blue-08); color: var(--blue-deep); font: inherit; font-size: 13px; font-weight: 600; border: 0; cursor: pointer; }
+.sy-sheet { position: fixed; inset: 0; z-index: 40; background: var(--paper); overflow: auto; padding: 0 16px 96px; }
+.sy-sheet-head { position: sticky; inset-block-start: 0; display: flex; align-items: center; gap: 8px; padding-block: 12px; background: var(--paper); }
+.sy-sheet-head h2 { flex: 1; margin: 0; font-size: 20px; font-weight: 600; }
+.sy-sheet-head .mg-btn { min-inline-size: 44px; min-block-size: 44px; justify-content: center; }
+.sy-sheet .sy-fsel { margin-block-end: 14px; font-size: 14px; color: var(--ink); }
+.sy-sheet-foot { position: fixed; inset-inline: 0; inset-block-end: 0; display: flex; gap: 8px; padding: 12px 16px; background: var(--paper); border-block-start: 1px solid var(--line); }
+.sy-sheet-foot .mg-btn { flex: 1; justify-content: center; min-block-size: 48px; }

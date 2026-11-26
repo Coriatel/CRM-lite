@@ -9,17 +9,9 @@ import { buildFloors, FloorInfo, FloorsView } from "./MapFloors";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
 
 // The drawn atlas of the approved mockup (v4d): the system from above as five areas -> the domains of one area -> the components
-// of one domain, with four layers over the same picture. Lines are drawn after layout from the real tile boxes, so they fit any width.
-export const ZONES = [
-  { id: "learn", t: "למידה ותוכן", s: "מההקלטה ועד הלומד", gs: ["lessons-transcription", "lesson-summaries", "itaruta-library", "nekuda", "itra", "video"], c: 1, r: 1, hue: "#0e6f86" },
-  { id: "reach", t: "קשר והפצה", s: "אנשי קשר, תורמים, הודעות ואתרים", gs: ["crm", "distribution", "whatsapp", "public-sites"], c: 2, r: 1, hue: "#2f55b5" },
-  { id: "agents", t: "סוכנים ואוטומציה", s: "נשמה AI, אוטומציות וסוכני העבודה", gs: ["nai", "automation", "mnos-agents", "learning"], c: 1, r: 2, hue: "#6b46b0" },
-  { id: "admin", t: "ניהול וכספים", s: "כספים, מסכי ניהול ודיווחים אליך", gs: ["finance", "cockpit", "flow-apps", "owner-reports"], c: 2, r: 2, hue: "#9b3a72" },
-  { id: "base", t: "תשתיות ותפעול", s: "השרת, הרשת, גיבויים, ניטור, והשירותים בחוץ. כל השאר רץ על זה.", gs: ["infra", "backups", "monitoring", "deploy-ci"], c: 0, r: 3, hue: "#4b5d6e", base: 1 },
-];
-export type Zone = (typeof ZONES)[number];
-export const ZN: Record<string, Zone> = Object.fromEntries(ZONES.map((z) => [z.id, z]));
-export const ZG: Record<string, string> = Object.fromEntries(ZONES.flatMap((z) => z.gs.map((g) => [g, z.id])));
+// of one domain, with five layers over the same picture. Lines are drawn after layout from the real tile boxes, so they fit any width.
+import { ZG, ZN, ZONES, type Zone } from "./zones";
+export { ZG, ZN, ZONES, type Zone };
 export const LAYERS: [string, string][] = [["struct", "מבנה"], ["status", "מצב"], ["routes", "מסלולים"], ["whose", "של מי"], ["floors", "קומות"]];
 export const CHAIN_HUE: Record<string, string> = { lesson: "#1f7a68", donation: "#c05030", ai: "#6a4fb0", owner: "#2b5f9e" };
 export const PEOPLE = ["עדי", "הרב", "הילד", "לא ידוע"];

@@ -163,10 +163,10 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // exit lands on the list of what was last chosen; an area has no list filter, so it lands on that area in the map
+  // exit lands on the list of what was last chosen (an area, a domain, or a component searched by its title)
   const target = (cur: Sel = sel) => {
     if (!cur) return atlasHref(p);
-    if (cur.k === "z") return atlasHref(p, { z: cur.id, d: null });
+    if (cur.k === "z") return `/m/system/all?z=${encodeURIComponent(cur.id)}`;
     if (cur.k === "g") return `/m/system/all?g=${encodeURIComponent(cur.id)}`;
     if (cur.k === "f" && !m.N[cur.id]) return atlasHref(p);
     const n = m.N[cur.id];
@@ -327,7 +327,7 @@ function Sheet({ sel, m, G, lv, go, close, exit }: { sel: NonNullable<Sel>; m: M
       </dl>
       <div className="sy-fs-acts">
         {!here && <button type="button" className="mg-btn mg-btn-cta" {...act(() => (isZ ? go(sel.id, null) : go(ZG[sel.id], sel.id)))}>{isZ ? "לפתוח את האזור" : "לפתוח את התחום"}</button>}
-        <button type="button" className={`mg-btn${here ? " mg-btn-cta" : ""}`} {...act(exit)}>{isZ ? "לצאת אל האזור במפה" : <>לראות את <bdi>{ns.length}</bdi> הרכיבים ברשימה</>}</button>
+        <button type="button" className={`mg-btn${here ? " mg-btn-cta" : ""}`} {...act(exit)}><>לראות את <bdi>{ns.length}</bdi> הרכיבים ברשימה</></button>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +37,7 @@ afterEach(() => {
   api.perm = null;
   api.fail = 0;
   api.secFail = 0;
+  localStorage.clear();
 });
 
 const shell = () =>
@@ -191,6 +192,23 @@ describe("System list (כל מה שיש במערכת)", () => {
     await screen.findByText(/מציג/);
     expect(count()).toContain("מציג 1 מתוך 4");
   });
+  it("S5b: on the phone the filters sit in a sheet; a chosen one shows as a removable chip; area and kind filter", async () => {
+    api.map = { _meta: { generated_at: new Date().toISOString() }, nodes: nodes.map((n) => ({ ...n, group: n.kind === "site" ? "crm" : "nekuda" })), edges: [], groups: [{ id: "crm", name_he: "אנשי קשר" }, { id: "nekuda", name_he: "נקודה שלי" }] };
+    all();
+    await screen.findByText(/מציג/);
+    expect(screen.queryByRole("combobox", { name: "סוג" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "מסננים" }));
+    const sh = screen.getByRole("dialog", { name: "סינון" });
+    fireEvent.change(screen.getByRole("combobox", { name: "אזור במפה" }), { target: { value: "reach" } });
+    expect(sh.textContent).toContain("להציג 2");
+    fireEvent.change(screen.getByRole("combobox", { name: "סוג" }), { target: { value: "אתר" } });
+    fireEvent.click(screen.getByRole("button", { name: /להציג/ }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector(".sy-count")?.textContent).toMatch(/מציג\s*2\s*מתוך\s*4/);
+    expect(screen.getByRole("button", { name: "מסננים" }).textContent).toContain("2");
+    fireEvent.click(screen.getByRole("button", { name: "הסרת מסנן אזור במפה" }));
+    expect(screen.getByRole("button", { name: "מסננים" }).textContent).toContain("1");
+  });
   it("the phone table mode sorts by a header", async () => {
     api.map = { _meta: { generated_at: new Date().toISOString() }, nodes, edges: [], groups: [] };
     all("?sort=name");
@@ -237,6 +255,10 @@ describe("side-by-side fixes (#236 review)", () => {
     await screen.findByText(/מציג/);
     screen.getByRole("button", { name: "טבלה" }).click();
     await screen.findByRole("table");
+    expect(Array.from(document.querySelectorAll("thead th")).map((t) => t.textContent)).toEqual(["שם", "מצב"]);
+    fireEvent.click(screen.getByRole("button", { name: /עמודות/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "מטרה" }));
+    await waitFor(() => expect(Array.from(document.querySelectorAll("thead th")).map((t) => t.textContent)).toEqual(["שם", "מצב", "מטרה"]));
     expect(document.querySelector("tbody")?.textContent).toContain("לפי התחום: הלומדים");
   });
   it("security layers are numbered outside-in", async () => {
