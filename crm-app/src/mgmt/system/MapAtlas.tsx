@@ -16,34 +16,35 @@ export const ZONES = [
   { id: "admin", t: "ניהול וכספים", s: "כספים, מסכי ניהול ודיווחים אליך", gs: ["finance", "cockpit", "flow-apps", "owner-reports"], c: 2, r: 2, hue: "#9b3a72" },
   { id: "base", t: "תשתיות ותפעול", s: "השרת, הרשת, גיבויים, ניטור, והשירותים בחוץ. כל השאר רץ על זה.", gs: ["infra", "backups", "monitoring", "deploy-ci"], c: 0, r: 3, hue: "#4b5d6e", base: 1 },
 ];
-type Zone = (typeof ZONES)[number];
-const ZN: Record<string, Zone> = Object.fromEntries(ZONES.map((z) => [z.id, z]));
-const ZG: Record<string, string> = Object.fromEntries(ZONES.flatMap((z) => z.gs.map((g) => [g, z.id])));
+export type Zone = (typeof ZONES)[number];
+export const ZN: Record<string, Zone> = Object.fromEntries(ZONES.map((z) => [z.id, z]));
+export const ZG: Record<string, string> = Object.fromEntries(ZONES.flatMap((z) => z.gs.map((g) => [g, z.id])));
 export const LAYERS: [string, string][] = [["struct", "מבנה"], ["status", "מצב"], ["routes", "מסלולים"], ["whose", "של מי"]];
-const CHAIN_HUE: Record<string, string> = { lesson: "#1f7a68", donation: "#c05030", ai: "#6a4fb0", owner: "#2b5f9e" };
-const PEOPLE = ["עדי", "הרב", "הילד", "לא ידוע"];
+export const CHAIN_HUE: Record<string, string> = { lesson: "#1f7a68", donation: "#c05030", ai: "#6a4fb0", owner: "#2b5f9e" };
+export const PEOPLE = ["עדי", "הרב", "הילד", "לא ידוע"];
 const SRANK: Record<string, number> = { down: 3, care: 2, ok: 0 };
-const SO: Record<StatusK, number> = { down: 0, care: 1, unk: 2, ok: 3, maint: 3, priv: 4, off: 5 };
+export const SO: Record<StatusK, number> = { down: 0, care: 1, unk: 2, ok: 3, maint: 3, priv: 4, off: 5 };
 type Edge = { from: string; to: string; confidence?: string; purpose_he?: string };
 export interface AtlasP { ly: string; o: string | null; z: string | null; d: string | null; pw: string | null }
-type Line = { a: string; b: string; n?: number; dash?: boolean; o?: string; arrow?: 1 };
+export type Line = { a: string; b: string; n?: number; dash?: boolean; o?: string; arrow?: 1 };
 
 export const atlasHref = (p: AtlasP, over: Partial<AtlasP> = {}) => {
   const q = { ...p, ...over };
   const s = (["ly", "o", "z", "d", "pw"] as const).filter((k) => q[k] && !(k === "ly" && q.ly === "struct")).map((k) => `${k}=${encodeURIComponent(q[k]!)}`);
   return `/m/system/map${s.length ? `?${s.join("&")}` : ""}`;
 };
-const gNodes = (m: Model, g?: Group) => (g ? (g.node_ids || g.component_ids || []).map((i) => m.N[i]).filter(Boolean) : []);
-const zNodes = (m: Model, z: Zone) => m.nodes.filter((n) => ZG[n.group || ""] === z.id);
-const needsLook = (ns: SystemNode[]) => [...ns.filter(isProblem), ...ns.filter((n) => n.state === "not running" && !isProblem(n))];
-function scopeStatus(m: Model, G: Record<string, Group>, gs: string[]) {
+export const fsHref = (p: AtlasP, over: Partial<AtlasP> = {}) => { const h = atlasHref(p, over); return `${h}${h.includes("?") ? "&" : "?"}fs=1`; };
+export const gNodes = (m: Model, g?: Group) => (g ? (g.node_ids || g.component_ids || []).map((i) => m.N[i]).filter(Boolean) : []);
+export const zNodes = (m: Model, z: Zone) => m.nodes.filter((n) => ZG[n.group || ""] === z.id);
+export const needsLook = (ns: SystemNode[]) => [...ns.filter(isProblem), ...ns.filter((n) => n.state === "not running" && !isProblem(n))];
+export function scopeStatus(m: Model, G: Record<string, Group>, gs: string[]) {
   const st = gs.filter((g) => G[g]).map((g) => groupStatus(G[g], m));
   return { k: st.reduce<"ok" | "care" | "down">((a, s) => (SRANK[s.k] > SRANK[a] ? s.k : a), "ok"), p: st.flatMap((s) => s.p) };
 }
 const stWord = (s: { k: string; p: unknown[] }) => (s.k === "ok" ? "עובד" : s.p.length === 1 ? "תקלה אחת" : `${s.p.length} תקלות`);
-const SPill = ({ s }: { s: { k: string; p: unknown[] } }) => <span className={`sy-spill sy-sp-${s.k}`}>{stWord(s)}</span>;
+export const SPill = ({ s }: { s: { k: string; p: unknown[] } }) => <span className={`sy-spill sy-sp-${s.k}`}>{stWord(s)}</span>;
 
-function zoneLinks(m: Model, edges: Edge[]) {
+export function zoneLinks(m: Model, edges: Edge[]) {
   const acc: Record<string, { a: string; b: string; ev: Edge[] }> = {};
   for (const e of edges) {
     const a = ZG[m.N[e.from]?.group || ""], b = ZG[m.N[e.to]?.group || ""];
@@ -62,7 +63,7 @@ function svcZone(x: Services, s: Svc): string | undefined {
 }
 const chainSteps = (x: Services, o: string) => SVC.filter((s) => s.o === o).map((s, i) => ({ s, i: i + 1, z: svcZone(x, s) }));
 
-function routeLines(x: Services, o: string | null): Line[] {
+export function routeLines(x: Services, o: string | null): Line[] {
   const L: Line[] = [];
   for (const oc of OUTCOMES.filter((y) => !o || y.id === o)) {
     const st = chainSteps(x, oc.id);
@@ -74,17 +75,19 @@ function routeLines(x: Services, o: string | null): Line[] {
   return L;
 }
 
+export const rootLines = (x: Services, zl: ReturnType<typeof zoneLinks>, P: AtlasP): Line[] =>
+  P.ly === "routes" ? routeLines(x, P.o) : zl.map((l) => ({ a: l.a, b: l.b, n: l.ev.length, dash: !l.hi }));
 /** Lines between tiles, measured from the rendered boxes; redrawn when the canvas changes size. */
 // The box is the svg's parent: a parent ref is not attached yet when a child's layout effect runs.
-function Wires({ lines, dep }: { lines: Line[]; dep: string }) {
+export function Wires({ lines, dep }: { lines: Line[]; dep: string }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [g, setG] = useState<{ w: number; h: number; paths: { d: string; col: string; dash: boolean; arrow?: string }[]; tags: { x: number; y: number; n: number; side: boolean }[] }>({ w: 0, h: 0, paths: [], tags: [] });
   useLayoutEffect(() => {
     const el = svgRef.current?.parentElement;
     if (!el) return;
     const draw = () => {
-      const R = el.getBoundingClientRect();
-      const rect = (id: string) => { const e = el.querySelector(`[data-z="${id}"]`); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left - R.left, y: r.top - R.top, w: r.width, h: r.height }; };
+      const R = el.getBoundingClientRect(), k0 = R.width / (el.offsetWidth || R.width) || 1, W = el.offsetWidth || R.width, H = el.offsetHeight || R.height;
+      const rect = (id: string) => { const e = el.querySelector(`[data-z="${id}"]`); if (!e) return null; const r = e.getBoundingClientRect(); return { x: (r.left - R.left) / k0, y: (r.top - R.top) / k0, w: r.width / k0, h: r.height / k0 }; };
       const seen: Record<string, number> = {}, paths: typeof g.paths = [], tags: typeof g.tags = [];
       for (const L of lines) {
         const a = rect(L.a), b = rect(L.b);
@@ -102,9 +105,9 @@ function Wires({ lines, dep }: { lines: Line[]; dep: string }) {
           d = `M${a.x + a.w / 2},${a.y + a.h / 2} L${b.x + b.w / 2},${b.y + b.h / 2}`; mx = (a.x + b.x + (a.w + b.w) / 2) / 2; my = (a.y + b.y + (a.h + b.h) / 2) / 2;
         }
         paths.push({ d, col: L.o ? CHAIN_HUE[L.o] || "#6b7a86" : "#004060", dash: !!L.dash || L.o === "x", arrow: L.arrow ? L.o : undefined });
-        if (L.n) tags.push({ x: R.width - mx, y: my, n: L.n, side });
+        if (L.n) tags.push({ x: W - mx, y: my, n: L.n, side });
       }
-      setG({ w: R.width, h: R.height, paths, tags });
+      setG({ w: W, h: H, paths, tags });
     };
     draw();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(draw) : null;
@@ -135,7 +138,7 @@ function Wires({ lines, dep }: { lines: Line[]; dep: string }) {
   );
 }
 
-function ZoneTile({ zz, m, x, G, p }: { zz: Zone; m: Model; x: Services; G: Record<string, Group>; p: AtlasP }) {
+export function ZoneTile({ zz, m, x, G, p }: { zz: Zone; m: Model; x: Services; G: Record<string, Group>; p: AtlasP }) {
   const ns = zNodes(m, zz), s = scopeStatus(m, G, zz.gs), gs = zz.gs.filter((g) => G[g]);
   const unk = ns.filter((n) => nodeStatus(n).k === "unk").length;
   let extra: React.ReactNode = null, on = true;
@@ -167,7 +170,7 @@ function ZoneTile({ zz, m, x, G, p }: { zz: Zone; m: Model; x: Services; G: Reco
   );
 }
 
-function DomainTile({ g, zz, m, x, p }: { g: Group; zz: Zone; m: Model; x: Services; p: AtlasP }) {
+export function DomainTile({ g, zz, m, x, p }: { g: Group; zz: Zone; m: Model; x: Services; p: AtlasP }) {
   const ns = gNodes(m, g), s = groupStatus(g, m);
   let extra: React.ReactNode = <span className="sy-doms">{g.purpose_he}</span>, on = true;
   if (p.ly === "status" && s.p.length) extra = <span className="sy-probs">{s.p.map((n) => <span key={n.id}><Bidi t={`${title(n)}: ${consequence(n, m)}`} /></span>)}</span>;
@@ -182,7 +185,7 @@ function DomainTile({ g, zz, m, x, p }: { g: Group; zz: Zone; m: Model; x: Servi
     extra = <span className="sy-who">{c.map(([w, k]) => <span key={w} className="sy-has">{w} <b>{k}</b></span>)}{!c.length && <span>אין</span>}</span>;
   }
   return (
-    <Link className={`sy-zt sy-dt${on ? "" : " sy-off"}${s.k !== "ok" ? ` sy-bad sy-b-${s.k}` : ""}`} to={atlasHref(p, { d: g.id })} style={{ "--hue": zz.hue } as CSSProperties}>
+    <Link data-g={g.id} className={`sy-zt sy-dt${on ? "" : " sy-off"}${s.k !== "ok" ? ` sy-bad sy-b-${s.k}` : ""}`} to={atlasHref(p, { d: g.id })} style={{ "--hue": zz.hue } as CSSProperties}>
       <span className="sy-ztt">{g.name_he}</span>
       <span className="sy-zn"><bdi>{ns.length}</bdi> רכיבים</span>
       <span className="sy-zs"><SPill s={s} /></span>
@@ -271,7 +274,7 @@ export function Atlas({ m, x, edges, p }: { m: Model; x: Services; edges: Edge[]
   const z = p.z && ZN[p.z] ? p.z : null, d = z && p.d && G[p.d] && ZG[p.d] === z ? p.d : null;
   const P: AtlasP = { ...p, z, d, o: p.ly === "routes" && p.o && OC[p.o] ? p.o : null, pw: p.ly === "whose" && p.pw && PEOPLE.includes(p.pw) ? p.pw : null };
   const zl = zoneLinks(m, edges);
-  const lines: Line[] = z ? [] : P.ly === "routes" ? routeLines(x, P.o) : zl.map((l) => ({ a: l.a, b: l.b, n: l.ev.length, dash: !l.hi }));
+  const lines: Line[] = z ? [] : rootLines(x, zl, P);
   const nav = useNavigate();
   const zz = z ? ZN[z] : null;
   return (
@@ -301,6 +304,9 @@ export function Atlas({ m, x, edges, p }: { m: Model; x: Services; edges: Edge[]
             <Link to={atlasHref(P, { z: null, d: null })}>כל המערכת</Link>
             {zz && <> <span aria-hidden="true">/</span> <Link to={atlasHref(P, { d: null })}>{zz.t}</Link></>}
             {d && <> <span aria-hidden="true">/</span> <span>{G[d].name_he}</span></>}
+            <button type="button" className="mg-btn mg-btn-cta sy-fsbtn" onClick={() => { nav(fsHref(P, { z: null, d: null })); document.documentElement.requestFullscreen?.().catch(() => {}); }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>לפתוח את המפה במסך מלא
+            </button>
           </nav>
           <div className={`sy-ac sy-ly-${P.ly}${P.o ? " sy-has-o" : ""}${P.pw ? " sy-has-pw" : ""}`} data-testid="atlas">
             {!z && <Wires lines={lines} dep={`${P.ly}|${P.o}|${P.pw}|${lines.length}`} />}

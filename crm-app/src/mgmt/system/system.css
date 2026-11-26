@@ -211,3 +211,51 @@ a.sy-go::after { content: "‹"; position: absolute; inset-inline-end: 0; inset-
   .sy-zgrid .sy-probs span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .sy-ovn { grid-template-columns: repeat(2, auto); }
 }
+/* S8: full-screen map (mockup v4c/v4d) */
+.sy-crumbs .sy-fsbtn { margin-inline-start: auto; min-block-size: 48px; gap: 6px; padding-inline: 16px; font-size: 16px; }
+.sy-fsbtn svg { inline-size: 18px; block-size: 18px; }
+body.sy-fs-on { overflow: hidden; }
+.sy-fs { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; background: #f6f2ea; touch-action: manipulation; }
+.sy-fs-top { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--cream); border-block-end: 1px solid var(--line); }
+.sy-fs-title { font-size: 16px; font-weight: 600; margin-inline-start: auto; }
+.sy-fs-exit { min-block-size: 44px; font-weight: 600; gap: 6px; }
+.sy-fs-ly { margin: 8px 12px 0; }
+.sy-fs-ly a { min-block-size: 44px; }
+.sy-fs-sub { margin: 6px 12px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sy-fs-sub .sy-chip { min-block-size: 44px; justify-content: flex-start; }
+.sy-fs-note { margin: 6px 12px 0; font-size: 14px; color: var(--ink); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.sy-fs-note span { white-space: nowrap; }
+.sy-fs-note .sy-ln { display: inline-block; inline-size: 22px; border-block-start: 3px dashed #6b7a86; vertical-align: middle; margin-inline-end: 6px; }
+.sy-fs-crumbs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 12px 0; }
+.sy-fs-crumbs .mg-btn { min-block-size: 44px; font-weight: 600; color: var(--blue-deep); }
+.sy-fs-vp { position: relative; flex: 1; overflow: hidden; touch-action: none; overscroll-behavior: contain; cursor: grab; user-select: none; -webkit-user-select: none; margin-block-start: 8px; }
+/* the world is placed by its own transform, from the physical top-left corner */
+.sy-fworld { position: absolute; inset-block-start: 0; left: 0; transform-origin: 0 0; }
+.sy-fworld .sy-ac { padding: 10px; }
+.sy-fworld.sy-tight .sy-zgrid .sy-doms { display: none; }
+.sy-fworld .sy-dgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
+.sy-fworld .sy-dt .sy-doms { display: none; }
+.sy-fworld .sy-dt .sy-ztt { font-size: 16px; }
+.sy-fhead { padding: 4px 4px 12px; }
+.sy-fhead h2 { margin: 0; font-size: 22px; font-weight: 600; color: color-mix(in srgb, var(--hue) 55%, #0b1f2a); }
+.sy-fhead p { margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 15px; }
+.sy-fhead p.sy-s { display: block; font-size: 14px; }
+.sy-fhead .sy-fnote { display: block; font-size: 14px; color: var(--ink); }
+.sy-fcomp { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 8px; }
+.sy-fcomp li { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; min-block-size: 44px; border-radius: 12px; background: #fff; border: 1px solid var(--line-card); }
+.sy-fcomp li.sy-hot { border: 2px solid var(--sy-down); background: #fdeeec; }
+.sy-fcomp .sy-t { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.sy-picked { outline: 4px solid var(--blue-deep) !important; outline-offset: 2px; }
+.sy-fs-bar { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 12px 8px; background: var(--cream); border-block-start: 1px solid var(--line); }
+.sy-fs-ctl { display: flex; gap: 8px; }
+.sy-fs-ctl .mg-btn { min-inline-size: 48px; min-block-size: 44px; font-size: 22px; font-weight: 600; justify-content: center; }
+.sy-fs-ctl .sy-fit { font-size: 14px; padding: 0 14px; }
+.sy-fs-hint { font-size: 14px; color: var(--ink); text-align: center; margin: 2px 0 0; }
+.sy-fs-sheet { position: absolute; inset-inline: 0; inset-block-end: 0; z-index: 3; max-block-size: 55%; overflow: auto; background: var(--cream); border-radius: 20px 20px 0 0; padding: 14px 16px 16px; box-shadow: 0 -10px 30px -8px rgba(11,31,42,.35); }
+.sy-fs-sheet .sy-ovl, .sy-fs-sheet .sy-ovt { padding-inline-end: 56px; }
+.sy-fs-x { position: absolute; inset-inline-end: 12px; inset-block-start: 10px; min-inline-size: 44px; min-block-size: 44px; justify-content: center; }
+.sy-fs-kv { display: grid; gap: 6px; margin: 8px 0; font-size: 14px; }
+.sy-fs-kv div { display: grid; grid-template-columns: 96px 1fr; gap: 8px; } .sy-fs-kv dt { color: var(--ink-soft); font-size: 13px; } .sy-fs-kv dd { margin: 0; }
+.sy-fs-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 8px; } .sy-fs-acts .mg-btn { flex: 1; justify-content: center; min-block-size: 48px; }
+@media (min-width: 56rem) { .sy-fs-ly { align-self: center; min-inline-size: 440px; } .sy-fs-sheet { inset-inline: auto 16px; inline-size: 380px; inset-block-end: 16px; border-radius: 18px; } }
+.sy-fworld .sy-zgrid { column-gap: 56px; }

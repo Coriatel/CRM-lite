@@ -397,6 +397,23 @@ describe("System map: the drawn atlas (S7b)", () => {
     expect(b2.querySelector('[data-z="reach"]')?.textContent).toMatch(/עדי\s*1/);
     expect(b2.querySelector('[data-z="learn"]')?.className).toContain("sy-off");
   });
+  it("full screen (S8): the button opens it with the same layer; it covers the page, keeps the layer in its links, and exits back to the map", async () => {
+    api.map = data();
+    const { fireEvent } = await import("@testing-library/react");
+    at("/m/system/map?ly=status");
+    fireEvent.click(await screen.findByRole("button", { name: /לפתוח את המפה במסך מלא/ }));
+    const dlg = await screen.findByRole("dialog", { name: "המפה במסך מלא" });
+    expect(dlg.querySelectorAll("#fw [data-z]")).toHaveLength(5);
+    expect(dlg.querySelectorAll("#fw svg.sy-al > path")).toHaveLength(1);
+    expect(document.body.classList.contains("sy-fs-on")).toBe(true);
+    const lay = screen.getByRole("navigation", { name: "שכבות המפה" });
+    expect(lay.querySelector('a[aria-current="true"]')?.textContent).toBe("מצב");
+    expect(Array.from(lay.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toContain("/m/system/map?ly=routes&fs=1");
+    fireEvent.click(screen.getByRole("button", { name: /יציאה ממסך מלא/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByTestId("atlas")).toBeTruthy();
+    expect(document.body.classList.contains("sy-fs-on")).toBe(false);
+  });
 });
 
 describe("System map: access and security segments", () => {

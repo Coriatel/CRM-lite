@@ -10,10 +10,11 @@ import { itemHref, SystemHead } from "./SystemHead";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
 import { AccessView, SecView, type Permissions, type Security } from "./MapAccessSec";
 import { Atlas, LAYERS } from "./MapAtlas";
+import { FullMap } from "./MapFull";
 import "./system.css";
 
 // The map tab: the drawn atlas from above (default), and the list form (?det=1 or ?o= without a layer):
-// the four outcomes -> the chain of services under one -> one service. Full screen comes in a later slice.
+// the four outcomes -> the chain of services under one -> one service. `?fs=1` opens the atlas in full screen.
 const SO: Record<StatusK, number> = { down: 0, care: 1, unk: 2, ok: 3, maint: 3, priv: 4, off: 5 };
 const pStat = (n: SystemNode, m: Model) => `${title(n)}: ${consequence(n, m) || "לא עובד"}`;
 const mapHref = (o?: string | null, s?: string | null) => `/m/system/map${o || s ? `?${[o && `o=${o}`, s && `s=${s}`].filter(Boolean).join("&")}` : ""}`;
@@ -178,7 +179,9 @@ export function MgmtSystemMap() {
       {m && x && <Segments v={v} />}
       {m && x && v !== "svc" && <Extra v={v} m={m} open={sp.get("f")} />}
       {m && x && map.data && v === "svc" && atlas && (
-        <Atlas m={m} x={x} edges={map.data.edges} p={{ ly: ly || "struct", o, z: sp.get("z"), d: sp.get("d"), pw: sp.get("pw") }} />
+        sp.get("fs")
+          ? <FullMap m={m} x={x} edges={map.data.edges} p={{ ly: ly || "struct", o: ly === "routes" ? o : null, z: null, d: null, pw: ly === "whose" ? sp.get("pw") : null }} />
+          : <Atlas m={m} x={x} edges={map.data.edges} p={{ ly: ly || "struct", o, z: sp.get("z"), d: sp.get("d"), pw: sp.get("pw") }} />
       )}
       {m && x && v === "svc" && !atlas && (
         <div className={oo ? "sy-home" : undefined}>
