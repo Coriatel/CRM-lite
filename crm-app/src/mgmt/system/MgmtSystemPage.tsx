@@ -58,7 +58,7 @@ function Security({ sec, m }: { sec: ReturnType<typeof useLoad<SecurityMap>>; m:
   if (!highs.length) return null;
   return (
     <>
-      <h2 className="sy-sec">ממצאי אבטחה דחופים <span className="sy-n"><bdi>{highs.length}</bdi></span></h2>
+      <h2 className="sy-sec">ממצאי אבטחה דחופים <span className="sy-n"><bdi>{highs.length}</bdi></span><Link className="sy-end" to="/m/system/map?v=sec">לשרת ואבטחה</Link></h2>
       <ul className="mg-panel sy-rows sy-alert" aria-label="ממצאי אבטחה דחופים">
         {highs.map((f) => (
           <li key={f.id} className="sy-row">

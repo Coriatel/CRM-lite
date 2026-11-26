@@ -117,4 +117,15 @@ a.sy-go::after { content: "‹"; position: absolute; inset-inline-end: 0; inset-
 .sy-focus .sy-sec { margin-block: 0 4px; }
 .sy-focus p { margin: 4px 0 0; font-size: 14px; }
 .sy-end { margin-inline-start: auto; font-size: 13px; font-weight: 500; }
+/* Map segments: access and security (S10). */
+.sy-seg a { display: inline-flex; align-items: center; justify-content: center; min-block-size: 38px; padding: 0 12px; border-radius: 999px; font-weight: 600; font-size: 14px; text-decoration: none; color: var(--ink); }
+.sy-seg a[aria-current="true"] { background: var(--blue-08); color: var(--blue-deep); box-shadow: inset 0 0 0 1px var(--blue-deep); }
+.sy-seg.sy-full { display: flex; margin-block-end: 12px; }
+.sy-seg.sy-full a { flex: 1; padding: 0 6px; text-align: center; }
+.sy-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13px; }
+.sy-facts b { font-weight: 600; color: var(--ink-soft); }
+.sy-folds { padding-inline: 16px; }
+.sy-folds > .sy-fold + .sy-fold { border-block-start: 1px solid var(--line); margin-block-start: 0; }
+.sy-sev-medium { color: var(--sy-care-t); } .sy-sev-low { color: var(--ink-soft); }
+.sy-layers { counter-reset: lay; }
 @media (min-width: 56rem) { .sy-xcut { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; align-items: start; } }

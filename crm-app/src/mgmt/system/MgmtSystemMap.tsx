@@ -8,6 +8,7 @@ import { KSHORT } from "./inventory";
 import { buildServices, downstream, OC, OUTCOMES, outcomeStatus, outcomesOf, SV, SVC, svcStatus, type Services } from "./services";
 import { itemHref, SystemHead } from "./SystemHead";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
+import { AccessView, SecView, type Permissions, type Security } from "./MapAccessSec";
 import "./system.css";
 
 // The map tab, list form (works at every width): the four outcomes -> the chain of services under one -> one service.
@@ -138,6 +139,20 @@ function Infra({ m }: { m: Model }) {
   );
 }
 
+function Segments({ v }: { v: string }) {
+  const a = (k: string, l: string) => (
+    <Link to={k === "svc" ? "/m/system/map" : `/m/system/map?v=${k}`} aria-current={v === k ? "true" : undefined}>{l}</Link>
+  );
+  return <nav className="sy-seg sy-full" aria-label="תצוגות המפה">{a("svc", "שירותים")}{a("access", "גישה והרשאות")}{a("sec", "שרת ואבטחה")}</nav>;
+}
+
+function Extra({ v, m, open }: { v: "access" | "sec"; m: Model; open: string | null }) {
+  const d = useLoad<Permissions | Security>(() => getSystem<Permissions | Security>(v === "access" ? "permissions" : "security"), [v]);
+  if (d.error != null) return <section className="mg-panel"><MgNotice error={d.error} onRetry={d.reload} /></section>;
+  if (!d.data) return <MgLoading />;
+  return v === "access" ? <AccessView perm={d.data as Permissions} m={m} /> : <SecView sec={d.data as Security} m={m} open={open} />;
+}
+
 export function MgmtSystemMap() {
   const map = useLoad<SystemMap>(() => getSystem("map"), []);
   const m = useMemo(() => (map.data ? buildModel(map.data) : null), [map.data]);
@@ -146,6 +161,7 @@ export function MgmtSystemMap() {
   const o = OC[sp.get("o") || ""] ? sp.get("o") : null;
   const sel = SV[sp.get("s") || ""] ? sp.get("s") : null;
   const oo = o || (sel ? SV[sel].o : null);
+  const v = sp.get("v") === "access" ? "access" : sp.get("v") === "sec" ? "sec" : "svc";
 
   return (
     <>
@@ -156,7 +172,9 @@ export function MgmtSystemMap() {
           <MgNotice error={map.error} onRetry={map.reload} />
         </section>
       )}
-      {m && x && (
+      {m && x && <Segments v={v} />}
+      {m && x && v !== "svc" && <Extra v={v} m={m} open={sp.get("f")} />}
+      {m && x && v === "svc" && (
         <div className={oo ? "sy-home" : undefined}>
           {oo ? (
             <>

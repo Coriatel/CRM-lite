@@ -7,10 +7,11 @@ import { join } from "node:path";
 vi.mock("../../contexts/AuthContext", () => ({
   useAuth: () => ({ user: { uid: "u", email: "x@example.org", displayName: "יעל בדויה", role: "Administrator" } }),
 }));
-const api = vi.hoisted(() => ({ ok: null as null | { published_at: string | null }, map: null as unknown, sec: null as unknown, fail: 0, secFail: 0 }));
+const api = vi.hoisted(() => ({ ok: null as null | { published_at: string | null }, map: null as unknown, sec: null as unknown, perm: null as unknown, fail: 0, secFail: 0 }));
 vi.mock("../system/systemApi", () => ({
   systemAvailable: async () => api.ok,
   getSystem: async (kind: string) => {
+    if (kind === "permissions") return api.perm;
     if (kind === "security") {
       if (api.secFail) throw new Error(`Server error (${api.secFail})`);
       return api.sec ?? { generated_at: null, findings: [] };
@@ -33,6 +34,7 @@ afterEach(() => {
   api.ok = null;
   api.map = null;
   api.sec = null;
+  api.perm = null;
   api.fail = 0;
   api.secFail = 0;
 });
@@ -285,6 +287,38 @@ describe("System map (list form)", () => {
     expect(chain.textContent).toMatch(/מודיע על תשלום אל.*עוד לא אימתנו/);
     const focus = screen.getByRole("region", { name: "עמוד התרומה" });
     expect(focus.textContent).toContain("עמוד התרומה: לא נפתח");
+  });
+});
+
+describe("System map: access and security segments", () => {
+  const base = { _meta: { generated_at: new Date().toISOString() }, nodes: [{ id: "site:a", kind: "site", name: "a.example.org", short_id: "S-a", state: "works", title_he: "a.example.org" }], edges: [], groups: [] };
+  const at = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/m/system/map" element={<MgmtSystemMap />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  it("access lists identities with their admin rights and groups sites by how they are entered", async () => {
+    api.map = base;
+    api.perm = { generated_at: base._meta.generated_at, identities: [{ id: "user:x", label_he: "משתמש בדיקה", owner_label_he: "הבעלים", sudo: "limited", authorized_keys: 2 }], sites: [{ id: "S-a", observed: "basic_or_login_401" }], shared_authority: [] };
+    at("/m/system/map?v=access");
+    const ids = await screen.findByRole("list", { name: "אנשים וזהויות" });
+    expect(ids.textContent).toContain("הרשאת מנהל: מוגבלת");
+    expect(document.body.textContent).toMatch(/כניסה בסיסמה\s*1/);
+  });
+  it("security lists the layers and the findings, high first", async () => {
+    api.map = base;
+    api.sec = { generated_at: base._meta.generated_at, layers: { firewall: { active: true, rules: 7 } }, findings: [
+      { id: "f1", severity: "low", what_he: "ממצא קטן" },
+      { id: "f2", severity: "high", what_he: "ממצא דחוף", needs_owner: true },
+    ] };
+    at("/m/system/map?v=sec");
+    const f = await screen.findByRole("list", { name: "ממצאים" });
+    const items = Array.from(f.querySelectorAll(":scope > li")).map((li) => li.textContent || "");
+    expect(items[0]).toContain("ממצא דחוף");
+    expect((screen.getByRole("list", { name: "שכבות ההגנה" }).textContent || "")).toContain("פעילה");
   });
 });
 
