@@ -1,7 +1,8 @@
 import { Fragment, useMemo } from "react";
 import { useLoad } from "../useLoad";
 import { MgLoading, MgNotice } from "../MgState";
-import { SystemHead } from "./SystemHead";
+import { Link } from "react-router-dom";
+import { itemHref, SystemHead } from "./SystemHead";
 import { getSystem, type SystemMap, type SystemNode } from "./systemApi";
 import { buildModel, consequence, homeLists, lastGood, nodeStatus, title, when, whose, W, type Model, type StatusK } from "./model";
 import { buildServices, OUTCOMES, outcomeStatus, outcomesOf, svcOf, type Services } from "./services";
@@ -28,9 +29,11 @@ function ProbRow({ n, m, x }: { n: SystemNode; m: Model; x: Services }) {
   const group = m.groups.find((g) => g.id === n.group)?.name_he || "";
   return (
     <li className="sy-row">
-      <span className="sy-t"><St k={nodeStatus(n).k} /> <Bidi t={title(n)} /><Whose n={n} /></span>
-      <span className="sy-s"><Bidi t={`${consequence(n, m)}${since} · עבר בהצלחה לאחרונה: ${when(lastGood(n), m.gen)}`} /></span>
-      <span className="sy-s">{group}{sv.length ? ` · משפיע על: ${outcomesOf(x, sv[0].id).map((o) => o.t).join(", ")}` : " · לא משבש אף תוצאה במפה"}</span>
+      <Link className="sy-link" to={itemHref(n.id)}>
+        <span className="sy-t"><St k={nodeStatus(n).k} /> <Bidi t={title(n)} /><Whose n={n} /></span>
+        <span className="sy-s"><Bidi t={`${consequence(n, m)}${since} · עבר בהצלחה לאחרונה: ${when(lastGood(n), m.gen)}`} /></span>
+        <span className="sy-s">{group}{sv.length ? ` · משפיע על: ${outcomesOf(x, sv[0].id).map((o) => o.t).join(", ")}` : " · לא משבש אף תוצאה במפה"}</span>
+      </Link>
     </li>
   );
 }
@@ -40,8 +43,10 @@ function ParkedRow({ n, m }: { n: SystemNode; m: Model }) {
   const group = m.groups.find((g) => g.id === n.group)?.name_he || "";
   return (
     <li className="sy-row">
-      <span className="sy-t"><St k={nodeStatus(n).k} /> <Bidi t={title(n)} /><Whose n={n} /></span>
-      <span className="sy-s">{d ? `הוחלט: ${d}` : consequence(n, m) || "לא רץ"} · {group} · לא משבש אף תוצאה</span>
+      <Link className="sy-link" to={itemHref(n.id)}>
+        <span className="sy-t"><St k={nodeStatus(n).k} /> <Bidi t={title(n)} /><Whose n={n} /></span>
+        <span className="sy-s">{d ? `הוחלט: ${d}` : consequence(n, m) || "לא רץ"} · {group} · לא משבש אף תוצאה</span>
+      </Link>
     </li>
   );
 }
@@ -122,18 +127,22 @@ export function MgmtSystemPage() {
             <h2 className="sy-sec">מה לא נבדק</h2>
             <ul className="mg-panel sy-rows">
               <li className="sy-row">
-                <span className="sy-t"><bdi>{h.unk}</bdi> דברים במצב „לא ידוע”</span>
-                <span className="sy-s">אין בדיקה שמודדת אותם. זו לא תקלה, אבל גם לא ידוע שהם עובדים.</span>
+                <Link className="sy-link" to="/m/system/all?st=unk">
+                  <span className="sy-t"><bdi>{h.unk}</bdi> דברים במצב „לא ידוע”</span>
+                  <span className="sy-s">אין בדיקה שמודדת אותם. זו לא תקלה, אבל גם לא ידוע שהם עובדים.</span>
+                </Link>
               </li>
               <li className="sy-row">
                 <span className="sy-t"><bdi>{unv}</bdi> קשרים במפה שעוד לא אימתנו</span>
                 <span className="sy-s">ידוע מהמוצר שהם קיימים, אבל עוד לא נמצאו בנתונים.</span>
               </li>
               <li className="sy-row">
-                <span className="sy-t"><bdi>{h.offAuto}</bdi> משימות אוטומטיות כבויות</span>
-                <span className="sy-s">
-                  {h.offNeeded ? `${h.offNeeded} מהן עדיין מסומנות כנדרשות לדבר פעיל.` : "אף דבר פעיל לא תלוי בהן."} <bdi>{h.offOther}</bdi> דברים נוספים כבויים בכוונה.
-                </span>
+                <Link className="sy-link" to="/m/system/all?view=auto&st=off">
+                  <span className="sy-t"><bdi>{h.offAuto}</bdi> משימות אוטומטיות כבויות</span>
+                  <span className="sy-s">
+                    {h.offNeeded ? `${h.offNeeded} מהן עדיין מסומנות כנדרשות לדבר פעיל.` : "אף דבר פעיל לא תלוי בהן."} <bdi>{h.offOther}</bdi> דברים נוספים כבויים בכוונה.
+                  </span>
+                </Link>
               </li>
             </ul>
             <details className="mg-panel sy-fold sy-gap">
@@ -144,8 +153,10 @@ export function MgmtSystemPage() {
               <ul className="sy-rows">
                 {h.groups.map(({ g, s }) => (
                   <li key={g.id} className="sy-row">
-                    <span className="sy-t"><St k={s.k} /> {g.name_he}</span>
-                    <span className="sy-s"><Bidi t={s.k === "ok" ? g.purpose_he || "" : s.p.map((n) => `${title(n)}: ${consequence(n, m) || "לא עובד"}`).join("; ")} /></span>
+                    <Link className="sy-link" to={`/m/system/all?g=${encodeURIComponent(g.id)}`}>
+                      <span className="sy-t"><St k={s.k} /> {g.name_he}</span>
+                      <span className="sy-s"><Bidi t={s.k === "ok" ? g.purpose_he || "" : s.p.map((n) => `${title(n)}: ${consequence(n, m) || "לא עובד"}`).join("; ")} /></span>
+                    </Link>
                   </li>
                 ))}
               </ul>

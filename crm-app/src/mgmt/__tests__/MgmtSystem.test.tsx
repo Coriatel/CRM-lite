@@ -23,6 +23,8 @@ vi.mock("../system/systemApi", () => ({
 import { MgmtShell } from "../MgmtShell";
 import { MgmtSystemPage } from "../system/MgmtSystemPage";
 import { MgmtSystemAll } from "../system/MgmtSystemAll";
+import { MgmtSystemItem } from "../system/MgmtSystemItem";
+import { itemHref } from "../system/SystemHead";
 import { buildModel, groupStatus, nodeStatus, title, W } from "../system/model";
 
 afterEach(() => {
@@ -198,6 +200,51 @@ describe("System list (כל מה שיש במערכת)", () => {
     th.querySelector("button")!.click();
     await waitFor(() => expect(screen.getByRole("columnheader", { name: /שם/ }).getAttribute("aria-sort")).toBe("descending"));
     expect(first()).not.toContain("אתר אחד");
+  });
+});
+
+describe("System item sheet", () => {
+  const id = "windmill:flow:f/media_pipeline/x";
+  const data = () => ({
+    _meta: { generated_at: new Date().toISOString() },
+    nodes: [
+      { id, kind: "workflow", name: "f/media_pipeline/x", state: "failing", title_he: "מסלול בדיקה", why_he: "מעביר הקלטה הלאה", group: "g1", schedule_he: "כל שעה", failing_since: new Date().toISOString() },
+      { id: "site:a", kind: "site", name: "a.example.org", state: "works", title_he: "אתר שתלוי בו" },
+    ],
+    edges: [{ from: "site:a", to: id, rel: "uses" }],
+    groups: [{ id: "g1", name_he: "תחום בדיקה", node_ids: [id] }],
+  });
+  const at = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/m/system/item/*" element={<MgmtSystemItem />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+  it("opens a record whose id has slashes and colons, in the mockup's sections", async () => {
+    api.map = data();
+    at(itemHref(id));
+    await screen.findByRole("heading", { level: 1, name: /מסלול בדיקה/ });
+    const body = document.body.textContent || "";
+    for (const t of ["מה זה עושה ולמי זה עוזר", "צריך אותו?", "מצב עכשיו", "מקומו במסלול השירות", "של מי", "רץ אוטומטית ואיפה בשרת", "מזהה, תאריכים ומקורות"]) expect(body).toContain(t);
+    expect(body).toContain("נכשל מאז");
+    expect(body).toContain("כל שעה");
+    const dep = screen.getAllByRole("link", { name: "אתר שתלוי בו" })[0];
+    expect(dep.getAttribute("href")).toBe(itemHref("site:a"));
+    expect(screen.getByRole("link", { name: "תחום בדיקה" }).getAttribute("href")).toBe("/m/system/all?g=g1");
+  });
+  it("an unknown id says so", async () => {
+    api.map = data();
+    at(itemHref("nope:1"));
+    await screen.findByText(/לא נמצא בשם/);
+  });
+  it("home rows link to the sheet", async () => {
+    api.map = data();
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
+    const broken = await screen.findByRole("list", { name: "מה מופרע" });
+    expect(broken.querySelector("a")?.getAttribute("href")).toBe(itemHref(id));
   });
 });
 

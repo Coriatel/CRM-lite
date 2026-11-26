@@ -70,7 +70,7 @@ export const svcOf = (x: Services, n: SystemNode) => SVC.filter((s) => x.sets[s.
 
 // What stops if this service stops: data flows forward (a -> b); a "uses" link spreads backward (b stops -> a stops);
 // notifications and the cross-outcome donation link do not spread.
-function downstream(x: Services, id: string): Svc[] {
+export function downstream(x: Services, id: string): Svc[] {
   const seen = new Set<string>(), q = [id];
   while (q.length) {
     const cur = q.shift()!;

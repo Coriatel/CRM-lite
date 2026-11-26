@@ -130,6 +130,9 @@ const MgmtSystemPage = lazy(() =>
 const MgmtSystemAll = lazy(() =>
   import("./mgmt/system/MgmtSystemAll").then((m) => ({ default: m.MgmtSystemAll })),
 );
+const MgmtSystemItem = lazy(() =>
+  import("./mgmt/system/MgmtSystemItem").then((m) => ({ default: m.MgmtSystemItem })),
+);
 const MgmtContactsPage = lazy(() =>
   import("./mgmt/MgmtContactsPage").then((m) => ({
     default: m.MgmtContactsPage,
@@ -295,6 +298,7 @@ function AppContent() {
           <Route path="tasks" element={<MgmtTasksPage />} />
           <Route path="system" element={<MgmtSystemPage />} />
           <Route path="system/all" element={<MgmtSystemAll />} />
+          <Route path="system/item/*" element={<MgmtSystemItem />} />
         </Route>
         <Route
           path="call/:contactId"

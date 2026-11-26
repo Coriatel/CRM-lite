@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useLoad } from "../useLoad";
 import { MgLoading, MgNotice } from "../MgState";
 import { getSystem, type SystemMap, type SystemNode } from "./systemApi";
 import { buildModel, consequence, isAuto, lastGood, nodeStatus, title, when, W, type Model, type StatusK } from "./model";
 import { builtBy, COL, lastRunTxt, maintBy, matches, purpose, rowsFor, schedTxt, verdTxt, VIEWS, WHOSE, type Filter } from "./inventory";
-import { SystemHead } from "./SystemHead";
+import { itemHref, SystemHead } from "./SystemHead";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
 import "./system.css";
 
@@ -47,6 +47,7 @@ function Card({ n, m }: { n: SystemNode; m: Model }) {
           {kv.filter(([, v]) => v && v !== "לא ידוע").map(([k, v]) => (
             <div key={k}><dt>{k}</dt><dd><Bidi t={v} /></dd></div>
           ))}
+          <div><dt></dt><dd><Link to={itemHref(n.id)}>לדף המלא ‹</Link></dd></div>
         </dl>
       </details>
     </li>
@@ -150,7 +151,7 @@ export function MgmtSystemAll() {
                     <tr key={n.id}>
                       {cols.map((c, i) => (
                         <td key={c.k} className={i === 0 ? "sy-c0" : c.nowrap ? "sy-nowrap" : ""}>
-                          {c.k === "state" ? <St k={nodeStatus(n).k} /> : c.k === "url" ? <bdi className="sy-ltr">{n.name}</bdi> : <Bidi t={c.v(n, m)} />}
+                          {i === 0 ? <Link to={itemHref(n.id)}><Bidi t={c.v(n, m)} /></Link> : c.k === "state" ? <St k={nodeStatus(n).k} /> : c.k === "url" ? <bdi className="sy-ltr">{n.name}</bdi> : <Bidi t={c.v(n, m)} />}
                           {i === 0 && <Whose n={n} />}
                           {c.sub && c.sub(n, m) && <span className="sy-sub"><Bidi t={c.sub(n, m)} /></span>}
                         </td>

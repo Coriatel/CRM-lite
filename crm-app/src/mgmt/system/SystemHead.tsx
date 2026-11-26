@@ -1,6 +1,8 @@
 import { NavLink } from "react-router-dom";
 import { freshness } from "../format";
 
+export const itemHref = (id: string) => `/m/system/item/${encodeURIComponent(id)}`;
+
 // The page title and the sub-tabs of the System tab (mockup v4d). Only views that exist are listed.
 export function SystemHead({ gen }: { gen: string | null | undefined }) {
   const fresh = freshness(gen ?? null);
