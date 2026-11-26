@@ -1,0 +1,40 @@
+[Unit]
+Description=system-panel-api — read-only, owner-only source of the nihul "מערכת" tab (loopback only)
+After=network.target
+
+[Service]
+Type=simple
+# No account of its own: a transient UID that can only read the snapshot through the syspanel group.
+DynamicUser=yes
+SupplementaryGroups=syspanel
+WorkingDirectory=/opt/system-panel/current
+ExecStart=/usr/bin/node /opt/system-panel/current/systemd.mjs
+EnvironmentFile=/etc/system-panel/system-panel.env
+Restart=on-failure
+RestartSec=3
+# Missing owner list or Directus URL exits 2: do not restart-loop on a broken config.
+RestartPreventExitStatus=2
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RemoveIPC=yes
+# Reads only; nothing on disk is writable to this service.
+ReadOnlyPaths=/data/services/system-map
+
+# Loopback only, the same as secretsd (Directus is reached on localhost). Even a misconfigured proxy cannot make it public.
+RestrictAddressFamilies=AF_INET AF_UNIX
+IPAddressAllow=localhost
+IPAddressDeny=any
+# MemoryDenyWriteExecute deliberately not set: it crashes node's JIT (learned on secretsd).
+
+[Install]
+WantedBy=multi-user.target
