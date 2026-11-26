@@ -124,6 +124,21 @@ const MgmtPersonPage = lazy(() =>
 const MgmtTodayPage = lazy(() =>
   import("./mgmt/MgmtTodayPage").then((m) => ({ default: m.MgmtTodayPage })),
 );
+const MgmtSystemPage = lazy(() =>
+  import("./mgmt/system/MgmtSystemPage").then((m) => ({ default: m.MgmtSystemPage })),
+);
+const MgmtSystemAll = lazy(() =>
+  import("./mgmt/system/MgmtSystemAll").then((m) => ({ default: m.MgmtSystemAll })),
+);
+const MgmtSystemItem = lazy(() =>
+  import("./mgmt/system/MgmtSystemItem").then((m) => ({ default: m.MgmtSystemItem })),
+);
+const MgmtSystemMap = lazy(() =>
+  import("./mgmt/system/MgmtSystemMap").then((m) => ({ default: m.MgmtSystemMap })),
+);
+const MgmtSystemDecide = lazy(() =>
+  import("./mgmt/system/MgmtSystemDecide").then((m) => ({ default: m.MgmtSystemDecide })),
+);
 const MgmtContactsPage = lazy(() =>
   import("./mgmt/MgmtContactsPage").then((m) => ({
     default: m.MgmtContactsPage,
@@ -287,6 +302,11 @@ function AppContent() {
           <Route path="people/:id" element={<MgmtPersonPage />} />
           <Route path="donors" element={<MgmtDonorsPage />} />
           <Route path="tasks" element={<MgmtTasksPage />} />
+          <Route path="system" element={<MgmtSystemPage />} />
+          <Route path="system/all" element={<MgmtSystemAll />} />
+          <Route path="system/map" element={<MgmtSystemMap />} />
+          <Route path="system/item/*" element={<MgmtSystemItem />} />
+          <Route path="system/decide" element={<MgmtSystemDecide />} />
         </Route>
         <Route
           path="call/:contactId"

@@ -1,8 +1,9 @@
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
-import { Inbox, Users, CheckSquare, Heart } from "lucide-react";
+import { Inbox, Users, CheckSquare, Heart, Activity } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { MgLoading } from "./MgState";
+import { systemAvailable } from "./system/systemApi";
 import "./mgmt.css";
 
 // Only screens that exist are listed: a nav item never leads nowhere.
@@ -12,10 +13,21 @@ export const MG_NAV = [
   { to: "/m/tasks", label: "משימות", short: "משימות", Icon: CheckSquare },
   { to: "/m/donors", label: "תורמים", short: "תורמים", Icon: Heart },
 ];
+// Shown only when the owner-only API answers this session (the server is the gate; this only hides the tab).
+export const MG_SYSTEM = { to: "/m/system", label: "מערכת", short: "מערכת", Icon: Activity };
 
 export function MgmtShell() {
   const { user } = useAuth();
   const name = user?.displayName || user?.email || "";
+  const [system, setSystem] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    systemAvailable().then((ok) => !cancelled && setSystem(ok !== null));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const nav = system ? [...MG_NAV, MG_SYSTEM] : MG_NAV;
   return (
     <div className="mg">
       <header className="mg-topbar">
@@ -34,7 +46,7 @@ export function MgmtShell() {
       <div className="mg-layout">
         <nav className="mg-rail" aria-label="ניווט ניהול">
           <div className="mg-rail-inner">
-            {MG_NAV.map(({ to, label, Icon }) => (
+            {nav.map(({ to, label, Icon }) => (
               <NavLink key={to} to={to} className="mg-nav">
                 <Icon aria-hidden="true" />
                 {label}
@@ -53,7 +65,7 @@ export function MgmtShell() {
         </main>
       </div>
       <nav className="mg-tabbar" aria-label="ניווט ניהול">
-        {MG_NAV.map(({ to, short, Icon }) => (
+        {nav.map(({ to, short, Icon }) => (
           <NavLink key={to} to={to}>
             <Icon aria-hidden="true" />
             {short}
