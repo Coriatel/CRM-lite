@@ -5,7 +5,7 @@ export type StatusK = "ok" | "care" | "down" | "maint" | "off" | "priv" | "unk";
 export const W: Record<StatusK, string> = { ok: "עובד", care: "עובד, צריך טיפול", down: "לא עובד עכשיו", maint: "תחזוקה", off: "כבוי בכוונה", priv: "פרטי בכוונה", unk: "לא ידוע" };
 
 export interface Group { id: string; name_he: string; purpose_he?: string; node_ids?: string[]; component_ids?: string[] }
-export interface Model { nodes: SystemNode[]; N: Record<string, SystemNode>; groups: Group[]; inbound: Record<string, string[]> }
+export interface Model { nodes: SystemNode[]; N: Record<string, SystemNode>; groups: Group[]; inbound: Record<string, string[]>; gen: string | null }
 
 // Owner decision 12.11: the accounting addresses are private on purpose, not failing.
 const PRIVATE_BY_OWNER: Record<string, string> = { "site:heshbon.merkazneshama.co.il": "12.11", "site:heshbonot.merkazneshama.co.il": "12.11" };
@@ -15,7 +15,7 @@ export function buildModel(map: SystemMap): Model {
   const N = Object.fromEntries(nodes.map((n) => [n.id, n]));
   const inbound: Record<string, string[]> = {};
   for (const e of map.edges) (inbound[e.to] ||= []).push(e.from);
-  return { nodes, N, groups: (map.groups as Group[]) || [], inbound };
+  return { nodes, N, groups: (map.groups as Group[]) || [], inbound, gen: map._meta?.generated_at ?? null };
 }
 
 export function nodeStatus(n: SystemNode): { k: StatusK; note?: string } {
@@ -41,12 +41,13 @@ export function title(n: SystemNode): string {
 
 export function consequence(n: SystemNode, m: Model): string {
   const s = n.state;
-  if (s === "failing") return n.kind === "site" ? "לא נפתח" : "הריצה האחרונה נכשלה";
+  if (s === "failing") return n.kind === "site" ? "לא נפתח" : `הריצה האחרונה נכשלה${n.last_run_at ? ` (${when(n.last_run_at as string, m.gen)})` : ""}`;
   if (s === "not running") return n.verdict === "needed" ? "לא רץ, ומישהו צריך אותו" : "לא רץ";
   if (s === "stale") return "מופעל, אבל כמעט לא רץ";
   if (s === "unknown") return nodeStatus(n).note || "";
   if (n._owner_note) return String(n._owner_note);
   if (s === "off on purpose") return (m.inbound[n.id] || []).some((f) => m.N[f]?.state === "works") ? "כבוי, ומשהו פעיל עדיין מצביע עליו" : "כבוי; שום דבר פעיל לא תלוי בו";
+  if (s === "works" && /נכשל/.test(String(n.last_result || ""))) return "הריצה האחרונה נכשלה";
   return "";
 }
 
@@ -65,7 +66,27 @@ export function homeLists(m: Model) {
   const unk = m.nodes.filter((n) => nodeStatus(n).k === "unk").length;
   const offAuto = m.nodes.filter((n) => nodeStatus(n).k === "off" && isAuto(n));
   const offNeeded = offAuto.filter((n) => (m.inbound[n.id] || []).some((f) => m.N[f]?.state === "works")).length;
+  const offOther = m.nodes.filter((n) => nodeStatus(n).k === "off").length - offAuto.length;
   const groups = m.groups.map((g) => ({ g, s: groupStatus(g, m) }));
   const bad = groups.filter((x) => x.s.k !== "ok");
-  return { probs, parked, unk, offAuto: offAuto.length, offNeeded, groups: [...bad, ...groups.filter((x) => x.s.k === "ok")], badGroups: bad.length };
+  return { probs, parked, unk, offAuto: offAuto.length, offNeeded, offOther, groups: [...bad, ...groups.filter((x) => x.s.k === "ok")], badGroups: bad.length };
 }
+
+const TZ = "Asia/Jerusalem";
+const fD = new Intl.DateTimeFormat("he-IL", { timeZone: TZ, day: "numeric", month: "numeric" });
+const fY = new Intl.DateTimeFormat("he-IL", { timeZone: TZ, day: "numeric", month: "numeric", year: "numeric" });
+const fT = new Intl.DateTimeFormat("he-IL", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** A time in words relative to the scan (היום / אתמול / date), as the mockup says it; "לא ידוע" when there is none. */
+export function when(iso: string | null | undefined, gen: string | null): string {
+  if (!iso) return "לא ידוע";
+  const d = new Date(iso);
+  if (isNaN(+d)) return String(iso);
+  const g = gen ? new Date(gen) : new Date();
+  if (g.getFullYear() !== d.getFullYear()) return fY.format(d);
+  const day = fD.format(d);
+  const p = day === fD.format(g) ? "היום" : day === fD.format(new Date(+g - 864e5)) ? "אתמול" : day === fD.format(new Date(+g + 864e5)) ? "מחר" : day;
+  return /^\d{4}-\d\d-\d\d$/.test(iso) ? p : `${p} ${fT.format(d)}`;
+}
+
+export const lastGood = (n: SystemNode) => (n.last_ok as string | undefined) || (n.state === "works" ? (n.last_checked as string | undefined) : null) || null;

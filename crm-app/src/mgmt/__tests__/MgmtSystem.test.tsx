@@ -7,10 +7,14 @@ import { join } from "node:path";
 vi.mock("../../contexts/AuthContext", () => ({
   useAuth: () => ({ user: { uid: "u", email: "x@example.org", displayName: "יעל בדויה", role: "Administrator" } }),
 }));
-const api = vi.hoisted(() => ({ ok: null as null | { published_at: string | null }, map: null as unknown, fail: 0 }));
+const api = vi.hoisted(() => ({ ok: null as null | { published_at: string | null }, map: null as unknown, sec: null as unknown, fail: 0, secFail: 0 }));
 vi.mock("../system/systemApi", () => ({
   systemAvailable: async () => api.ok,
-  getSystem: async () => {
+  getSystem: async (kind: string) => {
+    if (kind === "security") {
+      if (api.secFail) throw new Error(`Server error (${api.secFail})`);
+      return api.sec ?? { generated_at: null, findings: [] };
+    }
     if (api.fail) throw new Error(`Server error (${api.fail})`);
     return api.map;
   },
@@ -24,7 +28,9 @@ afterEach(() => {
   cleanup();
   api.ok = null;
   api.map = null;
+  api.sec = null;
   api.fail = 0;
+  api.secFail = 0;
 });
 
 const shell = () =>
@@ -94,6 +100,40 @@ describe("System page (home)", () => {
     expect(body).toContain("תהליך ישן");
     expect(body).toMatch(/2\s*תחומים:\s*1\s*עובדים,\s*1\s*צריכים טיפול/);
     expect(body).toMatch(/1\s*דברים במצב „לא ידוע”/);
+  });
+  it("says what can be done now: an outcome is not fine while a part of its chain is broken", async () => {
+    const m = map();
+    m.nodes.push(node("site:give.merkazneshama.co.il", { state: "failing", title_he: "עמוד התרומה", failing_since: m._meta.generated_at }));
+    api.map = m;
+    render(<MgmtSystemPage />);
+    const out = await screen.findByRole("list", { name: "מה אפשר לעשות עכשיו" });
+    const rows = Array.from(out.querySelectorAll("li")).map((li) => li.textContent || "");
+    expect(rows).toHaveLength(4);
+    const give = rows.find((r) => r.includes("תרומה הופכת להכנסה")) || "";
+    expect(give).toContain(W.down);
+    expect(give).toContain("עמוד התרומה: לא נפתח");
+    expect(rows.find((r) => r.includes("שאלה מקבלת תשובה"))).toContain("לא נבדק");
+    const broken = (await screen.findByRole("list", { name: "מה מופרע" })).textContent || "";
+    expect(broken).toMatch(/עמוד התרומה.*מאז היום/);
+    expect(broken).toContain("עבר בהצלחה לאחרונה: לא ידוע");
+    expect(broken).toContain("משפיע על: תרומה הופכת להכנסה");
+  });
+  it("shows only the high security findings, and a security failure does not hide the rest", async () => {
+    api.map = map();
+    api.sec = { generated_at: new Date().toISOString(), findings: [
+      { id: "f1", severity: "high", what_he: "שם ציבורי מצביע על שרת ישן", needs_owner: true },
+      { id: "f2", severity: "low", what_he: "ממצא קטן" },
+    ] };
+    render(<MgmtSystemPage />);
+    const hi = await screen.findByRole("list", { name: "ממצאי אבטחה דחופים" });
+    expect(hi.textContent).toContain("שם ציבורי מצביע על שרת ישן");
+    expect(hi.textContent).toContain("צריך אותך");
+    expect(document.body.textContent).not.toContain("ממצא קטן");
+    cleanup();
+    api.secFail = 503;
+    render(<MgmtSystemPage />);
+    await screen.findByRole("list", { name: "מה מופרע" });
+    await screen.findByText(/ממצאי האבטחה לא נטענו/);
   });
   it("403 is worded as no permission, not as an error", async () => {
     api.fail = 403;
