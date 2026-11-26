@@ -15,18 +15,51 @@ DATA=/data/services/system-map
 ROOT=/opt/system-panel
 CONF=/etc/system-panel
 UNIT=/etc/systemd/system/${NAME}.service
-SITE=/etc/caddy/sites/nihul.merkazneshama.co.il.caddy
 PORT=8794
 SRC_ENV=/etc/crm-secrets/secretsd.env
-[ "$(id -u)" -eq 0 ] || { echo "must run as root (sudo)" >&2; exit 1; }
+# SP_* overrides exist only for rollback-test.sh (fake caddy/systemctl in a temp dir); production uses the defaults.
+CADDYFILE=${SP_CADDYFILE:-/etc/caddy/Caddyfile}
+SITES_DIR=${SP_SITES_DIR:-/etc/caddy/sites}
+SITE=$SITES_DIR/nihul.merkazneshama.co.il.caddy
+CADDY=${SP_CADDY:-caddy}
+SYSTEMCTL=${SP_SYSTEMCTL:-systemctl}
+[ "${SP_TEST:-}" = 1 ] || [ "$(id -u)" -eq 0 ] || { echo "must run as root (sudo)" >&2; exit 1; }
 
-if [ "${1:-}" = "--rollback" ]; then
-  bak=$(ls -1t "${SITE}".bak-system-* 2>/dev/null | head -1 || true)
-  if [ -n "$bak" ]; then cp -a "$bak" "$SITE"; caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null && systemctl reload caddy; echo "route restored from $bak"; fi
-  systemctl disable --now "$NAME" || true
+# Rollback order (Codex + critic review of #232): validate a STAGED copy of the whole config first, keep the current
+# site file, swap atomically, validate + reload the live config (restore on any failure), confirm the route is gone,
+# and only then stop the API. Any failure exits non-zero and leaves the API running behind the current route.
+rollback() {
+  local ts bak pre
+  ts=$(date +%Y%m%d%H%M%S)
+  # newest backup by NAME (the suffix is a sortable timestamp), not by mtime
+  bak=$(find "$SITES_DIR" -maxdepth 1 -name "$(basename "$SITE").bak-system-*" | sort | tail -1)
+  if [ -z "$bak" ]; then
+    if grep -q 'handle /api/system/\*' "$SITE"; then echo "FAIL: route present but no .bak-system-* backup; nothing changed" >&2; exit 7; fi
+    echo "no route and no backup: only the service is stopped"
+  else
+    if grep -q 'handle /api/system/\*' "$bak"; then echo "FAIL: backup $bak still has the route; nothing changed" >&2; exit 7; fi
+    stage=$(mktemp -d); trap 'rm -rf "$stage"' EXIT   # global on purpose: exit paths must clean it too
+    install -d "$stage/sites"
+    cp -a "$SITES_DIR"/*.caddy "$stage/sites/"
+    cp "$bak" "$stage/sites/$(basename "$SITE")"
+    sed "s#^import $SITES_DIR/\*\.caddy\$#import $stage/sites/*.caddy#" "$CADDYFILE" > "$stage/Caddyfile"
+    [ "$(grep -c "^import $stage/sites/\*\.caddy\$" "$stage/Caddyfile")" -eq 1 ] || { echo "FAIL: could not stage the Caddyfile import; nothing changed" >&2; exit 5; }
+    "$CADDY" validate --config "$stage/Caddyfile" --adapter caddyfile >/dev/null 2>&1 || { echo "FAIL: staged config with $bak does not validate; live file untouched, service still running" >&2; exit 5; }
+    pre="${SITE}.pre-rollback-$ts"          # outside the *.caddy glob, so Caddy never imports it
+    cp -a "$SITE" "$pre"
+    cp "$bak" "$SITE.swap.$$" && mv -f "$SITE.swap.$$" "$SITE"
+    if ! { "$CADDY" validate --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1 && "$SYSTEMCTL" reload caddy; }; then
+      cp -a "$pre" "$SITE"; "$SYSTEMCTL" reload caddy || true
+      echo "FAIL: live validate/reload failed; site file restored from $pre, service still running" >&2; exit 6
+    fi
+    if grep -q 'handle /api/system/\*' "$SITE"; then echo "FAIL: route still in $SITE after restore; service still running" >&2; exit 6; fi
+    echo "route removed (restored from $bak; previous file kept as $pre)"
+  fi
+  "$SYSTEMCTL" disable --now "$NAME" || { echo "FAIL: could not stop $NAME (route already removed)" >&2; exit 8; }
   echo "rolled back: no route, service stopped (unit file, releases and $DATA kept)"
-  exit 0
-fi
+}
+
+if [ "${1:-}" = "--rollback" ]; then rollback; exit 0; fi
 
 SRC="${1:-}"
 [ -f "$SRC/crm-app/scripts/system/systemapi.mjs" ] || { echo "usage: $0 /path/to/CRM-lite checkout" >&2; exit 64; }
@@ -45,8 +78,10 @@ echo "current -> $DEST"
 
 echo "== 3. env (owner list copied by key, values not printed) =="
 install -d -o root -g root -m 0755 "$CONF"
-tmp=$(mktemp)
-grep -E '^SECRETS_OWNER_EMAILS=' "$SRC_ENV" | sed 's/^SECRETS_OWNER_EMAILS=/SYSTEM_PANEL_OWNER_EMAILS=/' > "$tmp"
+tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
+owner=$(grep -E '^SECRETS_OWNER_EMAILS=.+' "$SRC_ENV" | head -1 || true)
+[ -n "$owner" ] || { echo "FAIL: SECRETS_OWNER_EMAILS missing or empty in $SRC_ENV; nothing installed beyond the release copy" >&2; exit 3; }
+printf '%s\n' "SYSTEM_PANEL_OWNER_EMAILS=${owner#SECRETS_OWNER_EMAILS=}" > "$tmp"; unset owner
 echo "DIRECTUS_URL=http://127.0.0.1:18055" >> "$tmp"   # HyCRM Directus behind crm.merkazneshama.co.il (loopback: the unit allows localhost only)
 echo "SYSTEM_PANEL_PORT=$PORT" >> "$tmp"
 echo "SYSTEM_PANEL_DATA_DIR=$DATA" >> "$tmp"
