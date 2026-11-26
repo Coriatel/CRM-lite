@@ -24,6 +24,7 @@ const files = [
   "runtime-issues.json",
   "automation_runtime_inventory.json",
   "attention_synthesis.json",
+  "lesson_processing_runs.json",
   "active_sessions.json",
   "dependencies.json",
   "workflows.json",
