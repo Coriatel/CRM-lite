@@ -17,7 +17,8 @@ vi.mock("../system/systemApi", () => ({
 }));
 
 import { MgmtShell } from "../MgmtShell";
-import { MgmtSystemPage, statusKey } from "../system/MgmtSystemPage";
+import { MgmtSystemPage } from "../system/MgmtSystemPage";
+import { buildModel, groupStatus, nodeStatus, title, W } from "../system/model";
 
 afterEach(() => {
   cleanup();
@@ -52,19 +53,47 @@ describe("System tab in the shell", () => {
   });
 });
 
-describe("System page", () => {
-  const map = (nodes: { state: string }[]) => ({ _meta: { generated_at: new Date().toISOString() }, nodes: nodes.map((n, i) => ({ id: `n${i}`, kind: "site", name: `s${i}`, ...n })), edges: [], groups: [] });
+describe("System page (home)", () => {
+  const node = (id: string, extra: Record<string, unknown>) => ({ id, kind: "site", name: id, ...extra });
+  const map = () => ({
+    _meta: { generated_at: new Date().toISOString() },
+    nodes: [
+      node("a", { state: "works", title_he: "אתר עובד" }),
+      node("b", { state: "failing", title_he: "אתר שנופל" }),
+      node("c", { kind: "service", state: "not running", verdict: "needed", title_he: "שירות נחוץ", owner_label_he: "עדי" }),
+      node("d", { kind: "workflow", state: "not running", verdict: "candidate to retire", title_he: "תהליך ישן" }),
+      node("site:heshbon.merkazneshama.co.il", { state: "failing", title_he: "חשבונות" }),
+      node("e", { state: "unknown", kind: "external", title_he: "שירות חיצוני: Vimeo" }),
+    ],
+    edges: [],
+    groups: [
+      { id: "g1", name_he: "תחום תקין", purpose_he: "עושה משהו", node_ids: ["a"] },
+      { id: "g2", name_he: "תחום עם תקלה", node_ids: ["a", "b"] },
+    ],
+  });
 
-  it("counts in the owner's words", async () => {
-    api.map = map([{ state: "works" }, { state: "works" }, { state: "failing" }, { state: "not running" }, { state: "stale" }, { state: "maintenance" }]);
+  it("lists what is broken first, with its consequence and owner, in the owner's words", async () => {
+    api.map = map();
     render(<MgmtSystemPage />);
-    await waitFor(() => expect(screen.getByText(/לא עובד עכשיו/)).toBeTruthy());
-    const text = document.body.textContent || "";
-    expect(text).toContain("2 לא עובד עכשיו");
-    expect(text).toContain("1 עובד, צריך טיפול");
-    expect(text).toContain("1 תחזוקה");
-    expect(text).toContain("מתוך 6 רכיבים");
-    expect(text).not.toContain("מושבת");
+    const broken = await screen.findByRole("list", { name: "מה מופרע" });
+    const text = broken.textContent || "";
+    expect(text).toContain("אתר שנופל");
+    expect(text).toContain("לא נפתח");
+    expect(text).toContain("שירות נחוץ");
+    expect(text).toContain("לא רץ, ומישהו צריך אותו");
+    expect(text).toContain("של עדי");
+    expect(text).not.toContain("אתר עובד");
+    expect(text).not.toContain("חשבונות"); // owner 12.11: private on purpose, not broken
+    expect(document.body.textContent).not.toContain("מושבת");
+  });
+  it("parks retire candidates in a fold, and counts domains", async () => {
+    api.map = map();
+    render(<MgmtSystemPage />);
+    await screen.findByText(/לא רצים, ומחכים לניקוי או להחלטה/);
+    const body = document.body.textContent || "";
+    expect(body).toContain("תהליך ישן");
+    expect(body).toMatch(/2\s*תחומים:\s*1\s*עובדים,\s*1\s*צריכים טיפול/);
+    expect(body).toMatch(/1\s*דברים במצב „לא ידוע”/);
   });
   it("403 is worded as no permission, not as an error", async () => {
     api.fail = 403;
@@ -76,9 +105,27 @@ describe("System page", () => {
     render(<MgmtSystemPage />);
     await waitFor(() => expect(screen.getByText("ניסיון נוסף")).toBeTruthy());
   });
-  it("maps states to words without inventing a status", () => {
-    expect(statusKey({ id: "a", kind: "x", name: "a", state: "off on purpose" })).toBe("other");
-    expect(statusKey({ id: "a", kind: "x", name: "a", state: "works" })).toBe("ok");
+});
+
+describe("model", () => {
+  const n = (state: string, extra: Record<string, unknown> = {}) => ({ id: "x", kind: "site", name: "x", state, ...extra });
+  it("maps states to the mockup's words", () => {
+    expect(nodeStatus(n("works")).k).toBe("ok");
+    expect(nodeStatus(n("failing")).k).toBe("down");
+    expect(nodeStatus(n("stale")).k).toBe("unk");
+    expect(nodeStatus(n("off on purpose")).k).toBe("off");
+    expect(nodeStatus(n("off on purpose", { exposure_decision: { value: "internal only" } })).k).toBe("priv");
+    expect(W.down).toBe("לא עובד עכשיו");
+  });
+  it("a domain is down only when a site in it is broken", () => {
+    const m = buildModel({ _meta: {}, edges: [], nodes: [n("failing", { id: "s" }), n("failing", { id: "w", kind: "workflow" })], groups: [{ id: "a", name_he: "א", node_ids: ["s"] }, { id: "b", name_he: "ב", node_ids: ["w"] }] });
+    expect(groupStatus(m.groups[0], m).k).toBe("down");
+    expect(groupStatus(m.groups[1], m).k).toBe("care");
+  });
+  it("title drops guessed brackets and the outside-service prefix", () => {
+    expect(title(n("works", { title_he: "שירות חיצוני: Vimeo" }))).toBe("Vimeo");
+    expect(title(n("works", { purpose_he: "משהו (ניחוש)", purpose_source: "guess" }))).toBe("משהו");
+    expect(title(n("works"))).toBe("x");
   });
 });
 

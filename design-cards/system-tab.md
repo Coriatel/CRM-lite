@@ -2,7 +2,7 @@
 
 skill: ui-design-thinking
 date: 2026-11-26
-screens: ~/work/system-map/mockup/built-shots/s3-{360,390,430,1280}.png (slice S3), approved mockup ~/work/system-map/mockup/v4d (+ "קומות" from v4d-3d, flat)
+screens: ~/work/system-map/mockup/built-shots/s3-*.png, s4-*.png (slices S3, S4), approved mockup ~/work/system-map/mockup/v4d (+ "קומות" from v4d-3d, flat)
 
 1. What is this surface? A focus / status picture of the whole system for the owner, plus a tool for drilling into the map. It is not navigation and not settings. It appears in the nav only for the owner, because the server answers him alone.
 2. The one thing seen first: whatever does not work right now. The count "לא עובד עכשיו" is the first row, then "עובד, צריך טיפול", then "תחזוקה". Something that works is never called "מושבת" (owner 26.11).

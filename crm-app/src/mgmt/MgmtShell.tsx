@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
-import { Inbox, Users, CheckSquare, Heart, Network } from "lucide-react";
+import { Inbox, Users, CheckSquare, Heart, Activity } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { MgLoading } from "./MgState";
 import { systemAvailable } from "./system/systemApi";
@@ -14,7 +14,7 @@ export const MG_NAV = [
   { to: "/m/donors", label: "תורמים", short: "תורמים", Icon: Heart },
 ];
 // Shown only when the owner-only API answers this session (the server is the gate; this only hides the tab).
-export const MG_SYSTEM = { to: "/m/system", label: "מערכת", short: "מערכת", Icon: Network };
+export const MG_SYSTEM = { to: "/m/system", label: "מערכת", short: "מערכת", Icon: Activity };
 
 export function MgmtShell() {
   const { user } = useAuth();
