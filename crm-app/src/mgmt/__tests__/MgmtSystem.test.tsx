@@ -206,6 +206,56 @@ describe("System list (כל מה שיש במערכת)", () => {
   });
 });
 
+describe("side-by-side fixes (#236 review)", () => {
+  const gen = new Date().toISOString();
+  const twins = [
+    { id: "s:1", kind: "site", name: "dev.flow.one.example", state: "works", title_he: "סביבת פיתוח של Flow" },
+    { id: "s:2", kind: "site", name: "dev.flow.two.example", state: "works", title_he: "סביבת פיתוח של Flow" },
+    { id: "s:3", kind: "site", name: "solo.example", state: "works", title_he: "אתר יחיד", serves: { text_he: "הלומדים" } },
+  ];
+  const all = () =>
+    render(
+      <MemoryRouter initialEntries={["/m/system/all"]}>
+        <Routes>
+          <Route path="/m/system/all" element={<MgmtSystemAll />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  it("two records with the same title show their technical names; a unique title does not", async () => {
+    api.map = { _meta: { generated_at: gen }, nodes: twins, edges: [], groups: [] };
+    all();
+    await screen.findByText(/מציג/);
+    const body = document.body.textContent || "";
+    expect(body).toContain("dev.flow.one.example");
+    expect(body).toContain("dev.flow.two.example");
+    const solo = Array.from(document.querySelectorAll(".sy-cards summary")).find((s) => s.textContent?.includes("אתר יחיד"));
+    expect(solo?.textContent).not.toContain("solo.example");
+  });
+  it("a purpose inferred from the domain says so", async () => {
+    api.map = { _meta: { generated_at: gen }, nodes: twins, edges: [], groups: [] };
+    all();
+    await screen.findByText(/מציג/);
+    screen.getByRole("button", { name: "טבלה" }).click();
+    await screen.findByRole("table");
+    expect(document.querySelector("tbody")?.textContent).toContain("לפי התחום: הלומדים");
+  });
+  it("security layers are numbered outside-in", async () => {
+    api.map = { _meta: { generated_at: gen }, nodes: [], edges: [], groups: [] };
+    api.sec = { generated_at: gen, layers: {}, findings: [] };
+    render(
+      <MemoryRouter initialEntries={["/m/system/map?v=sec"]}>
+        <Routes>
+          <Route path="/m/system/map" element={<MgmtSystemMap />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const ol = await screen.findByRole("list", { name: "שכבות ההגנה" });
+    const first = ol.querySelector("li")?.textContent || "";
+    expect(first).toMatch(/^1\s*הכניסה מהאינטרנט/);
+    expect(ol.querySelectorAll("li")).toHaveLength(12);
+  });
+});
+
 describe("System item sheet", () => {
   const id = "windmill:flow:f/media_pipeline/x";
   const data = () => ({

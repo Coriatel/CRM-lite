@@ -14,6 +14,13 @@ export const St = ({ k }: { k: StatusK }) => <span className={`sy-st sy-st-${k}`
 const RUN = /([A-Za-z0-9/](?:[A-Za-z0-9.:/_\-@+%#=]*[A-Za-z0-9])?(?:[ ,]+[A-Za-z0-9/](?:[A-Za-z0-9.:/_\-@+%#=]*[A-Za-z0-9])?)*)/;
 export const Bidi = ({ t }: { t: string }) => <>{String(t).split(RUN).map((p, i) => (i % 2 ? <bdi key={i}>{p}</bdi> : <Fragment key={i}>{p}</Fragment>))}</>;
 
+// A value in words: "לא ידוע" in the soft grey, an inferred-from-domain prefix in grey, Latin runs isolated.
+export const Val = ({ t }: { t: string }) => {
+  if (t === "לא ידוע" || t === "לא נמצא שימוש" || t === "לא רץ לבד" || t === "לא מתוזמן") return <span className="sy-unk">{t}</span>;
+  if (t.startsWith("לפי התחום: ")) return <><span className="sy-unk">לפי התחום:</span> <Bidi t={t.slice("לפי התחום: ".length)} /></>;
+  return <Bidi t={t} />;
+};
+
 interface Finding { id: string; severity: string; what_he: string; why_it_matters_he?: string; needs_owner?: boolean }
 interface SecurityMap { generated_at?: string; findings: Finding[] }
 

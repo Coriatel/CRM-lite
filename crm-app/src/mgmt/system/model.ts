@@ -78,7 +78,7 @@ const fY = new Intl.DateTimeFormat("he-IL", { timeZone: TZ, day: "numeric", mont
 const fT = new Intl.DateTimeFormat("he-IL", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false });
 
 /** A time in words relative to the scan (היום / אתמול / date), as the mockup says it; "לא ידוע" when there is none. */
-export function when(iso: string | null | undefined, gen: string | null): string {
+export function when(iso: string | null | undefined, gen: string | null, dateOnly = false): string {
   if (!iso) return "לא ידוע";
   const d = new Date(iso);
   if (isNaN(+d)) return String(iso);
@@ -86,7 +86,7 @@ export function when(iso: string | null | undefined, gen: string | null): string
   if (g.getFullYear() !== d.getFullYear()) return fY.format(d);
   const day = fD.format(d);
   const p = day === fD.format(g) ? "היום" : day === fD.format(new Date(+g - 864e5)) ? "אתמול" : day === fD.format(new Date(+g + 864e5)) ? "מחר" : day;
-  return /^\d{4}-\d\d-\d\d$/.test(iso) ? p : `${p} ${fT.format(d)}`;
+  return dateOnly || /^\d{4}-\d\d-\d\d$/.test(iso) ? p : `${p} ${fT.format(d)}`;
 }
 
 export const lastGood = (n: SystemNode) => (n.last_ok as string | undefined) || (n.state === "works" ? (n.last_checked as string | undefined) : null) || null;

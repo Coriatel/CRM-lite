@@ -4,9 +4,9 @@ import { useLoad } from "../useLoad";
 import { MgLoading, MgNotice } from "../MgState";
 import { getSystem, type SystemMap, type SystemNode } from "./systemApi";
 import { buildModel, consequence, isAuto, lastGood, nodeStatus, title, when, W, type Model, type StatusK } from "./model";
-import { builtBy, COL, lastRunTxt, maintBy, matches, purpose, rowsFor, schedTxt, verdTxt, VIEWS, WHOSE, type Filter } from "./inventory";
+import { builtBy, COL, dupTitles, lastRunTxt, maintBy, matches, purpose, rowsFor, schedTxt, verdTxt, VIEWS, WHOSE, type Filter } from "./inventory";
 import { itemHref, SystemHead } from "./SystemHead";
-import { Bidi, St, Whose } from "./MgmtSystemPage";
+import { Bidi, St, Val, Whose } from "./MgmtSystemPage";
 import "./system.css";
 
 const LIMIT = 40;
@@ -24,7 +24,10 @@ function useDesk() {
   return d;
 }
 
-function Card({ n, m }: { n: SystemNode; m: Model }) {
+const DupName = ({ n, dup }: { n: SystemNode; dup: Set<string> }) =>
+  dup.has(title(n)) ? <span className="sy-sub sy-wide"><bdi className="sy-ltr">{n.name}</bdi></span> : null;
+
+function Card({ n, m, dup }: { n: SystemNode; m: Model; dup: Set<string> }) {
   const kv: [string, string][] = [
     ["נבנה על ידי", builtBy(n)],
     ["מתוחזק על ידי", maintBy(n, m.lanes)],
@@ -39,6 +42,7 @@ function Card({ n, m }: { n: SystemNode; m: Model }) {
         <summary>
           <span className="sy-t"><Bidi t={title(n)} /><Whose n={n} /></span>
           <span className="sy-chev" aria-hidden="true">⌄</span>
+          <DupName n={n} dup={dup} />
           {purpose(n) && <span className="sy-s sy-wide"><Bidi t={purpose(n)} /></span>}
           <span className="sy-stl"><St k={nodeStatus(n).k} />{consequence(n, m) && <span className="sy-s"><Bidi t={consequence(n, m)} /></span>}</span>
           <span className="sy-s sy-wide">נבדק {when(n.last_checked as string, m.gen)}{good && good !== n.last_checked ? ` · עבר בהצלחה ${when(good, m.gen)}` : ""}</span>
@@ -67,6 +71,7 @@ export function MgmtSystemAll() {
     setSp(Object.fromEntries(Object.entries(next).filter(([k, v]) => v && !(k === "view" && v === "all") && !(k === "dir" && v === "asc"))), { replace: true });
     setAll(false);
   };
+  const dup = useMemo(() => (m ? dupTitles(m) : new Set<string>()), [m]);
   const r = useMemo(() => (m ? rowsFor(m, f) : null), [m, sp]); // eslint-disable-line react-hooks/exhaustive-deps
   const view = VIEWS.find((v) => v.id === f.view) || VIEWS[0];
   const cols = view.d.map((k) => COL[k]);
@@ -151,8 +156,8 @@ export function MgmtSystemAll() {
                     <tr key={n.id}>
                       {cols.map((c, i) => (
                         <td key={c.k} className={i === 0 ? "sy-c0" : c.nowrap ? "sy-nowrap" : ""}>
-                          {i === 0 ? <Link to={itemHref(n.id)}><Bidi t={c.v(n, m)} /></Link> : c.k === "state" ? <St k={nodeStatus(n).k} /> : c.k === "url" ? <bdi className="sy-ltr">{n.name}</bdi> : <Bidi t={c.v(n, m)} />}
-                          {i === 0 && <Whose n={n} />}
+                          {i === 0 ? <Link to={itemHref(n.id)}><Bidi t={c.v(n, m)} /></Link> : c.k === "state" ? <St k={nodeStatus(n).k} /> : c.k === "url" ? <bdi className="sy-ltr">{n.name}</bdi> : <Val t={c.v(n, m)} />}
+                          {i === 0 && <><Whose n={n} />{dup.has(title(n)) && <span className="sy-sub"><bdi className="sy-ltr">{n.name}</bdi></span>}</>}
                           {c.sub && c.sub(n, m) && <span className="sy-sub"><Bidi t={c.sub(n, m)} /></span>}
                         </td>
                       ))}
@@ -164,7 +169,7 @@ export function MgmtSystemAll() {
           ) : (
             <>
               <ul className="mg-panel sy-rows sy-cards">
-                {shown.length ? shown.map((n) => <Card key={n.id} n={n} m={m} />) : <li className="sy-row">לא נמצא כלום. אפשר לנקות מסננים.</li>}
+                {shown.length ? shown.map((n) => <Card key={n.id} n={n} m={m} dup={dup} />) : <li className="sy-row">לא נמצא כלום. אפשר לנקות מסננים.</li>}
               </ul>
               {r.rows.length > shown.length && (
                 <div className="sy-more">

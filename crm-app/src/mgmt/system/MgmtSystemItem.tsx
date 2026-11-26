@@ -7,7 +7,7 @@ import { buildModel, consequence, isAuto, lastGood, nodeStatus, title, when, who
 import { builtBy, checkedBy, lastRunTxt, maintBy, purpose, schedTxt, verdTxt } from "./inventory";
 import { buildServices, downstream, outcomesOf, svcOf } from "./services";
 import { itemHref, SystemHead } from "./SystemHead";
-import { Bidi, St, Whose } from "./MgmtSystemPage";
+import { Bidi, St, Val, Whose } from "./MgmtSystemPage";
 import "./system.css";
 
 // One record of the map, in the eight sections of the approved mockup v4d. Permissions (section 7) come with S10.
@@ -56,6 +56,7 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
   const ins = uniq(map.edges.filter((e) => e.to === n.id).map((e) => m.N[e.from]));
   const sv = svcOf(x, n), ds = sv.length ? downstream(x, sv[0].id) : [];
   const job = s(o(n.does_its_job)?.value);
+  const failed = n.state === "failing" || /נכשל/.test(s(n.last_result));
   const cb = o(n.contributes_to), presumed = !!cb && /כלל|rule/.test(s(cb.basis));
   const host = o(n.hosting), reg = o(n.registered), made = o(n.made_at);
   const g = m.groups.find((gr) => gr.id === n.group);
@@ -69,7 +70,7 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
       <div className="sy-ihead">
         <h1><Bidi t={title(n)} />{n.purpose_source === "guess" && <span className="sy-s"> (תיאור משוער)</span>}</h1>
         {lead && <p className="sy-lead"><Bidi t={lead} /></p>}
-        <p className="sy-s"><St k={nodeStatus(n).k} />{consequence(n, m) && <> · <Bidi t={consequence(n, m)} /></>}<Whose n={n} /> · מזהה <bdi className="sy-ltr">{sid}</bdi></p>
+        <p className="sy-s"><St k={nodeStatus(n).k} />{consequence(n, m) && <> · <Bidi t={consequence(n, m)} /></>}<Whose n={n} /> · <span className="sy-nw">מזהה <bdi className="sy-ltr">{sid}</bdi></span></p>
       </div>
       <div className="sy-xcut">
         <Sec i={1} t="מה זה עושה ולמי זה עוזר">
@@ -87,14 +88,14 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
         </Sec>
         <Sec i={3} t="מצב עכשיו">
           <Kv k="מצב"><St k={nodeStatus(n).k} /><Ev t={consequence(n, m)} /></Kv>
-          <Kv k="עושה את העבודה?">{job === "yes" ? <span className="sy-yes">כן</span> : job === "no" ? <span className="sy-no">לא</span> : <Unk />}</Kv>
-          <Kv k="נסרק לאחרונה">{when(s(n.last_checked) || null, m.gen)}<Ev t={checkedBy(n.checked_by) || "שום בדיקה"} /></Kv>
-          <Kv k="עבר בהצלחה לאחרונה">{when(lastGood(n), m.gen)}</Kv>
+          <Kv k="עושה את העבודה?">{job === "yes" ? <span className="sy-yes">כן</span> : job === "no" ? <span className="sy-no">לא</span> : <Unk />}{failed && <Ev t="הריצה האחרונה נכשלה" />}</Kv>
+          <Kv k="נסרק לאחרונה"><Val t={when(s(n.last_checked) || null, m.gen)} /><Ev t={checkedBy(n.checked_by) || "שום בדיקה"} /></Kv>
+          <Kv k="עבר בהצלחה לאחרונה"><Val t={when(lastGood(n), m.gen)} /></Kv>
           {!!n.failing_since && <Kv k="נכשל מאז"><span className="sy-no">{when(s(n.failing_since), m.gen)}</span></Kv>}
-          <Kv k="פעיל לאחרונה">{when(s(n.last_active) || null, m.gen)}</Kv>
+          <Kv k="פעיל לאחרונה"><Val t={when(s(n.last_active) || null, m.gen)} /></Kv>
         </Sec>
         <Sec i={4} t="מקומו במסלול השירות">
-          <Kv k="שירות במפה">{sv.length ? sv.map((y) => y.t).join(" · ") : <Unk t="לא חלק מהמפה" />}</Kv>
+          <Kv k="שירות במפה">{sv.length ? sv.map((y, i) => <span key={y.id}>{i > 0 && " · "}<Link to={`/m/system/map?o=${y.o}&s=${y.id}`}>{y.t}</Link></span>) : <Unk t="לא חלק מהמפה" />}</Kv>
           <Kv k="תוצאה">{sv.length ? outcomesOf(x, sv[0].id).map((y) => y.t).join(", ") : <Unk />}</Kv>
           <Kv k="תחום">{g ? <Link to={`/m/system/all?g=${encodeURIComponent(g.id)}`}>{g.name_he}</Link> : <Unk />}</Kv>
           <Kv k="משתמש ב"><Names a={outs.filter((y) => !y.id.startsWith("hw:") && !y.id.startsWith("net:"))} /></Kv>
@@ -106,7 +107,7 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
         </Sec>
         <Sec i={6} t="רץ אוטומטית ואיפה בשרת">
           <Kv k="מתי רץ"><Bidi t={schedTxt(n)} /></Kv>
-          {(isAuto(n) || !!n.last_run_at) && <Kv k="ריצה אחרונה"><Bidi t={lastRunTxt(n, m)} /></Kv>}
+          {(isAuto(n) || !!n.last_run_at) && <Kv k="ריצה אחרונה"><span className={failed ? "sy-no" : undefined}><Val t={lastRunTxt(n, m)} /></span></Kv>}
           {!!n.next_run_at && <Kv k="הריצה הבאה">{when(s(n.next_run_at), m.gen)}</Kv>}
           <Kv k="מחשב">{s(host?.machine) ? <bdi>{s(host?.machine)}</bdi> : <Unk />}</Kv>
           <Kv k="איך מגיעים אליו">{entries.length ? <Names a={entries} /> : ENTRY[s(host?.entry)] || <Unk />}</Kv>
@@ -115,7 +116,7 @@ function Body({ n, m, map }: { n: SystemNode; m: Model; map: SystemMap }) {
         <Sec i={8} t="מזהה, תאריכים ומקורות">
           <Kv k="מזהה"><bdi className="sy-ltr">{sid}</bdi></Kv>
           <Kv k="שם טכני"><bdi className="sy-ltr">{n.name}</bdi></Kv>
-          <Kv k="מתי נוצר">{madeAt ? when(madeAt, m.gen) : <Unk />}{made?.strength === "weak" && <Ev t={`משוער. ${s(made.reason)}`} />}</Kv>
+          <Kv k="מתי נוצר">{madeAt ? <>{when(madeAt, m.gen, true)}{made?.strength === "weak" && " (משוער)"}</> : <Unk />}{made?.strength === "weak" && <Ev t={s(made.reason)} />}</Kv>
           <Kv k="ברישום הנכסים">{REG[s(reg?.estate)] || <Unk />}</Kv>
           <Kv k="בבדיקות הבריאות">{REG[s(reg?.health)] || <Unk />}</Kv>
           <Kv k="ביטחון בנתון">{CONF[s(n.confidence)] || <Unk />}</Kv>

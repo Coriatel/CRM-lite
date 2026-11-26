@@ -49,6 +49,7 @@ export function AccessView({ perm, m }: { perm: Permissions; m: Model }) {
             </span>
             {i.reach_he && <span className="sy-s"><Bidi t={i.reach_he} /></span>}
             {i.sudo_allowed_he && <span className="sy-s"><Bidi t={`מותר לו להריץ רק: ${i.sudo_allowed_he.join(", ")}`} /></span>}
+            {!!i.devices?.length && <span className="sy-s"><Bidi t={i.devices.map((d) => (d.note_he ? `${d.name} (${d.note_he})` : d.name)).join(", ")} /></span>}
           </li>
         ))}
       </ul>
@@ -115,9 +116,9 @@ export function SecView({ sec, m, open }: { sec: Security; m: Model; open: strin
         <div>
           <h2 className="sy-sec">שכבות ההגנה <span className="sy-n"><bdi>{layers(sec).length}</bdi></span></h2>
           <ol className="mg-panel sy-rows sy-layers" aria-label="שכבות ההגנה">
-            {layers(sec).map((x) => (
+            {layers(sec).map((x, i) => (
               <li key={x.t} className="sy-row">
-                <span className="sy-t">{x.t} <St k={x.k as StatusK} /></span>
+                <span className="sy-t"><span className="sy-num"><bdi>{i + 1}</bdi></span> {x.t} <St k={x.k as StatusK} /></span>
                 <span className="sy-s"><Bidi t={x.s} /></span>
                 <span className="sy-u">{x.chk || "נבדק"} · {when(x.at, m.gen)}</span>
               </li>

@@ -5,6 +5,7 @@ import { consequence, isAuto, lastGood, nodeStatus, title, when, whose, W, type 
 export const KSHORT: Record<string, string> = { site: "אתר", container: "קונטיינר", timer: "משימה מתוזמנת", "user-timer": "משימה מתוזמנת", service: "שירות רקע", workflow: "תהליך אוטומטי", script: "סקריפט", external: "שירות חיצוני", machine: "מחשב", disk: "דיסק", gpu: "כרטיס מסך", "network-entry": "כניסת רשת", "person-env": "סביבה אישית", "env-service": "שירות בסביבה אישית" };
 export const WHOSE = ["המערכת", "הבעלים", "עדי", "הרב", "הילד", "לא ידוע"];
 const LANE: Record<string, string> = { "nekuda-mgmt": "ניהול נקודה שלי", "nai-main": "נשמה AI", "estate-control-plane": "תשתית ונכסים", "flow-control-v2": "Flow", "crm-lite-ops": "CRM", "control-tower-owner-view": "מסכי הבעלים", "chagim-simchat-torah": "אתרי החגים", "heshbonot-revive": "חשבונות", itaruta: "אתערותא", "itra-admin": "עיטרא", "mn-os": "MN-OS", "hebrew-stt-library": "תמלול", "control-tower-health": "בדיקות בריאות", "distribution-calendar": "הפצה", "wa-bridge-recovery": "וואטסאפ", lessons: "שיעורים", "management-summary-contract": "דיווחים לבעלים", "history-learning": "למידה מהיסטוריה", "ci-policy": "בדיקות ופריסה" };
+export const BY_DOMAIN = "לפי התחום:";
 const VERD: Record<string, string> = { needed: "נחוץ", "candidate to retire": "מועמד להפסקה", "owner decides": "מחכה להחלטה שלך" };
 
 const obj = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
@@ -43,7 +44,7 @@ export function lastRunTxt(n: SystemNode, m: Model): string {
 export interface Col { k: string; l: string; v: (n: SystemNode, m: Model) => string; sub?: (n: SystemNode, m: Model) => string; nowrap?: 1 }
 export const COLS: Col[] = [
   { k: "name", l: "שם", v: (n) => title(n), sub: (n) => purpose(n) },
-  { k: "purpose", l: "מטרה", v: (n) => purpose(n) || String((obj(n.serves)?.text_he as string) || "") || "לא ידוע" },
+  { k: "purpose", l: "מטרה", v: (n) => purpose(n) || (obj(n.serves)?.text_he ? `${BY_DOMAIN} ${obj(n.serves)!.text_he}` : "לא ידוע") },
   { k: "state", l: "מצב", v: (n) => W[nodeStatus(n).k], sub: (n, m) => consequence(n, m) },
   { k: "maint", l: "מתוחזק על ידי", v: (n, m) => maintBy(n, m.lanes) || "לא ידוע" },
   { k: "built", l: "נבנה על ידי", v: (n) => builtBy(n) || "לא ידוע" },
@@ -56,6 +57,12 @@ export const COLS: Col[] = [
   { k: "kind", l: "סוג", v: (n) => KSHORT[n.kind] || n.kind, nowrap: 1 },
   { k: "url", l: "כתובת", v: (n) => n.name },
 ];
+/** Titles shared by more than one record: those rows also show their technical name, so they can be told apart. */
+export function dupTitles(m: Model): Set<string> {
+  const c: Record<string, number> = {};
+  for (const n of m.nodes) c[title(n)] = (c[title(n)] || 0) + 1;
+  return new Set(Object.keys(c).filter((t) => c[t] > 1));
+}
 export const COL = Object.fromEntries(COLS.map((c) => [c.k, c]));
 
 const SERVER = ["machine", "gpu", "disk", "network-entry", "container", "service", "person-env", "env-service"];
