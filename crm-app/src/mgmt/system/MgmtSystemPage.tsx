@@ -1,7 +1,7 @@
 import { Fragment, useMemo } from "react";
 import { useLoad } from "../useLoad";
 import { MgLoading, MgNotice } from "../MgState";
-import { freshness } from "../format";
+import { SystemHead } from "./SystemHead";
 import { getSystem, type SystemMap, type SystemNode } from "./systemApi";
 import { buildModel, consequence, homeLists, lastGood, nodeStatus, title, when, whose, W, type Model, type StatusK } from "./model";
 import { buildServices, OUTCOMES, outcomeStatus, outcomesOf, svcOf, type Services } from "./services";
@@ -16,7 +16,7 @@ export const Bidi = ({ t }: { t: string }) => <>{String(t).split(RUN).map((p, i)
 interface Finding { id: string; severity: string; what_he: string; why_it_matters_he?: string; needs_owner?: boolean }
 interface SecurityMap { generated_at?: string; findings: Finding[] }
 
-const Whose = ({ n }: { n: SystemNode }) => {
+export const Whose = ({ n }: { n: SystemNode }) => {
   const w = whose(n);
   if (w === "המערכת") return null;
   return <span className={["עדי", "הרב", "הילד", "הבעלים"].includes(w) ? "sy-tag sy-person" : "sy-tag"}> של {w === "לא ידוע" ? "מי: לא ידוע" : w}</span>;
@@ -74,21 +74,11 @@ export function MgmtSystemPage() {
   const m = useMemo(() => (map.data ? buildModel(map.data) : null), [map.data]);
   const x = useMemo(() => (m && map.data ? buildServices(m, map.data.edges) : null), [m, map.data]);
   const h = useMemo(() => (m ? homeLists(m) : null), [m]);
-  const fresh = freshness(map.data?._meta?.generated_at ?? null);
   const unv = x ? x.links.filter((l) => !l.ok).length : 0;
 
   return (
     <>
-      <div className="mg-page-head">
-        <div className="mg-head-text">
-          <h1>מערכת</h1>
-          {map.data && (
-            <p className={fresh.stale ? "mg-sub mg-stale" : "mg-sub"} role="status">
-              {fresh.label}
-            </p>
-          )}
-        </div>
-      </div>
+      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} />
       {!map.loaded && map.error == null && <MgLoading />}
       {map.error != null && (
         <section className="mg-panel">

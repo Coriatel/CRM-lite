@@ -127,6 +127,9 @@ const MgmtTodayPage = lazy(() =>
 const MgmtSystemPage = lazy(() =>
   import("./mgmt/system/MgmtSystemPage").then((m) => ({ default: m.MgmtSystemPage })),
 );
+const MgmtSystemAll = lazy(() =>
+  import("./mgmt/system/MgmtSystemAll").then((m) => ({ default: m.MgmtSystemAll })),
+);
 const MgmtContactsPage = lazy(() =>
   import("./mgmt/MgmtContactsPage").then((m) => ({
     default: m.MgmtContactsPage,
@@ -291,6 +294,7 @@ function AppContent() {
           <Route path="donors" element={<MgmtDonorsPage />} />
           <Route path="tasks" element={<MgmtTasksPage />} />
           <Route path="system" element={<MgmtSystemPage />} />
+          <Route path="system/all" element={<MgmtSystemAll />} />
         </Route>
         <Route
           path="call/:contactId"

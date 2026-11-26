@@ -22,6 +22,7 @@ vi.mock("../system/systemApi", () => ({
 
 import { MgmtShell } from "../MgmtShell";
 import { MgmtSystemPage } from "../system/MgmtSystemPage";
+import { MgmtSystemAll } from "../system/MgmtSystemAll";
 import { buildModel, groupStatus, nodeStatus, title, W } from "../system/model";
 
 afterEach(() => {
@@ -80,7 +81,7 @@ describe("System page (home)", () => {
 
   it("lists what is broken first, with its consequence and owner, in the owner's words", async () => {
     api.map = map();
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     const broken = await screen.findByRole("list", { name: "מה מופרע" });
     const text = broken.textContent || "";
     expect(text).toContain("אתר שנופל");
@@ -94,7 +95,7 @@ describe("System page (home)", () => {
   });
   it("parks retire candidates in a fold, and counts domains", async () => {
     api.map = map();
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     await screen.findByText(/לא רצים, ומחכים לניקוי או להחלטה/);
     const body = document.body.textContent || "";
     expect(body).toContain("תהליך ישן");
@@ -105,7 +106,7 @@ describe("System page (home)", () => {
     const m = map();
     m.nodes.push(node("site:give.merkazneshama.co.il", { state: "failing", title_he: "עמוד התרומה", failing_since: m._meta.generated_at }));
     api.map = m;
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     const out = await screen.findByRole("list", { name: "מה אפשר לעשות עכשיו" });
     const rows = Array.from(out.querySelectorAll("li")).map((li) => li.textContent || "");
     expect(rows).toHaveLength(4);
@@ -124,26 +125,79 @@ describe("System page (home)", () => {
       { id: "f1", severity: "high", what_he: "שם ציבורי מצביע על שרת ישן", needs_owner: true },
       { id: "f2", severity: "low", what_he: "ממצא קטן" },
     ] };
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     const hi = await screen.findByRole("list", { name: "ממצאי אבטחה דחופים" });
     expect(hi.textContent).toContain("שם ציבורי מצביע על שרת ישן");
     expect(hi.textContent).toContain("צריך אותך");
     expect(document.body.textContent).not.toContain("ממצא קטן");
     cleanup();
     api.secFail = 503;
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     await screen.findByRole("list", { name: "מה מופרע" });
     await screen.findByText(/ממצאי האבטחה לא נטענו/);
   });
   it("403 is worded as no permission, not as an error", async () => {
     api.fail = 403;
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText(/אין לך הרשאה/)).toBeTruthy());
   });
   it("other failures offer a retry", async () => {
     api.fail = 503;
-    render(<MgmtSystemPage />);
+    render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("ניסיון נוסף")).toBeTruthy());
+  });
+});
+
+describe("System list (כל מה שיש במערכת)", () => {
+  const nodes = [
+    { id: "s1", kind: "site", name: "a.example.org", state: "works", title_he: "אתר אחד", owner_label_he: "עדי" },
+    { id: "s2", kind: "site", name: "b.example.org", state: "failing", title_he: "אתר שנופל", owner_label_he: "המערכת" },
+    { id: "w1", kind: "workflow", name: "flow", state: "works", title_he: "תהליך לילה", owner_label_he: "המערכת", schedule_he: "כל לילה" },
+    { id: "x1", kind: "external", name: "vimeo", state: "unknown", title_he: "Vimeo", owner_label_he: "המערכת" },
+  ];
+  const all = (q = "") =>
+    render(
+      <MemoryRouter initialEntries={[`/m/system/all${q}`]}>
+        <Routes>
+          <Route path="/m/system/all" element={<MgmtSystemAll />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  const count = () => (document.querySelector(".sy-count")?.textContent || "").replace(/\s+/g, " ");
+
+  it("lists everything, the broken first, and the sub-tabs link home", async () => {
+    api.map = { _meta: { generated_at: new Date().toISOString() }, nodes, edges: [], groups: [] };
+    all();
+    await screen.findByText(/מציג/);
+    expect(count()).toContain("מציג 4 מתוך 4");
+    const titles = Array.from(document.querySelectorAll(".sy-cards summary .sy-t")).map((e) => e.textContent);
+    expect(titles[0]).toContain("אתר שנופל");
+    expect(document.querySelector('a[href="/m/system"]')?.textContent).toBe("תמונת מצב");
+  });
+  it("saved view, whose chips and search narrow the list", async () => {
+    api.map = { _meta: { generated_at: new Date().toISOString() }, nodes, edges: [], groups: [] };
+    all("?view=sites");
+    await screen.findByText(/מציג/);
+    expect(count()).toContain("מציג 2 מתוך 2");
+    screen.getAllByRole("button", { name: /^עדי/ })[0].click();
+    await waitFor(() => expect(count()).toContain("מציג 1 מתוך 2"));
+    cleanup();
+    all("?q=לילה");
+    await screen.findByText(/מציג/);
+    expect(count()).toContain("מציג 1 מתוך 4");
+  });
+  it("the phone table mode sorts by a header", async () => {
+    api.map = { _meta: { generated_at: new Date().toISOString() }, nodes, edges: [], groups: [] };
+    all("?sort=name");
+    await screen.findByText(/מציג/);
+    screen.getByRole("button", { name: "טבלה" }).click();
+    const th = await screen.findByRole("columnheader", { name: /שם/ });
+    expect(th.getAttribute("aria-sort")).toBe("ascending");
+    const first = () => document.querySelector("tbody tr td")?.textContent || "";
+    expect(first()).toContain("אתר אחד");
+    th.querySelector("button")!.click();
+    await waitFor(() => expect(screen.getByRole("columnheader", { name: /שם/ }).getAttribute("aria-sort")).toBe("descending"));
+    expect(first()).not.toContain("אתר אחד");
   });
 });
 

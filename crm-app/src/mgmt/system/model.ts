@@ -5,7 +5,7 @@ export type StatusK = "ok" | "care" | "down" | "maint" | "off" | "priv" | "unk";
 export const W: Record<StatusK, string> = { ok: "עובד", care: "עובד, צריך טיפול", down: "לא עובד עכשיו", maint: "תחזוקה", off: "כבוי בכוונה", priv: "פרטי בכוונה", unk: "לא ידוע" };
 
 export interface Group { id: string; name_he: string; purpose_he?: string; node_ids?: string[]; component_ids?: string[] }
-export interface Model { nodes: SystemNode[]; N: Record<string, SystemNode>; groups: Group[]; inbound: Record<string, string[]>; gen: string | null }
+export interface Model { nodes: SystemNode[]; N: Record<string, SystemNode>; groups: Group[]; inbound: Record<string, string[]>; gen: string | null; lanes: Record<string, string> }
 
 // Owner decision 12.11: the accounting addresses are private on purpose, not failing.
 const PRIVATE_BY_OWNER: Record<string, string> = { "site:heshbon.merkazneshama.co.il": "12.11", "site:heshbonot.merkazneshama.co.il": "12.11" };
@@ -15,7 +15,7 @@ export function buildModel(map: SystemMap): Model {
   const N = Object.fromEntries(nodes.map((n) => [n.id, n]));
   const inbound: Record<string, string[]> = {};
   for (const e of map.edges) (inbound[e.to] ||= []).push(e.from);
-  return { nodes, N, groups: (map.groups as Group[]) || [], inbound, gen: map._meta?.generated_at ?? null };
+  return { nodes, N, groups: (map.groups as Group[]) || [], inbound, gen: map._meta?.generated_at ?? null, lanes: (map.lane_labels as Record<string, string>) || {} };
 }
 
 export function nodeStatus(n: SystemNode): { k: StatusK; note?: string } {
