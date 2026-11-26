@@ -139,6 +139,9 @@ const MgmtSystemMap = lazy(() =>
 const MgmtSystemDecide = lazy(() =>
   import("./mgmt/system/MgmtSystemDecide").then((m) => ({ default: m.MgmtSystemDecide })),
 );
+const MgmtSystemAtlas = lazy(() =>
+  import("./mgmt/system/MgmtSystemAtlas").then((m) => ({ default: m.MgmtSystemAtlas })),
+);
 const MgmtContactsPage = lazy(() =>
   import("./mgmt/MgmtContactsPage").then((m) => ({
     default: m.MgmtContactsPage,
@@ -307,6 +310,7 @@ function AppContent() {
           <Route path="system/map" element={<MgmtSystemMap />} />
           <Route path="system/item/*" element={<MgmtSystemItem />} />
           <Route path="system/decide" element={<MgmtSystemDecide />} />
+          <Route path="system/atlas" element={<MgmtSystemAtlas />} />
         </Route>
         <Route
           path="call/:contactId"
