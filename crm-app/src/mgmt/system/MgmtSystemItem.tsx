@@ -7,7 +7,7 @@ import { buildModel, consequence, isAuto, lastGood, nodeStatus, title, when, who
 import { builtBy, checkedBy, lastRunTxt, maintBy, purpose, schedTxt, verdTxt } from "./inventory";
 import { buildServices, downstream, outcomesOf, svcOf } from "./services";
 import { itemHref, SystemHead } from "./SystemHead";
-import { openQs, qFor } from "./questions";
+import { qCount, qFor } from "./questions";
 import { Bidi, St, Val, Whose } from "./MgmtSystemPage";
 import { boundary, SUDO, type Permissions } from "./MapAccessSec";
 import "./system.css";
@@ -152,7 +152,7 @@ export function MgmtSystemItem() {
   const perm = pl.data ?? (pl.loaded || pl.error != null ? null : undefined);
   return (
     <>
-      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={openQs(map.data).length} />
+      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={qCount(map.data)} />
       <button type="button" className="sy-back" onClick={() => nav(-1)}><span aria-hidden="true">→</span> חזרה</button>
       {!map.loaded && map.error == null && <MgLoading />}
       {map.error != null && (

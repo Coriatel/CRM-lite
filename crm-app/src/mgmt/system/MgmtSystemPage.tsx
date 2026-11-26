@@ -3,7 +3,7 @@ import { useLoad } from "../useLoad";
 import { MgLoading, MgNotice } from "../MgState";
 import { Link } from "react-router-dom";
 import { itemHref, SystemHead } from "./SystemHead";
-import { openQs } from "./questions";
+import { qCount } from "./questions";
 import { getSystem, type SystemMap, type SystemNode } from "./systemApi";
 import { buildModel, consequence, homeLists, lastGood, nodeStatus, title, when, whose, W, type Model, type StatusK } from "./model";
 import { buildServices, OUTCOMES, outcomeStatus, outcomesOf, svcOf, type Services } from "./services";
@@ -91,7 +91,7 @@ export function MgmtSystemPage() {
 
   return (
     <>
-      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={openQs(map.data).length} />
+      <SystemHead gen={map.data ? (map.data._meta?.generated_at ?? null) : undefined} nq={qCount(map.data)} />
       {!map.loaded && map.error == null && <MgLoading />}
       {map.error != null && (
         <section className="mg-panel">

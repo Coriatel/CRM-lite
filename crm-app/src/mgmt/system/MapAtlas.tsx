@@ -123,7 +123,7 @@ export function Wires({ lines, dep }: { lines: Line[]; dep: string }) {
       <div className="sy-pills" aria-hidden="true">
         {g.tags.map((t, i) => (
           <span key={i} className={`sy-pill${t.side ? " sy-pill-st" : ""}`} style={{ insetInlineStart: t.x, insetBlockStart: t.y }}>
-            {t.side ? <><b>{t.n}</b>{t.n === 1 ? "קשר" : "קשרים"}</> : t.n === 1 ? "קשר אחד" : `${t.n} קשרים`}
+            {t.n === 1 ? "קשר אחד" : `${t.n} קשרים`}
           </span>
         ))}
       </div>
@@ -304,6 +304,7 @@ export function Atlas({ m, x, edges, p }: { m: Model; x: Services; edges: Edge[]
               <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>לפתוח את המפה במסך מלא
             </button>
           </nav>
+          {fl0 && <p className="sy-s sy-flintro">שלוש קומות: מה שרואים, מה שעובד מאחור, ועל מה זה יושב. נגיעה מדליקה את כל העמוד.</p>}
           <div className={`sy-ac sy-ly-${P.ly}${P.o ? " sy-has-o" : ""}${P.pw ? " sy-has-pw" : ""}`} data-testid="atlas">
             {!z && !fl0 && <Wires lines={lines} dep={`${P.ly}|${P.o}|${P.pw}|${lines.length}`} />}
             {fl0 ? <FloorsView fl={fl} sel={fsel} onPick={(id) => setFsel(fsel === id ? null : id)} />
@@ -314,7 +315,7 @@ export function Atlas({ m, x, edges, p }: { m: Model; x: Services; edges: Edge[]
           <div className="sy-akey">
             {fl0 ? <><span><i className="sy-ln sy-thin" />קו = נשען על, לפי הקשרים שנמצאו בנתונים</span><span>חלק בלי קו: אין במפה קשר רשום</span><span>נגיעה מדליקה את כל העמוד</span></>
               : d ? null : z ? <span>לחיצה על תחום מראה ממה הוא בנוי</span>
-              : P.ly === "routes" ? <><span>המספר = סדר השלבים במסלול</span><span>חץ = המסלול עובר לאזור אחר</span><span><i className="sy-ln sy-dash" />לומדים תורמים מתוך נקודה שלי</span></>
+              : P.ly === "routes" ? <><span>המספר = סדר השלבים במסלול</span><span>חץ = המסלול עובר לאזור אחר</span><span><i className="sy-ln sy-dash" />קו מקווקו: לומדים בנקודה שלי שגם תורמים</span></>
               : <><span><i className="sy-ln" />קו = יש קשרים בנתונים בין האזורים</span><span><i className="sy-ln sy-dash" />קו מקווקו = קשר לא ודאי</span></>}
             <Link to="/m/system/map?det=1">התוצאות והשירותים כרשימה</Link>
           </div>

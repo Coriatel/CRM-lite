@@ -351,13 +351,17 @@ describe("System item sheet", () => {
     expect(list.querySelector("a")?.getAttribute("href")).toBe(itemHref(id));
     cleanup();
     at(itemHref(id));
-    await screen.findByText("מחכה לך");
+    expect((await screen.findAllByText("מחכה לך")).some((e) => e.tagName === "DT")).toBe(true);
     expect(document.body.textContent).toContain("ההצעה: לתקן");
   });
-  it("decisions tab says when the map does not carry the questions yet", async () => {
+  it("while the map carries no questions, the decisions sub-tab and the item's row are hidden, with no placeholder text", async () => {
     api.map = data();
-    render(<MemoryRouter><MgmtSystemDecide /></MemoryRouter>);
-    await screen.findByText(/עוד לא מתפרסמות במפה/);
+    at(itemHref(id));
+    await screen.findByRole("heading", { level: 1, name: /מסלול בדיקה/ });
+    expect(screen.queryByRole("link", { name: /מחכה להחלטה שלך/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /כל מה שיש במערכת/ })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("מחכה לך");
+    expect(document.body.textContent).not.toContain("מתפרסמות");
   });
   it("an unknown id says so", async () => {
     api.map = data();
@@ -496,6 +500,23 @@ describe("System map: the drawn atlas (S7b)", () => {
     expect(aside.textContent).toMatch(/נשען על\s*שרת האתר/);
     fireEvent.click(fl.querySelector('[data-f="site:lone"]')!);
     expect(aside.textContent).toContain("אין במפה קשר רשום");
+  });
+  it("קומות: the unnamed local port services sit in one chip that lists the ports and keeps the site's pillar", async () => {
+    const port = (p: number) => ({ id: `proc:port-${p}`, kind: "service", name: `port ${p}`, state: "works", purpose_he: `שירות מקומי על פורט ${p} (לא קונטיינר)` });
+    api.map = {
+      _meta: { generated_at: new Date().toISOString() },
+      nodes: [{ id: "site:n", kind: "site", name: "n.example.org", state: "works", purpose_he: "אתר" }, port(8137), port(8091), { id: "c:app", kind: "container", name: "app", state: "works", purpose_he: "שרת האתר" }],
+      edges: [{ from: "site:n", to: "proc:port-8137", rel: "calls" }, { from: "site:n", to: "proc:port-8091", rel: "calls" }, { from: "site:n", to: "c:app", rel: "calls" }],
+      groups: [],
+    };
+    at("/m/system/map?ly=floors");
+    const fl = await screen.findByTestId("floors");
+    expect(document.body.textContent).toContain("שלוש קומות: מה שרואים");
+    const mid = Array.from(fl.querySelectorAll('section[aria-label^="קומה 2"] [data-f]')).map((e) => e.textContent);
+    expect(mid).toEqual(["שרת האתר", "שירותים מקומיים בלי שם · 2"]);
+    expect(fl.querySelectorAll("svg.sy-fpil line")).toHaveLength(2);
+    fireEvent.click(fl.querySelector('[data-f="bg:ports"]')!);
+    expect(screen.getByRole("complementary", { name: "מבט על" }).textContent).toMatch(/פורט 8137 · פורט 8091/);
   });
   it("full screen (S8): the button opens it with the same layer; it covers the page, keeps the layer in its links, and exits back to the map", async () => {
     api.map = data();

@@ -19,6 +19,8 @@ export const FL_NAMES: [keyof Pick<Floors, "top" | "mid" | "bot">, string, strin
   ["bot", "על מה הכול יושב", "השרת, הדיסקים, דרכי הכניסה והשירותים בחוץ", "#4b5d6e"],
 ];
 
+const isPort = (n: SystemNode) => /^proc:port-\d+$/.test(n.id) && !n.title_he;
+
 export function buildFloors(m: Model, edges: Edge[]): Floors {
   const N = m.N, out: Record<string, string[]> = {};
   for (const e of edges) if (N[e.from] && N[e.to]) (out[e.from] ||= []).push(e.to);
@@ -53,6 +55,15 @@ export function buildFloors(m: Model, edges: Edge[]): Floors {
     for (const t of ex) { down[id].add(t); bots.add(t); }
   }
   for (const a of mids) for (const t of out[a] || []) if (N[t].kind === "external") { down[a].add(t); bots.add(t); }
+  // the unnamed local services (a bare port behind a route) are one chip, so they do not bury the named services
+  const ports = [...mids].filter((id) => isPort(N[id]));
+  if (ports.length > 1) {
+    const g: Bg = { id: "bg:ports", kind: "bg", he: "שירותים מקומיים בלי שם", members: new Set(ports) };
+    bg[g.id] = g;
+    down[g.id] = new Set(ports.flatMap((p) => [...(down[p] || [])]));
+    for (const p of ports) { mids.delete(p); delete down[p]; }
+    for (const ds of Object.values(down)) if (ports.some((p) => ds.delete(p))) ds.add(g.id);
+  }
   const up: Record<string, Set<string>> = {};
   for (const [a, ds] of Object.entries(down)) for (const b of ds) (up[b] ||= new Set()).add(a);
   const rank = (id: string) => (down[id]?.size || 0) + (up[id]?.size || 0);
@@ -139,6 +150,7 @@ export function FloorInfo({ fl, id, onClear, actions }: { fl: Floors; id: string
   const list = (ns: FNode[]) => <Bidi t={ns.map(flLab).join(" · ")} />;
   const row = (k: string, v: React.ReactNode) => <div><dt>{k}</dt><dd>{v}</dd></div>;
   const size = column(fl, id).size - 1;
+  const cap = n.id === "bg:ports" ? 40 : 8;
   return (
     <>
       <p className="sy-ovl">קומה <bdi>{3 - f}</bdi> · {FL_NAMES[f][1]}</p>
@@ -146,7 +158,7 @@ export function FloorInfo({ fl, id, onClear, actions }: { fl: Floors; id: string
       {!isBg(n) && <p className="sy-s"><bdi>{n.name}</bdi></p>}
       <dl className="sy-fs-kv">
         {isBg(n)
-          ? row("מה בפנים", <Bidi t={`${[...n.members].slice(0, 8).map((x) => { const y = fl.F[x]; return y && !isBg(y) ? title(y) : x; }).join(" · ")}${n.members.size > 8 ? ` ועוד ${n.members.size - 8}` : ""}`} />)
+          ? row("מה בפנים", <Bidi t={`${[...n.members].slice(0, cap).map((x) => { const y = fl.F[x]; return y && !isBg(y) ? (isPort(y) ? `פורט ${x.slice(10)}` : title(y)) : x; }).join(" · ")}${n.members.size > cap ? ` ועוד ${n.members.size - cap}` : ""}`} />)
           : row("מצב", <St k={nodeStatus(n).k} />)}
         {row("נשען על", dn.length ? list(dn) : f === 2 ? "זה הבסיס" : <span className="sy-unk">אין במפה קשר רשום</span>)}
         {row("נשענים עליו", upn.length ? list(upn) : f === 0 ? "אנשים" : <span className="sy-unk">אין במפה קשר רשום</span>)}

@@ -25,11 +25,13 @@ export function SystemHead({ gen, nq }: { gen: string | null | undefined; nq?: n
           <span className="sy-d">כל מה שיש במערכת</span>
           <span className="sy-m">כל מה שיש</span>
         </NavLink>
-        <NavLink to="/m/system/decide">
-          <span className="sy-d">מחכה להחלטה שלך</span>
-          <span className="sy-m">מחכה לך</span>
-          {!!nq && <span className="mg-badge" aria-label={`${nq} פתוחות`}><bdi>{nq}</bdi></span>}
-        </NavLink>
+        {nq !== undefined && (
+          <NavLink to="/m/system/decide">
+            <span className="sy-d">מחכה להחלטה שלך</span>
+            <span className="sy-m">מחכה לך</span>
+            {nq > 0 && <span className="mg-badge" aria-label={`${nq} פתוחות`}><bdi>{nq}</bdi></span>}
+          </NavLink>
+        )}
       </nav>
     </>
   );

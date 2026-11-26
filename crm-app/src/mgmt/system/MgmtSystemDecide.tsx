@@ -24,7 +24,7 @@ export function MgmtSystemDecide() {
           <MgNotice error={map.error} onRetry={map.reload} />
         </section>
       )}
-      {m && !all && <p className="mg-panel sy-collect">השאלות שמחכות לך עוד לא מתפרסמות במפה. הן יופיעו כאן בסריקה הבאה שתכלול אותן.</p>}
+      {m && !all && <p className="mg-panel sy-collect">אין החלטות פתוחות.</p>}
       {m && all && (
         <>
           <p className="sy-s sy-lede">

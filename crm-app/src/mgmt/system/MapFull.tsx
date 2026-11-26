@@ -17,19 +17,22 @@ const FMAX = 3, FDRILL = 1.8, FFLOOR = 0.85;
 type Sel = { k: "z" | "g" | "n" | "f"; id: string } | null;
 type Edge = { from: string; to: string; confidence?: string; purpose_he?: string };
 
-// the map's buttons act on the finger's lift: a tap right after a quick drag can lose its click on a phone; then swallow the ghost click
+// the map's buttons act on the finger's lift: a tap right after a quick drag can lose its click on a phone; then swallow the
+// ghost click, but only briefly and only where the finger lifted, so a quick re-entry tap elsewhere (or later) still works
+const GHOST_MS = 300, GHOST_PX = 30;
 function act(run: () => void) {
   let t = 0;
   return {
     onPointerUp: (e: React.PointerEvent) => {
       if (e.pointerType === "mouse") return;
       t = Date.now();
-      const stop = (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); };
+      const x0 = e.clientX, y0 = e.clientY;
+      const stop = (ev: MouseEvent) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < GHOST_PX) { ev.preventDefault(); ev.stopPropagation(); } };
       document.addEventListener("click", stop, true);
-      setTimeout(() => document.removeEventListener("click", stop, true), 700);
+      setTimeout(() => document.removeEventListener("click", stop, true), GHOST_MS);
       run();
     },
-    onClick: () => { if (Date.now() - t > 700) run(); },
+    onClick: () => { if (Date.now() - t > GHOST_MS) run(); },
   };
 }
 
@@ -250,7 +253,7 @@ export function FullMap({ m, x, edges, p: p0 }: { m: Model; x: Services; edges: 
           <div className="sy-chips sy-fs-sub" role="group" aria-label="מסלולים">
             {OUTCOMES.map((y) => <Link key={y.id} className="sy-chip" replace to={fsHref(p, { o: p.o === y.id ? null : y.id })} aria-current={p.o === y.id ? "true" : undefined}><i className="sy-sw" style={{ background: CHAIN_HUE[y.id] }} />{y.t}</Link>)}
           </div>
-          <p className="sy-fs-note"><span>נגיעה במסלול מראה את השלבים.</span> <span><i className="sy-ln sy-dash" />לומדים בנקודה שלי תורמים</span></p>
+          <p className="sy-fs-note"><span>נגיעה במסלול מראה את השלבים.</span> <span><i className="sy-ln sy-dash" />קו מקווקו: לומדים בנקודה שלי שגם תורמים</span></p>
         </>
       )}
       {ly === "whose" && (

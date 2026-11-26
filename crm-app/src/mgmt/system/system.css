@@ -150,9 +150,8 @@ a.sy-go::after { content: "‹"; position: absolute; inset-inline-end: 0; inset-
 .sy-al { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
 .sy-pills { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .sy-pill { position: absolute; block-size: 26px; padding: 0 9px; border-radius: 13px; display: grid; place-items: center; white-space: nowrap; font-size: 13px; font-weight: 700; background: #fff; color: var(--blue-deep); border: 2px solid var(--blue-deep); transform: translate(50%, -50%); }
-.sy-pill-st { display: flex; flex-direction: column; align-items: center; block-size: auto; padding: 3px 8px; border-radius: 10px; line-height: 1.15; }
-.sy-pill-st b { font-size: 15px; }
-.sy-zgrid { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px 56px; }
+.sy-pill-st { block-size: 24px; padding: 0 5px; font-size: 13px; }
+.sy-zgrid { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px 72px; }
 .sy-dgrid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 12px; }
 .sy-zt { position: relative; display: flex; flex-direction: column; gap: 4px; min-inline-size: 0; padding: 12px 14px; border-radius: 14px; text-decoration: none; color: var(--ink); box-shadow: var(--shadow-card); background: color-mix(in srgb, var(--hue) 18%, #fff); border: 1px solid color-mix(in srgb, var(--hue) 75%, #fff); border-block-start: 6px solid var(--hue); }
 .sy-zt:hover { border-color: var(--hue); }
@@ -204,7 +203,7 @@ a.sy-go::after { content: "‹"; position: absolute; inset-inline-end: 0; inset-
 .sy-ovbtn { margin-block-start: 14px; inline-size: 100%; justify-content: center; }
 @media (max-width: 55.99rem) {
   .sy-ac { padding: 10px; }
-  .sy-zgrid { gap: 40px 44px; }
+  .sy-zgrid { gap: 40px 64px; }
   .sy-zt { padding: 10px 8px; }
   .sy-ztt { font-size: 16px; }
   .sy-zgrid .sy-doms { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
@@ -223,7 +222,7 @@ body.sy-fs-on { overflow: hidden; }
 .sy-fs-ly a { min-block-size: 44px; }
 .sy-fs-sub { margin: 6px 12px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .sy-fs-sub .sy-chip { min-block-size: 44px; justify-content: flex-start; }
-.sy-fs-note { margin: 6px 12px 0; font-size: 14px; color: var(--ink); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.sy-fs-note { margin: 6px 0 0; padding-inline: 16px; font-size: 14px; color: var(--ink); display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .sy-fs-note span { white-space: nowrap; }
 .sy-fs-note .sy-ln { display: inline-block; inline-size: 22px; border-block-start: 3px dashed #6b7a86; vertical-align: middle; margin-inline-end: 6px; }
 .sy-fs-crumbs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 12px 0; }
@@ -258,7 +257,7 @@ body.sy-fs-on { overflow: hidden; }
 .sy-fs-kv div { display: grid; grid-template-columns: 96px 1fr; gap: 8px; } .sy-fs-kv dt { color: var(--ink-soft); font-size: 13px; } .sy-fs-kv dd { margin: 0; }
 .sy-fs-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 8px; } .sy-fs-acts .mg-btn { flex: 1; justify-content: center; min-block-size: 48px; }
 @media (min-width: 56rem) { .sy-fs-ly { align-self: center; min-inline-size: 440px; } .sy-fs-sheet { inset-inline: auto 16px; inline-size: 380px; inset-block-end: 16px; border-radius: 18px; } }
-.sy-fworld .sy-zgrid { column-gap: 56px; }
+.sy-fworld .sy-zgrid { column-gap: 68px; }
 /* S9: "קומות" — three flat floors, pillars from the map's edges, a tap lights the whole column */
 .sy-fl3 { position: relative; display: flex; flex-direction: column; gap: 40px; padding: 4px 0 8px; }
 .sy-fpil { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: visible; }
@@ -315,3 +314,7 @@ body.sy-fs-on { overflow: hidden; }
 .sy-qx > div { display: grid; gap: 4px; padding-block-end: 4px; font-size: 13px; color: var(--ink-soft); }
 .sy-qx ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .sy-qx ul a { display: inline-flex; align-items: center; min-block-size: 32px; }
+
+/* follow-up after side-by-side round 2: the phone map starts higher (search lives in the list), floors intro line */
+@media (max-width: 55.99rem) { .sy-asearch { display: none; } }
+.sy-flintro { margin: 0 0 8px; }

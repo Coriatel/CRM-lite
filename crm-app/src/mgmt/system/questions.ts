@@ -38,3 +38,6 @@ export function qConsequence(q: OwnerQ, m: Model): string {
   const how = ({ "off on purpose": fem ? "כבויות" : "כבויים", stale: fem ? "מופעלות אבל כמעט לא רצו" : "מופעלים אבל כמעט לא רצו", unknown: fem ? "פועלות בלי בדיקה שמודדת אותן" : "פועלים בלי בדיקה שמודדת אותם", works: fem ? "פועלות" : "פועלים" } as Record<string, string>)[same ? st0 || "" : ""] || "במצבים שונים";
   return `${left.length} ${word} ${how}. ${depTxt}`;
 }
+
+/** For the sub-tab: undefined hides it (the map carries no questions yet), a number is its badge. */
+export const qCount = (map: SystemMap | null | undefined) => (allQs(map) ? openQs(map).length : undefined);
