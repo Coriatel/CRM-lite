@@ -4,6 +4,7 @@ import { useLoad } from "../useLoad";
 import { MgLoading, MgNotice } from "../MgState";
 import { SystemHead } from "./SystemHead";
 import { getSystem } from "./systemApi";
+import { PRIVATE_BY_OWNER } from "./model";
 import { mountAtlas } from "./atlas/engine.js";
 import "./system.css";
 import "./atlas/atlas.css";
@@ -17,7 +18,7 @@ export function MgmtSystemAtlas() {
 
   useEffect(() => {
     if (!map.data || !host.current) return;
-    const a = mountAtlas(host.current, map.data, { onExit: () => nav("/m/system") });
+    const a = mountAtlas(host.current, map.data, { onExit: () => nav("/m/system"), privateIds: PRIVATE_BY_OWNER });
     return () => a.destroy();
   }, [map.data, nav]);
 

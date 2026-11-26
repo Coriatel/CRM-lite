@@ -13,6 +13,9 @@ D.findings = D.findings || [];
 const G = {}; D.groups.forEach((g) => (G[g.id] = { ...g, nodes: [] }));
 D.nodes = D.nodes.filter((n) => G[n.group]);
 const N = {}; D.nodes.forEach((n) => (N[n.id] = n));
+// the owner decided these are private on purpose (id -> date); a failing check on them is not a fault (as model.ts)
+const PRIV = opts.privateIds || {};
+D.nodes.forEach((n) => { if (PRIV[n.id] && n.state === "failing") { n.state = "private on purpose"; n._priv = PRIV[n.id]; } });
 // new since the last scan: per-node flag, or the producer's list of new ids (both optional)
 const NEWIDS = new Set(D._meta?.new_ids || []), GONE = D._meta?.gone_ids || [];
 const isNew = (n) => n.is_new === true || NEWIDS.has(n.id);
@@ -25,8 +28,8 @@ D.nodes.forEach((n) => G[n.group] && G[n.group].nodes.push(n));
 const E = []; { const seen = new Set(); D.edges.forEach((e) => { const k = e.from + "|" + e.to + "|" + e.rel; if (!seen.has(k) && N[e.from] && N[e.to]) { seen.add(k); E.push(e); } }); }
 const OUT = {}, IN = {};
 E.forEach((e) => { (OUT[e.from] ||= []).push(e); (IN[e.to] ||= []).push(e); });
-const ST = { works: ["עובד", "ok"], failing: ["נכשל", "bad"], "not running": ["לא רץ", "bad"], stale: ["כמעט לא רץ", "warn"], unknown: ["לא נבדק", "unk"], "off on purpose": ["כבוי בכוונה", "off"] };
-const SRANK = { failing: 0, "not running": 0, stale: 1, unknown: 2, works: 3, "off on purpose": 4 };
+const ST = { works: ["עובד", "ok"], failing: ["נכשל", "bad"], "not running": ["לא רץ", "bad"], stale: ["כמעט לא רץ", "warn"], unknown: ["לא נבדק", "unk"], "private on purpose": ["פרטי בכוונה", "off"], "off on purpose": ["כבוי בכוונה", "off"] };
+const SRANK = { failing: 0, "not running": 0, stale: 1, unknown: 2, works: 3, "private on purpose": 4, "off on purpose": 4 };
 const LIGHT = { red: ["תקלה", "bad"], yellow: ["דורש תשומת לב", "warn"], green: ["תקין", "ok"] };
 const KIND = { site: "אתר", container: "קונטיינר", timer: "משימה מתוזמנת", "user-timer": "משימה מתוזמנת", service: "שירות רקע", workflow: "תהליך אוטומטי", script: "סקריפט", external: "שירות חיצוני", disk: "דיסק", machine: "מחשב", gpu: "כרטיס מסך", "network-entry": "כניסת רשת", "person-env": "סביבה אישית", "env-service": "שירות בסביבה אישית" };
 const VERB = { calls: ["משתמש ב", "משתמשים בו"], reports_to_owner: ["מדווח לבעלים דרך", "מעביר דיווח של"], exposed_via: ["נגיש דרך", "מעביר תנועה אל"], depends_on: ["תלוי ב", "תלוי בו"], runs_on: ["רץ על", "מריץ את"], feeds: ["מזין את", "מוזן מ"] };
@@ -559,17 +562,31 @@ el("scope").addEventListener("click", (e) => { const b = e.target.closest("[data
 
 // ---------- home: status totals, urgent findings first, then the 22 groups (exceptions first) ----------
 const KSEV = { broken: "bad", "chronic-red": "bad", watch: "warn", stale: "stale" };
-const FIND = D.findings.map((f, i) => { const h = [KSEV[f.kind] || "meta", f.what_he || f.text, f.act_he || "לבדוק את הממצא", f.group || ""];
-  return { i, kind: f.kind, proof: f.text, sev: h[0], what: h[1], act: h[2], g: G[h[3]] ? h[3] : "" }; });
+const KACT = { bad: "לבדוק למה נכשל ולתקן", warn: "לבדוק ולטפל", stale: "לבדוק אם עדיין נחוץ; אם לא, לכבות בכוונה" };
+// a finding about a component reads like the rest of the atlas: its Hebrew title, state and group, from the map itself
+const FIND = D.findings.map((f, i) => {
+  const n = f.node && N[f.node], sev0 = KSEV[f.kind] || "meta", base = { i, kind: f.kind, proof: f.text };
+  if (n) {
+    // the owner's decision or a component off on purpose is never urgent, whatever the finding's kind says
+    const quiet = PRIV[n.id] || n.state === "off on purpose", sev = quiet ? "priv" : sev0;
+    const act = f.act_he || (PRIV[n.id] ? `פרטי בכוונה לפי החלטה מ־${PRIV[n.id]}` : quiet ? "כבוי בכוונה; לא תקלה" : KACT[sev] || "לבדוק את הממצא");
+    return { ...base, sev, n, what: label(n, 60), act, g: n.group };
+  }
+  if (f.what_he) return { ...base, sev: sev0, what: f.what_he, act: f.act_he || "לבדוק את הממצא", g: G[f.group] ? f.group : "" };
+  return { ...base, sev: sev0, raw: true, what: f.text, act: "", g: "" };
+});
 const why = (gid) => FIND.filter((f) => f.g === gid && (f.sev === "bad" || f.sev === "warn"));
 function home() {
   const c = (s) => D.nodes.filter((n) => n.state === s).length;
   const gl = (l) => D.groups.filter((g) => g.light === l).length;
-  const urgent = FIND.filter((f) => f.sev === "bad" || f.sev === "warn"), stale = FIND.filter((f) => f.sev === "stale"), meta = FIND.filter((f) => f.sev === "meta");
-  const fRow = (f) => `<li><button class="row" aria-expanded="false" data-x="f${f.i}"><span class="a" dir="auto">${esc(f.what)}</span><span class="tag ${f.sev === "bad" ? "st-bad" : "st-warn"}">${f.sev === "bad" ? "דחוף" : "לשים לב"}</span><span class="b">${f.g ? esc(G[f.g].name_he) + " · " : ""}מה לעשות: ${esc(f.act)}</span></button>
-    <div class="det" id="f${f.i}" hidden><dl><dt>מה מושפע</dt><dd>${f.g ? esc(G[f.g].name_he) : "המערכת כולה"}</dd><dt>מה מוכיח</dt><dd><div class="proof">${esc(f.proof)}</div></dd><dt>נבדק</dt><dd class="num">${fmtTime(D.generated_at)}</dd></dl>${f.g ? `<div class="btns"><button class="btn pri" data-open="${f.g}">לפתוח את התחום באטלס</button></div>` : ""}</div></li>`;
+  const ok = FIND.filter((f) => !f.raw), raw = FIND.filter((f) => f.raw), priv = FIND.filter((f) => f.sev === "priv");
+  const urgent = ok.filter((f) => f.sev === "bad" || f.sev === "warn"), stale = ok.filter((f) => f.sev === "stale"), meta = ok.filter((f) => f.sev === "meta");
+  const SEVW = { bad: ["דחוף", "st-bad"], warn: ["לשים לב", "st-warn"], stale: ["לא רץ כמצופה", "st-warn"], meta: ["ידיעה", "st-unk"] };
+  const nLine = (f) => (f.n ? `${stHtml(stOf(f.n))} ${f.n.failing_since ? `<span class="num">מאז ${fmtTime(f.n.failing_since)}</span> · ` : ""}` : "");
+  const fRow = (f) => `<li><button class="row" aria-expanded="false" data-x="f${f.i}"><span class="a">${esc(f.what)}${f.n ? newTag(f.n) : ""}</span><span class="tag ${f.sev === "bad" ? "st-bad" : "st-warn"}">${f.sev === "bad" ? "דחוף" : "לשים לב"}</span><span class="b">${nLine(f)}${f.g ? esc(G[f.g].name_he) + " · " : ""}מה לעשות: ${esc(f.act)}</span></button>
+    <div class="det" id="f${f.i}" hidden><dl><dt>מה מושפע</dt><dd>${f.g ? esc(G[f.g].name_he) : "המערכת כולה"}</dd><dt>מה מוכיח</dt><dd><div class="proof">${esc(f.proof)}</div></dd><dt>נבדק</dt><dd class="num">${fmtTime(f.n ? f.n.last_checked || D.generated_at : D.generated_at)}</dd></dl>${f.n ? `<div class="btns"><button class="btn pri" data-opennode="${esc(f.n.id)}">לפתוח את הרכיב במפה</button><button class="btn" data-open="${f.g}">התחום שלו</button></div>` : f.g ? `<div class="btns"><button class="btn pri" data-open="${f.g}">לפתוח את התחום באטלס</button></div>` : ""}</div></li>`;
   const listRow = (id, title, tag, arr) => `<li><button class="row" aria-expanded="false" data-x="${id}"><span class="a">${title}</span>${tag}<span class="b">${esc(arr[0].act)}</span></button>
-    <div class="det" id="${id}" hidden><ul class="mini">${arr.map((f) => `<li><span>${esc(f.what)}</span></li>`).join("")}</ul><div class="btns"><button class="btn pri" data-lens-table="auto">לטבלת האוטומציות</button></div></div></li>`;
+    <div class="det" id="${id}" hidden><ul class="mini">${arr.map((f) => `<li>${f.n ? stHtml(stOf(f.n)) : ""}<span>${esc(f.what)}${f.g && f.n ? ` <span class="nm">· ${esc(G[f.g].name_he)}</span>` : ""}</span></li>`).join("")}</ul><div class="btns"><button class="btn pri" data-lens-table="auto">לטבלת האוטומציות</button></div></div></li>`;
   const gRow = (g) => {
     const p = probs(g), u = g.nodes.filter((n) => n.state === "unknown").length;
     return `<li><button class="row" aria-expanded="false" data-x="g-${g.id}"><span class="a">${esc(g.name_he)}</span>${stHtml(gWord(g))}<span class="b num">${g.nodes.length} רכיבים · ${p.length} בעיות · ${u} לא נבדקו</span></button>
@@ -592,12 +609,17 @@ function home() {
       ${stale.length ? listRow("fstale", `${stale.length} תהליכים לא רצו כמצופה`, `<span class="tag st-warn">לשים לב</span>`, stale) : ""}</ul>
     <h2 class="sec">${D.groups.length} תחומים <span class="n">החריגים קודם</span></h2>
     <ul class="panel rows">${GROUPS.map(gRow).join("")}</ul>
-    <h2 class="sec">על הסריקה עצמה <span class="n num">${meta.length}</span></h2>
-    <ul class="panel rows">${meta.map((f) => `<li><button class="row" aria-expanded="false" data-x="f${f.i}"><span class="a" dir="auto">${esc(f.what)}</span><span class="tag st-unk">ידיעה</span><span class="b">${esc(f.act)}</span></button><div class="det" id="f${f.i}" hidden><div class="proof">${esc(f.proof)}</div></div></li>`).join("")}</ul>`;
+    <h2 class="sec">על הסריקה עצמה <span class="n num">${meta.length + priv.length + raw.length}</span></h2>
+    <ul class="panel rows">${priv.length ? `<li><button class="row" aria-expanded="false" data-x="fpriv"><span class="a">${priv.length} פרטיים או כבויים בכוונה, לא תקלה</span><span class="tag st-unk">החלטה</span><span class="b">${esc(priv[0].act)}</span></button>
+      <div class="det" id="fpriv" hidden><ul class="mini">${priv.map((f) => `<li>${stHtml(stOf(f.n))}<span>${esc(f.what)}</span></li>`).join("")}</ul></div></li>` : ""}
+      ${raw.length ? `<li><button class="row" aria-expanded="false" data-x="fraw"><span class="a">${raw.length} ממצאים בנוסח הסריקה</span><span class="tag st-unk">לא מתורגם</span><span class="b">ממצאים בלי רכיב במפה; הטקסט כפי שהסורק כתב אותו</span></button>
+      <div class="det" id="fraw" hidden><ul class="mini">${raw.map((f) => `<li><span class="tag ${(SEVW[f.sev] || SEVW.meta)[1]}">${(SEVW[f.sev] || SEVW.meta)[0]}</span><span class="proof" dir="auto">${esc(f.proof)}</span></li>`).join("")}</ul></div></li>` : ""}
+      ${meta.map((f) => `<li><button class="row" aria-expanded="false" data-x="f${f.i}"><span class="a" dir="auto">${esc(f.what)}</span><span class="tag st-unk">ידיעה</span><span class="b">${esc(f.act)}</span></button><div class="det" id="f${f.i}" hidden><div class="proof">${esc(f.proof)}</div></div></li>`).join("")}</ul>`;
 }
 el("v0").addEventListener("click", (e) => {
   const o = e.target.closest("[data-open]");
   if (o) { go({ V: o.dataset.in || "C", sel: { t: "g", id: o.dataset.open }, scope: "item" }); return; }
+  const on = e.target.closest("[data-opennode]"); if (on) { go({ V: lastMap, sel: { t: "n", id: on.dataset.opennode }, scope: "item" }); return; }
   const lt = e.target.closest("[data-lens-table]"); if (lt) { go({ V: "T", lens: lt.dataset.lensTable, tgroup: "" }); return; }
   const r = e.target.closest("[data-x]"); if (!r) return;
   const d = el(r.dataset.x), open = r.getAttribute("aria-expanded") === "true";
@@ -638,7 +660,7 @@ function renderTable(report) {
     <table class="tb"><colgroup><col><col class="c-st"><col class="c-t"><col class="${sites ? "c-g" : "c-t"}"></colgroup>
     <thead><tr>${th("name", sites ? "שם וכתובת" : "שם")}${th("st", "מצב")}${th("chk", "נבדק")}${sites ? th("grp", "תחום") : th("act", "פעיל לאחרונה")}</tr></thead>
     <tbody>${rows.slice(0, TB.limit).map((r) => `<tr data-row="${esc(r.cap ? "cap:" + r.cap : r.id)}" class="${(r.cap && S.sel?.t === "c" && S.sel.id === r.cap) || (!r.cap && selId === r.id) ? "sel" : ""}">
-      <td><span class="nm">${esc(r.name)}${r.n ? newTag(r.n) : ""}</span>${sites && r.url ? `<a class="url" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(siteHost(r.url)).replace(/\./g, ".<wbr>")}</a>` : ""}<span class="sub">${esc(r.sub)}${r.tech ? ` · <bdi class="ltr">${esc(r.tech)}</bdi>` : ""}</span>${r.ev ? `<span class="ev">${esc(r.ev)}</span>` : ""}${!r.cap ? `<span class="tagrow"><button class="tag st-unk" data-links="${esc(r.id)}">בקשרים</button>${SAMPLE[r.id] ? ` <button class="tag st-warn" data-steps="${esc(r.id)}">שלבים · דוגמה</button>` : ""}</span>` : ""}${r.cap ? `<span class="tagrow"><button class="tag st-unk" data-steps="cap:${r.cap}">מההתחלה עד הסוף</button></span>` : ""}</td>
+      <td><span class="nm">${esc(r.name)}${r.n ? newTag(r.n) : ""}</span>${sites && r.url ? `<a class="url" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(siteHost(r.url)).replace(/\./g, ".<wbr>")}</a>` : ""}<span class="sub">${esc(r.sub)}${r.tech ? ` · <bdi class="ltr nw">${esc(r.tech)}</bdi>` : ""}</span>${r.ev ? `<span class="ev">${esc(r.ev)}</span>` : ""}${!r.cap ? `<span class="tagrow"><button class="tag st-unk" data-links="${esc(r.id)}">בקשרים</button>${SAMPLE[r.id] ? ` <button class="tag st-warn" data-steps="${esc(r.id)}">שלבים · דוגמה</button>` : ""}</span>` : ""}${r.cap ? `<span class="tagrow"><button class="tag st-unk" data-steps="cap:${r.cap}">מההתחלה עד הסוף</button></span>` : ""}</td>
       <td>${stHtml(r.st)}</td>${tcell(r.chk)}${sites ? `<td class="g">${esc(r.grp)}</td>` : tcell(r.act)}</tr>`).join("") || `<tr><td colspan="4">לא נמצאו שורות</td></tr>`}</tbody></table>
     ${rows.length > TB.limit ? `<div class="more"><button class="btn" id="tmore">עוד ${Math.min(80, rows.length - TB.limit)}</button></div>` : ""}</div>`;
 }

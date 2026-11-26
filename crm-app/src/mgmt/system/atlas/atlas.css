@@ -15,6 +15,8 @@
 .atl button { font: inherit; color: inherit; }
 .atl .num, .atl .tb .t { font-variant-numeric: tabular-nums; }
 .atl .ltr { direction: ltr; unicode-bidi: isolate; }
+.atl .nw { white-space: nowrap; }
+.atl .mini .proof { flex: 1 1 auto; }
 .atl svg.ic { inline-size: 18px; block-size: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; flex: none; }
 .atl header { background: var(--dark); color: #f4fcfc; padding: 8px 12px 10px; flex: none; }
 .atl .ttl { display: flex; align-items: center; gap: 10px; }

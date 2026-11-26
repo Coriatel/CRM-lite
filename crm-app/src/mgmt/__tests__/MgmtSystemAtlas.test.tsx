@@ -32,11 +32,17 @@ function map(extra: { isNew?: boolean } = {}) {
       { id: "site:give.example.org", kind: "site", name: "give.example.org", group: "crm", state: "works", purpose_he: "עמוד התרומות",
         address: { url: "https://give.example.org/" }, last_checked: "2026-11-26T09:41:34Z", ...(extra.isNew ? { is_new: true } : {}) },
       { id: "n8n:wf-1", kind: "workflow", name: "Donation intake", group: "crm", state: "failing", purpose_he: "קליטת תרומה", last_checked: "2026-11-26T09:41:34Z" },
-      { id: "container:db", kind: "container", name: "db", group: "infra", state: "works", purpose_he: "מסד הנתונים" },
+      { id: "container:db", kind: "container", name: "db", group: "infra", state: "off on purpose", purpose_he: "מסד הנתונים" },
       { id: "orphan", kind: "script", name: "x", group: "no-such-group", state: "works" },
+      { id: "site:heshbon.merkazneshama.co.il", kind: "site", name: "heshbon.merkazneshama.co.il", group: "crm", state: "failing", purpose_he: "מערכת הנהלת החשבונות" },
     ],
     edges: [{ from: "n8n:wf-1", to: "container:db", rel: "depends_on", state: "works", confidence: "high" }],
-    findings: [{ kind: "broken", text: "something new the scan found" }],
+    findings: [
+      { kind: "broken", text: "something new the scan found" },
+      { kind: "broken", node: "n8n:wf-1", text: "workflow Donation intake failing" },
+      { kind: "broken", node: "site:heshbon.merkazneshama.co.il", text: "site heshbon.merkazneshama.co.il not answering" },
+      { kind: "broken", node: "container:db", text: "db reported broken" },
+    ],
   };
 }
 
@@ -56,7 +62,18 @@ describe("System atlas (beside the existing System screens)", () => {
     api.map = map();
     page();
     await waitFor(() => expect(document.querySelector(".atl h1")?.textContent).toBe("אטלס המערכת"));
-    expect(screen.getAllByText("something new the scan found").length).toBeGreaterThan(0);
+    // a finding about a component reads as its Hebrew title, state and group; raw scan text only inside the fold
+    const rows = Array.from(document.querySelectorAll("#v0 .rows")[0].querySelectorAll(":scope > li > button .a")).map((x) => x.textContent);
+    expect(rows).toEqual(["קליטת תרומה"]);
+    expect(document.querySelector("#v0 .rows")!.textContent).toContain("נכשל");
+    expect(document.querySelector("#v0 .rows")!.textContent).toContain("CRM ותורמים");
+    expect(document.querySelector("#fraw")!.textContent).toContain("something new the scan found");
+    expect(document.querySelector("#fraw")!.textContent).not.toContain("Donation intake failing");
+    // the owner's decision: the accounting site is private on purpose, not urgent
+    expect(document.querySelector("#fpriv")!.textContent).toContain("פרטי בכוונה");
+    expect(document.querySelector("#v0 .rows")!.textContent).not.toContain("מערכת הנהלת החשבונות");
+    // a component off on purpose is not urgent either, whatever kind the finding carries
+    expect(document.querySelector("#fpriv")!.textContent).toContain("מסד הנתונים");
     const lenses = Array.from(document.querySelectorAll("#lensbar button")).map((b) => b.getAttribute("data-lens"));
     expect(lenses).toEqual(["all", "auto", "code", "infra", "access", "sites", "proc", "new"]);
   });
@@ -73,6 +90,7 @@ describe("System atlas (beside the existing System screens)", () => {
     expect(a.target).toBe("_blank");
     expect(a.rel).toContain("noopener");
     expect(document.querySelector(".tb td.g")?.textContent).toBe("CRM ותורמים");
+    expect(document.querySelectorAll(".tb tbody tr")).toHaveLength(2);
   });
 
   it("a row tap opens the item on the map with its sheet", async () => {

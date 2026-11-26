@@ -8,7 +8,7 @@ export interface Group { id: string; name_he: string; purpose_he?: string; node_
 export interface Model { nodes: SystemNode[]; N: Record<string, SystemNode>; groups: Group[]; inbound: Record<string, string[]>; gen: string | null; lanes: Record<string, string> }
 
 // Owner decision 12.11: the accounting addresses are private on purpose, not failing.
-const PRIVATE_BY_OWNER: Record<string, string> = { "site:heshbon.merkazneshama.co.il": "12.11", "site:heshbonot.merkazneshama.co.il": "12.11" };
+export const PRIVATE_BY_OWNER: Record<string, string> = { "site:heshbon.merkazneshama.co.il": "12.11", "site:heshbonot.merkazneshama.co.il": "12.11" };
 
 export function buildModel(map: SystemMap): Model {
   const nodes = map.nodes.map((n) => (PRIVATE_BY_OWNER[n.id] && n.state === "failing" ? { ...n, state: "private on purpose", _owner_note: `פרטית בכוונה (החלטת בעלים ${PRIVATE_BY_OWNER[n.id]})` } : n));
