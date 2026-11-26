@@ -100,9 +100,11 @@ export function MgmtSystemPage() {
                 const un = [s.unkS.length ? `${s.unkS.map((v) => v.t).join(", ")} (שירותים חיצוניים)` : "", s.unvL.length ? (s.unvL.length === 1 ? "קשר אחד שעוד לא אימתנו" : `${s.unvL.length} קשרים שעוד לא אימתנו`) : ""].filter(Boolean);
                 return (
                   <li key={o.id} className="sy-row">
-                    <span className="sy-t"><St k={s.k} /> {o.t}</span>
-                    <span className="sy-s"><Bidi t={s.k === "ok" ? o.ok : `${o.ok}; ${s.probs.map((n) => `${title(n)}: ${consequence(n, m) || "לא עובד"}`).join("; ")}`} /></span>
-                    {un.length > 0 && <span className="sy-u"><Bidi t={`לא נבדק: ${un.join(" · ")}`} /></span>}
+                    <Link className="sy-link sy-go" to={`/m/system/map?o=${o.id}`}>
+                      <span className="sy-t"><St k={s.k} /> {o.t}</span>
+                      <span className="sy-s"><Bidi t={s.k === "ok" ? o.ok : `${o.ok}; ${s.probs.map((n) => `${title(n)}: ${consequence(n, m) || "לא עובד"}`).join("; ")}`} /></span>
+                      {un.length > 0 && <span className="sy-u"><Bidi t={`לא נבדק: ${un.join(" · ")}`} /></span>}
+                    </Link>
                   </li>
                 );
               })}

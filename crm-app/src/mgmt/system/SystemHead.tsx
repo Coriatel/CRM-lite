@@ -20,6 +20,7 @@ export function SystemHead({ gen }: { gen: string | null | undefined }) {
       </div>
       <nav className="sy-tabs" aria-label="תצוגות המערכת">
         <NavLink to="/m/system" end>תמונת מצב</NavLink>
+        <NavLink to="/m/system/map">מפה</NavLink>
         <NavLink to="/m/system/all">
           <span className="sy-d">כל מה שיש במערכת</span>
           <span className="sy-m">כל מה שיש</span>

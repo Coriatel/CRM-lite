@@ -41,8 +41,8 @@ export const OUTCOMES: Outcome[] = [
   { id: "ai", t: "שאלה מקבלת תשובה", ok: "נשמה AI עונה על שאלות", key: ["nai"] },
   { id: "owner", t: "תקלה מגיעה אליך", ok: "התראות ודיווחים מגיעים אליך", key: ["rep"] },
 ];
-const SV = Object.fromEntries(SVC.map((s) => [s.id, s]));
-const OC = Object.fromEntries(OUTCOMES.map((o) => [o.id, o]));
+export const SV: Record<string, Svc> = Object.fromEntries(SVC.map((s) => [s.id, s]));
+export const OC: Record<string, Outcome> = Object.fromEntries(OUTCOMES.map((o) => [o.id, o]));
 
 export interface Services { m: Model; sets: Record<string, Set<string>>; links: Link[] }
 
@@ -57,7 +57,7 @@ export function buildServices(m: Model, edges: { from: string; to: string }[]): 
   return { m, sets, links };
 }
 
-function svcStatus(x: Services, s: Svc): { k: "ok" | "care" | "down" | "unk"; p: SystemNode[] } {
+export function svcStatus(x: Services, s: Svc): { k: "ok" | "care" | "down" | "unk"; p: SystemNode[] } {
   const g = s.g && x.m.groups.find((gr) => gr.id === s.g);
   if (g) return groupStatus(g, x.m);
   const ns = [...x.sets[s.id]].map((i) => x.m.N[i]);

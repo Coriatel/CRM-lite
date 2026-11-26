@@ -24,6 +24,7 @@ import { MgmtShell } from "../MgmtShell";
 import { MgmtSystemPage } from "../system/MgmtSystemPage";
 import { MgmtSystemAll } from "../system/MgmtSystemAll";
 import { MgmtSystemItem } from "../system/MgmtSystemItem";
+import { MgmtSystemMap } from "../system/MgmtSystemMap";
 import { itemHref } from "../system/SystemHead";
 import { buildModel, groupStatus, nodeStatus, title, W } from "../system/model";
 
@@ -245,6 +246,45 @@ describe("System item sheet", () => {
     render(<MemoryRouter><MgmtSystemPage /></MemoryRouter>);
     const broken = await screen.findByRole("list", { name: "מה מופרע" });
     expect(broken.querySelector("a")?.getAttribute("href")).toBe(itemHref(id));
+  });
+});
+
+describe("System map (list form)", () => {
+  const data = () => ({
+    _meta: { generated_at: new Date().toISOString() },
+    nodes: [
+      { id: "site:give.merkazneshama.co.il", kind: "site", name: "give", state: "failing", title_he: "עמוד התרומה" },
+      { id: "ext:takbull", kind: "external", name: "takbull", state: "unknown", title_he: "תקבול" },
+    ],
+    edges: [{ from: "site:give.merkazneshama.co.il", to: "ext:takbull", rel: "uses" }],
+    groups: [],
+  });
+  const at = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/m/system/map" element={<MgmtSystemMap />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  it("starts from the four outcomes; a broken key service marks its outcome down", async () => {
+    api.map = data();
+    at("/m/system/map");
+    const list = await screen.findByRole("list", { name: "התוצאות" });
+    const rows = Array.from(list.querySelectorAll("li")).map((li) => li.textContent || "");
+    expect(rows).toHaveLength(4);
+    expect(rows.find((r) => r.includes("תרומה הופכת להכנסה"))).toContain(W.down);
+    expect(list.querySelector('a[href="/m/system/map?o=donation"]')).toBeTruthy();
+  });
+  it("an outcome shows its chain with verified and unverified links; a service shows what depends on it", async () => {
+    api.map = data();
+    at("/m/system/map?o=donation&s=give");
+    const chain = await screen.findByRole("list", { name: "השירותים של תרומה הופכת להכנסה" });
+    expect(chain.textContent).toContain("עמוד התרומה גובה דרך תקבול");
+    expect(chain.textContent).not.toMatch(/גובה דרך תקבול · עוד לא אימתנו/);
+    expect(chain.textContent).toMatch(/מודיע על תשלום אל.*עוד לא אימתנו/);
+    const focus = screen.getByRole("region", { name: "עמוד התרומה" });
+    expect(focus.textContent).toContain("עמוד התרומה: לא נפתח");
   });
 });
 
