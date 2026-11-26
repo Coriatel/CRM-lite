@@ -9,10 +9,11 @@ import { buildServices, downstream, OC, OUTCOMES, outcomeStatus, outcomesOf, SV,
 import { itemHref, SystemHead } from "./SystemHead";
 import { Bidi, St, Whose } from "./MgmtSystemPage";
 import { AccessView, SecView, type Permissions, type Security } from "./MapAccessSec";
+import { Atlas, LAYERS } from "./MapAtlas";
 import "./system.css";
 
-// The map tab, list form (works at every width): the four outcomes -> the chain of services under one -> one service.
-// The drawn atlas, layers and full screen come in later slices.
+// The map tab: the drawn atlas from above (default), and the list form (?det=1 or ?o= without a layer):
+// the four outcomes -> the chain of services under one -> one service. Full screen comes in a later slice.
 const SO: Record<StatusK, number> = { down: 0, care: 1, unk: 2, ok: 3, maint: 3, priv: 4, off: 5 };
 const pStat = (n: SystemNode, m: Model) => `${title(n)}: ${consequence(n, m) || "לא עובד"}`;
 const mapHref = (o?: string | null, s?: string | null) => `/m/system/map${o || s ? `?${[o && `o=${o}`, s && `s=${s}`].filter(Boolean).join("&")}` : ""}`;
@@ -162,6 +163,8 @@ export function MgmtSystemMap() {
   const sel = SV[sp.get("s") || ""] ? sp.get("s") : null;
   const oo = o || (sel ? SV[sel].o : null);
   const v = sp.get("v") === "access" ? "access" : sp.get("v") === "sec" ? "sec" : "svc";
+  const ly = LAYERS.some(([k]) => k === sp.get("ly")) ? sp.get("ly")! : null;
+  const atlas = !sp.get("det") && !sel && !(o && !ly);
 
   return (
     <>
@@ -174,12 +177,15 @@ export function MgmtSystemMap() {
       )}
       {m && x && <Segments v={v} />}
       {m && x && v !== "svc" && <Extra v={v} m={m} open={sp.get("f")} />}
-      {m && x && v === "svc" && (
+      {m && x && map.data && v === "svc" && atlas && (
+        <Atlas m={m} x={x} edges={map.data.edges} p={{ ly: ly || "struct", o, z: sp.get("z"), d: sp.get("d"), pw: sp.get("pw") }} />
+      )}
+      {m && x && v === "svc" && !atlas && (
         <div className={oo ? "sy-home" : undefined}>
           {oo ? (
             <>
               <div>
-                <Link className="sy-backlink" to={mapHref()}><span aria-hidden="true">→</span> כל התוצאות</Link>
+                <Link className="sy-backlink" to="/m/system/map?det=1"><span aria-hidden="true">→</span> כל התוצאות</Link>
                 <h2 className="sy-sec sy-first">{OC[oo].t} <St k={outcomeStatus(x, OC[oo]).k} /></h2>
                 <p className="sy-s">לחיצה על שירות מראה למה הוא מחובר ומה תלוי בו.</p>
                 <div className="mg-panel sy-chainbox"><Chain x={x} oid={oo} sel={sel} /></div>
@@ -188,6 +194,7 @@ export function MgmtSystemMap() {
             </>
           ) : (
             <>
+              <Link className="sy-backlink" to={mapHref()}><span aria-hidden="true">→</span> המפה מלמעלה</Link>
               <Outcomes x={x} m={m} />
               <Infra m={m} />
             </>

@@ -321,7 +321,7 @@ describe("System map (list form)", () => {
     );
   it("starts from the four outcomes; a broken key service marks its outcome down", async () => {
     api.map = data();
-    at("/m/system/map");
+    at("/m/system/map?det=1");
     const list = await screen.findByRole("list", { name: "התוצאות" });
     const rows = Array.from(list.querySelectorAll("li")).map((li) => li.textContent || "");
     expect(rows).toHaveLength(4);
@@ -337,6 +337,65 @@ describe("System map (list form)", () => {
     expect(chain.textContent).toMatch(/מודיע על תשלום אל.*עוד לא אימתנו/);
     const focus = screen.getByRole("region", { name: "עמוד התרומה" });
     expect(focus.textContent).toContain("עמוד התרומה: לא נפתח");
+  });
+});
+
+describe("System map: the drawn atlas (S7b)", () => {
+  const data = () => ({
+    _meta: { generated_at: new Date().toISOString() },
+    nodes: [
+      { id: "site:give.merkazneshama.co.il", kind: "site", name: "give", state: "failing", title_he: "עמוד התרומה", group: "crm", owner_label_he: "עדי" },
+      { id: "a1", kind: "workflow", name: "a1", state: "works", title_he: "תהליך שיעור", group: "nekuda", owner_label_he: "הרב" },
+      { id: "b1", kind: "timer", name: "b1", state: "unknown", title_he: "משימת גיבוי", group: "backups" },
+    ],
+    edges: [{ from: "a1", to: "site:give.merkazneshama.co.il", rel: "calls", confidence: "high", purpose_he: "לומדים תורמים" }],
+    groups: [
+      { id: "crm", name_he: "אנשי קשר", purpose_he: "רשימת אנשים", node_ids: ["site:give.merkazneshama.co.il"] },
+      { id: "nekuda", name_he: "נקודה שלי", purpose_he: "אתר הלמידה", node_ids: ["a1"] },
+      { id: "backups", name_he: "גיבויים", purpose_he: "עותקים", node_ids: ["b1"] },
+    ],
+  });
+  const at = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/m/system/map" element={<MgmtSystemMap />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  it("is the default: five areas from above, the four layers, and the list form one link away", async () => {
+    api.map = data();
+    at("/m/system/map");
+    const box = await screen.findByTestId("atlas");
+    expect(box.querySelectorAll("[data-z]")).toHaveLength(5);
+    expect(box.querySelectorAll("svg.sy-al > path")).toHaveLength(1);
+    const nav = screen.getByRole("navigation", { name: "שכבות המפה" });
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["מבנה", "מצב", "מסלולים", "של מי"]);
+    expect(box.querySelector('[data-z="reach"]')?.textContent).toContain("תקלה אחת");
+    expect(box.querySelector('[data-z="learn"]')?.textContent).toContain("נקודה שלי");
+    expect(document.querySelector('a[href="/m/system/map?det=1"]')).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "מבט על" }).textContent).toContain("עמוד התרומה");
+  });
+  it("an area opens its domains; the crumbs go back up", async () => {
+    api.map = data();
+    at("/m/system/map?z=reach");
+    const box = await screen.findByTestId("atlas");
+    const dom = Array.from(box.querySelectorAll("a")).find((a) => a.getAttribute("href") === "/m/system/map?z=reach&d=crm");
+    expect(dom?.textContent).toContain("אנשי קשר");
+    expect(screen.getByRole("navigation", { name: "איפה אני במפה" }).querySelector('a[href="/m/system/map"]')).toBeTruthy();
+  });
+  it("routes number the steps of one chain and grey the areas it does not pass; whose counts per person", async () => {
+    api.map = data();
+    const r = at("/m/system/map?ly=routes&o=donation");
+    const box = await screen.findByTestId("atlas");
+    expect(box.querySelector('[data-z="reach"] .sy-steps')?.textContent).toContain("עמוד התרומה");
+    expect(box.querySelector('[data-z="agents"]')?.className).toContain("sy-off");
+    expect(screen.getByRole("link", { name: /התרשים המפורט/ }).getAttribute("href")).toBe("/m/system/map?o=donation");
+    r.unmount();
+    at("/m/system/map?ly=whose&pw=%D7%A2%D7%93%D7%99");
+    const b2 = await screen.findByTestId("atlas");
+    expect(b2.querySelector('[data-z="reach"]')?.textContent).toMatch(/עדי\s*1/);
+    expect(b2.querySelector('[data-z="learn"]')?.className).toContain("sy-off");
   });
 });
 
