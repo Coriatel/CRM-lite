@@ -318,3 +318,4 @@ body.sy-fs-on { overflow: hidden; }
 /* follow-up after side-by-side round 2: the phone map starts higher (search lives in the list), floors intro line */
 @media (max-width: 55.99rem) { .sy-asearch { display: none; } }
 .sy-flintro { margin: 0 0 8px; }
+.sy-atlas-in { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 12px; }

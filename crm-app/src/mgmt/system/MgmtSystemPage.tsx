@@ -101,6 +101,10 @@ export function MgmtSystemPage() {
       {m && h && x && (
         <div className="sy-home">
           <div>
+            <p className="sy-atlas-in">
+              <Link className="mg-btn" to="/m/system/atlas">אטלס המערכת</Link>
+              <span className="sy-s">אותם נתונים במפות, בטבלאות ובתהליכים. המסכים הקיימים נשארים כמו שהם.</span>
+            </p>
             <h2 className="sy-sec sy-first">מה אפשר לעשות עכשיו</h2>
             <ul className="mg-panel sy-rows" aria-label="מה אפשר לעשות עכשיו">
               {OUTCOMES.map((o) => {
