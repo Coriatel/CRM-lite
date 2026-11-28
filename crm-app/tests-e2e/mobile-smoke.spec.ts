@@ -66,3 +66,24 @@ test.describe('mobile-smoke', () => {
     await assertNoErrorSentinel(page);
   });
 });
+
+// nihul serves the management area from the same bundle; it only answers on
+// /m and sends every other path there. Runs only when the workflow names the
+// host, so local runs against a dev server are unaffected.
+const NIHUL_URL = process.env.CRM_SMOKE_NIHUL_URL;
+
+test.describe('mobile-smoke nihul', () => {
+  test.skip(!NIHUL_URL, 'CRM_SMOKE_NIHUL_URL not set');
+
+  test('/m shows the management sign-in without error sentinel', async ({ page }) => {
+    const resp = await page.goto(`${NIHUL_URL}/m`);
+    expect(resp?.status(), `expected 200 from ${NIHUL_URL}/m`).toBe(200);
+    await expect(page.getByRole('heading', { name: 'מרחב הניהול' })).toBeVisible({ timeout: 10_000 });
+    await assertNoErrorSentinel(page);
+  });
+
+  test('any other path on nihul lands on /m', async ({ page }) => {
+    await page.goto(`${NIHUL_URL}/today`);
+    await expect(page).toHaveURL(/\/m$/, { timeout: 10_000 });
+  });
+});

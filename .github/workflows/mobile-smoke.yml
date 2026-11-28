@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 10
     env:
       CRM_SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://crmphone.merkazneshama.co.il' }}
+      CRM_SMOKE_NIHUL_URL: https://nihul.merkazneshama.co.il
     steps:
       - uses: actions/checkout@v4
 
